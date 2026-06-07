@@ -16,7 +16,14 @@ products/baby-moisturing-body-lotion-bottle-200ml-front.png
 
 ## 默认调用规则
 
-CSV 中主产品列仍然可以写基础产品路径：
+`产品名称.csv` 建议把 `file` 字段写成默认倾斜图路径。因为你的素材现在分在 `products/angle/` 和 `products/front/` 两个目录，推荐写法是：
+
+```csv
+file,age_en,age_cn,product_en,product_cn,category_en,category_cn,spec,standard_en,standard_cn
+products/angle/baby-moisturing-body-lotion-bottle-200ml-angle.png,baby,婴童,body lotion,身体乳,bottle,瓶装,200ml,baby-body lotion-bottle-200ml,婴童-身体乳-瓶装-200ml
+```
+
+批量生成用的主 CSV 中，主产品列也仍然可以写基础产品路径：
 
 ```csv
 img.product
@@ -33,6 +40,12 @@ products/baby-moisturing-body-lotion-bottle-200ml-angle.png
 
 ```text
 products/baby-moisturing-body-lotion-bottle-200ml.png
+```
+
+如果 `file` 写的是 `products/angle/...-angle.png`，插件在调用正面图时会自动切换到：
+
+```text
+products/front/...-front.png
 ```
 
 ## 有备注时调用正面图

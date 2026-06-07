@@ -2175,8 +2175,15 @@ function getProductImageViewFallbacks(filename) {
   const view = match[2].toLowerCase();
   const ext = match[3];
   const candidates = [normalized];
-  if (view === "angle") candidates.push(`${base}${ext}`);
-  if (view === "front") candidates.push(`${base}-F${ext}`);
+  if (view === "angle") {
+    candidates.push(`${base}${ext}`);
+    candidates.push(`${base.replace(/(^|\/)angle(\/)/i, "$1$2")}${ext}`);
+  }
+  if (view === "front") {
+    candidates.push(`${base}-F${ext}`);
+    candidates.push(`${base.replace(/(^|\/)front(\/)/i, "$1$2")}-F${ext}`);
+    candidates.push(`${base.replace(/(^|\/)front(\/)/i, "$1$2")}-front${ext}`);
+  }
   return Array.from(new Set(candidates));
 }
 
@@ -2328,7 +2335,9 @@ function withProductImageView(filename, view) {
   const match = raw.match(/^(.*?)(\.[^.]+)$/);
   if (!match) return raw;
 
-  const base = match[1].replace(/-(?:angle|angled|tilt|tilted|front|face|f)$/i, "");
+  const base = match[1]
+    .replace(/(^|[\\/])(?:angle|front)([\\/])/i, `$1${view}$2`)
+    .replace(/-(?:angle|angled|tilt|tilted|front|face|f)$/i, "");
   return `${base}-${view}${match[2]}`;
 }
 
