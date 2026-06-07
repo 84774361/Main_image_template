@@ -103,7 +103,8 @@ const TEMPLATE_CONFIGS = {
       paddingX: 30,
       paddingY: 10,
       minWidth: 220,
-      minHeight: 44
+      minHeight: 44,
+      maxTextWidth: 560
     },
     bottomTextMixedStyle: {
       chinese: {
@@ -1588,7 +1589,7 @@ async function prepareGiftLeftAmpouleLayers(doc, row, baseLayer, areaBox) {
   const requestedHeight = readNumber(row, "giftLeft.ampouleGroupHeight", null);
   let groupHeight = Number.isFinite(requestedHeight)
     ? requestedHeight
-    : rowHeight * readNumber(row, "giftLeft.ampouleHeightRatio", 0.92);
+    : rowHeight * readNumber(row, "giftLeft.ampouleHeightRatio", 0.95);
 
   const asset = await getAssetEntry(imagePath);
   const layers = [];
@@ -2376,6 +2377,7 @@ async function scaleTextLayerFontSize(layer, scale) {
 }
 
 async function applyBottomTextRules(layer, value) {
+  const originalBox = getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
   const mixedStyle = getCurrentTemplateConfig().bottomTextMixedStyle;
   if (mixedStyle) {
     await replaceTextLayerMixedStyle(layer, value, mixedStyle, "Bottom text");
@@ -2387,6 +2389,21 @@ async function applyBottomTextRules(layer, value) {
   if (Number.isFinite(explicitScale) && explicitScale > 0 && explicitScale !== 1) {
     await scaleTextLayerFontSize(layer, explicitScale);
     log(`  Bottom text scaled by CSV: scale=${explicitScale}.`);
+  }
+
+  let afterBox = getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
+  if (originalBox && afterBox) {
+    const maxWidth = readNumber(state.currentRow || {}, "bottomText.maxWidth", originalBox.width * 1.35);
+    if (Number.isFinite(maxWidth) && maxWidth > 0 && afterBox.width > maxWidth) {
+      await scaleTextLayerFontSize(layer, maxWidth / afterBox.width);
+      afterBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+      log(`  Bottom text constrained to maxWidth=${Math.round(maxWidth)}.`);
+    }
+  }
+
+  if (originalBox && afterBox) {
+    await layer.translate(originalBox.centerX - afterBox.centerX, originalBox.top - afterBox.top);
+    log("  Bottom text anchor restored.");
   }
 }
 
@@ -3125,6 +3142,10 @@ async function resizeSubtitleRectangle(doc, textLayer) {
     log("  Subtitle rectangle not found.");
     return;
   }
+  if (rectangleLayer.textItem) {
+    log("  Subtitle rectangle resize skipped: target layer is text.");
+    return;
+  }
 
   const textBox = getBoundsBox(textLayer.boundsNoEffects || textLayer.bounds);
   if (!textBox) return;
@@ -3199,7 +3220,17 @@ async function applyTitleAndProductNote(doc, row) {
       if (layer && layer !== fallbackNoteLayer) layer.visible = false;
     });
     fallbackNoteLayer.visible = true;
-    await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
+    const subtitleConfig = getCurrentTemplateConfig().subtitleRectangle;
+    const maxSubtitleWidth = fallbackNoteLayer.name === "txt.subtitle" && subtitleConfig
+      ? readNumber(row, "subtitle.maxTextWidth", Number(subtitleConfig.maxTextWidth) || null)
+      : null;
+    if (fallbackNoteLayer.name === "txt.subtitle" && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
+      await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
+      await wrapTitleToMeasuredWidth(fallbackNoteLayer, noteText, maxSubtitleWidth);
+      log(`  Subtitle wrapped to maxWidth=${Math.round(maxSubtitleWidth)}.`);
+    } else {
+      await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
+    }
     if (fallbackNoteLayer.name === "txt.subtitle") {
       await resizeSubtitleRectangle(doc, fallbackNoteLayer);
     }
@@ -3220,7 +3251,8 @@ function isGiftControlColumn(column) {
     /^product\.(heightMode|lotion500HeightRatio|lotion5HeightRatio|cream50HeightRatio|tube100HeightRatio|tube25HeightRatio|sameLotionHeightRatio|sameCream50HeightRatio|sameTubeHeightRatio|sameSample5HeightRatio|samePumpHeightRatio|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
-    /^subtitle\.rectanglePadding[XY]$/.test(column) ||
+    /^bottomText\.maxWidth$/.test(column) ||
+    /^subtitle\.(rectanglePadding[XY]|maxTextWidth)$/.test(column) ||
     /^productNote\.(gap|offsetY)$/.test(column) ||
     /^(note|remark|remarks|备注|产品视角)$/.test(column);
 }
