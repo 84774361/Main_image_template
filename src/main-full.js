@@ -43,7 +43,10 @@ const BASE_TEMPLATE_CONFIG = {
   },
   giftRightTemplateSwitch: null,
   personTemplateSwitch: null,
-  keepPersonOnTop: true
+  keepPersonOnTop: true,
+  productNameToSubtitle: false,
+  subtitleRectangle: null,
+  bottomTextMixedStyle: null
 };
 
 const TEMPLATE_CONFIGS = {
@@ -93,7 +96,27 @@ const TEMPLATE_CONFIGS = {
     },
     exportNameColumns: ["exportName", "PDD_SKU", "pddSku", "pdd_sku", "sku", "id", "goodsId"],
     ignoredDataColumns: ["template.profile", "templateProfile"],
-    keepPersonOnTop: false
+    keepPersonOnTop: false,
+    productNameToSubtitle: true,
+    subtitleRectangle: {
+      layerName: "txt.subtitle.rectangle",
+      paddingX: 30,
+      paddingY: 10,
+      minWidth: 220,
+      minHeight: 44
+    },
+    bottomTextMixedStyle: {
+      chinese: {
+        postScriptName: "FZLanTingHei_GBK",
+        fontName: "方正兰亭黑_GBK",
+        color: { red: 0, green: 0, blue: 0 }
+      },
+      latin: {
+        postScriptName: "LINESeedSansApp-Regular",
+        fontName: "LINE Seed Sans App Regular",
+        color: { red: 197, green: 39, blue: 20 }
+      }
+    }
   }
 };
 
@@ -1240,6 +1263,60 @@ function makePointValue(value) {
   return { _unit: "pointsUnit", _value: value };
 }
 
+function makeRgbColor(color) {
+  return {
+    _obj: "RGBColor",
+    red: Number(color && color.red) || 0,
+    grain: Number(color && (color.green !== undefined ? color.green : color.grain)) || 0,
+    blue: Number(color && color.blue) || 0
+  };
+}
+
+function isLatinDigitChar(char) {
+  return /^[A-Za-z0-9]$/.test(char);
+}
+
+function buildMixedTextStyleRanges(text, baseStyle, styleConfig) {
+  const chars = Array.from(toPhotoshopText(text));
+  const ranges = [];
+  let start = 0;
+  let current = null;
+
+  chars.forEach((char, index) => {
+    const kind = isLatinDigitChar(char) ? "latin" : "chinese";
+    if (current === null) {
+      current = kind;
+      start = index;
+      return;
+    }
+
+    if (kind !== current) {
+      ranges.push({ from: start, to: index, kind: current });
+      current = kind;
+      start = index;
+    }
+  });
+
+  if (current !== null) {
+    ranges.push({ from: start, to: chars.length, kind: current });
+  }
+
+  return ranges.map((range) => {
+    const config = styleConfig[range.kind] || {};
+    return {
+      _obj: "textStyleRange",
+      from: range.from,
+      to: range.to,
+      textStyle: {
+        ...baseStyle,
+        fontPostScriptName: config.postScriptName || baseStyle.fontPostScriptName,
+        fontName: config.fontName || baseStyle.fontName,
+        color: makeRgbColor(config.color || baseStyle.color)
+      }
+    };
+  });
+}
+
 function getTitleLineHeightRatio(row, hasScaledSecondLine) {
   const explicit = readNumber(row, "txt.titleLineHeightRatio", readNumber(row, "title.lineHeightRatio", null));
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
@@ -2093,6 +2170,22 @@ async function scaleLayerByFactor(layer, factor) {
   });
 }
 
+async function resizeLayerToBox(layer, targetBox) {
+  if (!layer || !targetBox) return;
+  const currentBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!currentBox || currentBox.width <= 0 || currentBox.height <= 0) return;
+
+  const scaleX = Math.max(targetBox.width / currentBox.width, 0.01);
+  const scaleY = Math.max(targetBox.height / currentBox.height, 0.01);
+  await layer.scale(scaleX * 100, scaleY * 100, photoshop.constants.AnchorPosition.MIDDLECENTER, {
+    interpolation: photoshop.constants.InterpolationMethod.AUTOMATIC
+  });
+
+  const scaledBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!scaledBox) return;
+  await layer.translate(targetBox.centerX - scaledBox.centerX, targetBox.centerY - scaledBox.centerY);
+}
+
 async function replaceTextLayer(layer, value) {
   if (!layer || value === undefined || value === null) return;
   if (!layer.textItem) {
@@ -2165,6 +2258,64 @@ async function replaceTextLayerPreserveFirstStyle(layer, value) {
   }
 }
 
+async function replaceTextLayerMixedStyle(layer, value, styleConfig, label) {
+  if (!layer || value === undefined || value === null) return;
+  if (!layer.textItem) {
+    throw new Error(`Layer "${layer.name}" is not a text layer`);
+  }
+
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+  const textValue = toPhotoshopText(value);
+
+  try {
+    const result = await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "get",
+          _target: [
+            { _property: "textKey" },
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+
+    const textKey = result && result[0] && result[0].textKey;
+    const baseRange = textKey && textKey.textStyleRange && textKey.textStyleRange[0];
+    const baseStyle = baseRange && baseRange.textStyle;
+    if (!textKey || !baseStyle) {
+      await replaceTextLayer(layer, value);
+      return;
+    }
+
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "set",
+          _target: [
+            { _ref: "textLayer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          to: {
+            _obj: "textLayer",
+            ...textKey,
+            textKey: textValue,
+            textStyleRange: buildMixedTextStyleRanges(textValue, baseStyle, styleConfig)
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: false, modalBehavior: "execute" }
+    );
+    log(`  ${label || layer.name} mixed text style applied.`);
+  } catch (error) {
+    log(`  Mixed text style skipped for ${layer.name}: ${formatError(error)}`);
+    await replaceTextLayerPreserveFirstStyle(layer, value);
+  }
+}
+
 async function scaleTextLayerFontSize(layer, scale) {
   if (!layer || !layer.textItem || !Number.isFinite(scale) || scale <= 0 || scale === 1) return;
 
@@ -2225,7 +2376,13 @@ async function scaleTextLayerFontSize(layer, scale) {
 }
 
 async function applyBottomTextRules(layer, value) {
-  await replaceTextLayerPreserveFirstStyle(layer, value);
+  const mixedStyle = getCurrentTemplateConfig().bottomTextMixedStyle;
+  if (mixedStyle) {
+    await replaceTextLayerMixedStyle(layer, value, mixedStyle, "Bottom text");
+  } else {
+    await replaceTextLayerPreserveFirstStyle(layer, value);
+  }
+
   const explicitScale = readNumber(state.currentRow || {}, "txt.bottomTextScale", readNumber(state.currentRow || {}, "bottomText.scale", 1));
   if (Number.isFinite(explicitScale) && explicitScale > 0 && explicitScale !== 1) {
     await scaleTextLayerFontSize(layer, explicitScale);
@@ -2949,12 +3106,54 @@ function applyTitleTextRules(row) {
     expanded["txt.title"] = wrapTitle(expanded["txt.title"], wrapAt);
   }
 
+  if (getCurrentTemplateConfig().productNameToSubtitle) {
+    const hasExplicitNote = ["txt.productNote", "txt.note", "txt.description", "txt.subtitle"].some((key) => hasValue(expanded, key));
+    const productName = getProductNameField(expanded).value;
+    if (!hasExplicitNote && productName) {
+      expanded["txt.subtitle"] = productName;
+      log("  PDD subtitle sourced from product.name.cn.");
+    }
+  }
+
   const productNote = expanded["txt.productNote"] || expanded["txt.note"] || expanded["txt.description"] || expanded["txt.subtitle"];
   if (productNote !== undefined && productNote !== null) {
     expanded["txt.productNote"] = productNote;
   }
 
   return expanded;
+}
+
+async function resizeSubtitleRectangle(doc, textLayer) {
+  const config = getCurrentTemplateConfig().subtitleRectangle;
+  if (!config || !textLayer) return;
+
+  const rectangleLayer = findLayerByName(doc, config.layerName || "txt.subtitle.rectangle");
+  if (!rectangleLayer) {
+    log("  Subtitle rectangle not found.");
+    return;
+  }
+
+  const textBox = getBoundsBox(textLayer.boundsNoEffects || textLayer.bounds);
+  if (!textBox) return;
+
+  const paddingX = readNumber(state.currentRow || {}, "subtitle.rectanglePaddingX", Number(config.paddingX) || 0);
+  const paddingY = readNumber(state.currentRow || {}, "subtitle.rectanglePaddingY", Number(config.paddingY) || 0);
+  const targetWidth = Math.max(textBox.width + paddingX * 2, Number(config.minWidth) || 0);
+  const targetHeight = Math.max(textBox.height + paddingY * 2, Number(config.minHeight) || 0);
+  const targetBox = makeBox(
+    textBox.centerX - targetWidth / 2,
+    textBox.centerY - targetHeight / 2,
+    targetWidth,
+    targetHeight
+  );
+
+  try {
+    rectangleLayer.visible = true;
+    await resizeLayerToBox(rectangleLayer, targetBox);
+    log(`  Subtitle rectangle resized: w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
+  } catch (error) {
+    log(`  Subtitle rectangle resize skipped: ${formatError(error)}`);
+  }
 }
 
 async function applyTitleAndProductNote(doc, row) {
@@ -3004,6 +3203,9 @@ async function applyTitleAndProductNote(doc, row) {
     });
     fallbackNoteLayer.visible = true;
     await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
+    if (fallbackNoteLayer.name === "txt.subtitle") {
+      await resizeSubtitleRectangle(doc, fallbackNoteLayer);
+    }
     handled["txt.productNote"] = true;
     handled["txt.note"] = true;
     handled["txt.description"] = true;
