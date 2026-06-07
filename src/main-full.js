@@ -756,6 +756,16 @@ function getGiftLeftHeightRatio(row, index) {
   return getDefaultHeightRatio(makeSingleGiftLeftSourceRow(row, source), "giftLeft");
 }
 
+function getGiftLeftEffectiveHeightRatio(row, index) {
+  const ratio = getGiftLeftHeightRatio(row, index);
+  const hasExplicitRatio = Number.isFinite(readNumber(row, `giftLeft.heightRatio.${index}`, null)) ||
+    Number.isFinite(readNumber(row, "giftLeft.heightRatio", null));
+  if (hasExplicitRatio) return ratio;
+
+  const minRatio = readNumber(row, "giftLeft.minHeightRatio", 0.42);
+  return Math.max(ratio, minRatio);
+}
+
 function makeSingleGiftLeftSourceRow(row, source) {
   const single = { ...row };
   single["img.giftLeft"] = source;
@@ -770,7 +780,7 @@ function applyGiftLeftHeightRatioToBox(row, index, areaBox, box) {
   if (!row || !areaBox || !box) return box;
   if (row["giftLeft.itemH"] || row["giftLeft.itemHeight"]) return box;
 
-  const ratio = getGiftLeftHeightRatio(row, index);
+  const ratio = getGiftLeftEffectiveHeightRatio(row, index);
   const height = areaBox.height * ratio;
   if (!Number.isFinite(height) || height <= 0) return box;
 
@@ -1646,7 +1656,7 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     }
     if (prefix === "giftLeft") {
       const finalBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
-      log(`  GiftLeft placed: ${layer.name}, category=${getProductCategoryFromSource(getImageSourceForIndex(row, "giftLeft", i))}, ratio=${getGiftLeftHeightRatio(row, i)}, giftScale=${getImageGroupScale(row, "giftLeft")}, productScale=${getImageGroupScale(row, "product")}, targetH=${Math.round(targetBox.height)}, finalH=${finalBox ? Math.round(finalBox.height) : "?"}`);
+      log(`  GiftLeft placed: ${layer.name}, category=${getProductCategoryFromSource(getImageSourceForIndex(row, "giftLeft", i))}, rawRatio=${getGiftLeftHeightRatio(row, i)}, effectiveRatio=${getGiftLeftEffectiveHeightRatio(row, i)}, giftScale=${getImageGroupScale(row, "giftLeft")}, productScale=${getImageGroupScale(row, "product")}, targetH=${Math.round(targetBox.height)}, finalH=${finalBox ? Math.round(finalBox.height) : "?"}`);
     }
 
     state.placedImageLayers[layer.name] = true;
@@ -2845,7 +2855,7 @@ async function applyTitleAndProductNote(doc, row) {
 
 function isGiftControlColumn(column) {
   return /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
-    /^giftLeft\.(tube25HeightRatio)$/.test(column) ||
+    /^giftLeft\.(tube25HeightRatio|minHeightRatio)$/.test(column) ||
     /^product\.(heightMode|lotion500HeightRatio|lotion5HeightRatio|cream50HeightRatio|tube100HeightRatio|tube25HeightRatio|sameLotionHeightRatio|sameCream50HeightRatio|sameTubeHeightRatio|sameSample5HeightRatio|samePumpHeightRatio|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
