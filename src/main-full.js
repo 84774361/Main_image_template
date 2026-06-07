@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260605-product-cn-english-fallback2";
+const SCRIPT_VERSION = "20260607-product-view-angle-front";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -2150,6 +2150,37 @@ async function getAssetEntry(filename, options = {}) {
   if (!filename) return null;
 
   const normalized = String(filename).replace(/\\/g, "/");
+  const productViewFallbacks = getProductImageViewFallbacks(normalized);
+  for (const fallback of productViewFallbacks) {
+    try {
+      const entry = await getAssetEntryWithoutProductViewFallback(fallback, options);
+      if (fallback !== normalized) {
+        log(`  Product view asset fallback: ${normalized} -> ${fallback}`);
+      }
+      return entry;
+    } catch (error) {
+      // Try the next compatible naming style.
+    }
+  }
+
+  return getAssetEntryWithoutProductViewFallback(normalized, options);
+}
+
+function getProductImageViewFallbacks(filename) {
+  const normalized = String(filename || "").replace(/\\/g, "/");
+  const match = normalized.match(/^(.*?)-(angle|front)(\.[^.]+)$/i);
+  if (!match) return [normalized];
+
+  const base = match[1];
+  const view = match[2].toLowerCase();
+  const ext = match[3];
+  const candidates = [normalized];
+  if (view === "angle") candidates.push(`${base}${ext}`);
+  if (view === "front") candidates.push(`${base}-F${ext}`);
+  return Array.from(new Set(candidates));
+}
+
+async function getAssetEntryWithoutProductViewFallback(normalized, options = {}) {
   if (options.normalizeGiftRight && !normalized.startsWith("__giftRight/")) {
     try {
       const normalizedGiftRight = await assetsFolder.getEntry(`__giftRight/${normalized}`);
@@ -2257,6 +2288,76 @@ function resolveProductNameToImage(name) {
   if (!state.productNameMap) return "";
   const normalized = normalizeProductNameKey(raw);
   return state.productNameMap.get(normalized) || state.productNameMap.get(compactSpecHyphenKey(normalized)) || resolveProductNameByRows(raw);
+}
+
+const PRODUCT_VIEW_COLUMNS = [
+  "product.view",
+  "product.imageView",
+  "product.assetView",
+  "product.viewMode",
+  "产品视角"
+];
+
+const PRODUCT_VIEW_NOTE_COLUMNS = [
+  "product.viewNote",
+  "product.imageNote",
+  "product.assetNote",
+  "product.note",
+  "note",
+  "remark",
+  "remarks",
+  "备注"
+];
+
+function getProductImageView(row) {
+  const explicit = firstTextValue(row, PRODUCT_VIEW_COLUMNS).toLowerCase();
+  if (/^(front|face|f|正面|正面图)$/.test(explicit)) return "front";
+  if (/^(angle|angled|tilt|tilted|side|a|斜侧|倾斜|斜侧图|倾斜图)$/.test(explicit)) return "angle";
+
+  const note = firstTextValue(row, PRODUCT_VIEW_NOTE_COLUMNS);
+  if (!note) return "angle";
+  if (/front|face|正面|正面图/i.test(note)) return "front";
+  if (/angle|angled|tilt|tilted|side|斜侧|倾斜|斜侧图|倾斜图/i.test(note)) return "angle";
+  return "front";
+}
+
+function withProductImageView(filename, view) {
+  const raw = String(filename || "").trim();
+  if (!raw || !/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(raw)) return raw;
+
+  const match = raw.match(/^(.*?)(\.[^.]+)$/);
+  if (!match) return raw;
+
+  const base = match[1].replace(/-(?:angle|angled|tilt|tilted|front|face|f)$/i, "");
+  return `${base}-${view}${match[2]}`;
+}
+
+function applyProductImageView(row) {
+  const expanded = { ...row };
+  const view = getProductImageView(expanded);
+  const convert = (value) => {
+    const spec = parseImageSpec(value);
+    const images = spec.images.map((image) => withProductImageView(image, view)).join(" | ");
+    if (spec.count || spec.layout) {
+      return [spec.count || "", spec.layout || "", images].join(",");
+    }
+    return images;
+  };
+
+  ["img.product", "img.productSet"].forEach((key) => {
+    if (hasValue(expanded, key)) {
+      expanded[key] = convert(expanded[key]);
+    }
+  });
+
+  Object.keys(expanded).forEach((key) => {
+    if (/^img\.product\.\d+$/.test(key) && hasValue(expanded, key)) {
+      expanded[key] = withProductImageView(expanded[key], view);
+    }
+  });
+
+  expanded["product.view"] = view;
+  return expanded;
 }
 
 function resolveProductNameByRows(name) {
@@ -2463,6 +2564,7 @@ function normalizeImageAliases(row) {
 function expandRow(row) {
   let expanded = normalizeImageAliases(row);
   expanded = expandProductNamesToSet(expanded);
+  expanded = applyProductImageView(expanded);
   expanded = expandGiftImageSet(expanded, "giftLeft");
   expanded = expandGiftImageSet(expanded, "giftRight");
   expanded = expandGiftImageSet(expanded, "product");
@@ -2683,10 +2785,11 @@ async function applyTitleAndProductNote(doc, row) {
 
 function isGiftControlColumn(column) {
   return /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
-    /^product\.(heightMode|lotion500HeightRatio|lotion5HeightRatio|cream50HeightRatio|tube100HeightRatio|tube25HeightRatio|sameLotionHeightRatio|sameCream50HeightRatio|sameTubeHeightRatio|sameSample5HeightRatio|samePumpHeightRatio)$/.test(column) ||
+    /^product\.(heightMode|lotion500HeightRatio|lotion5HeightRatio|cream50HeightRatio|tube100HeightRatio|tube25HeightRatio|sameLotionHeightRatio|sameCream50HeightRatio|sameTubeHeightRatio|sameSample5HeightRatio|samePumpHeightRatio|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
-    /^productNote\.(gap|offsetY)$/.test(column);
+    /^productNote\.(gap|offsetY)$/.test(column) ||
+    /^(note|remark|remarks|备注|产品视角)$/.test(column);
 }
 
 async function exportJpg(doc, row, index) {
