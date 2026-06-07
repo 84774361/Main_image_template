@@ -2651,18 +2651,11 @@ function expandRepeatedProductNameToken(token) {
     .replace(/Ｘ/g, "x")
     .replace(/ｘ/g, "x");
 
-  const factors = [];
-  let name = normalized.trim();
-  let match = name.match(/^(.*?)(?:\s*(?:\*|x)\s*(\d+))$/i);
-  while (match) {
-    factors.unshift(Number(match[2]));
-    name = match[1].trim();
-    match = name.match(/^(.*?)(?:\s*(?:\*|x)\s*(\d+))$/i);
-  }
+  const match = normalized.match(/^(.*?)(?:\s*(?:\*|x)\s*(\d+))$/i);
+  if (!match) return [token];
 
-  if (!factors.length) return [token];
-
-  const count = Math.max(1, Math.min(factors.reduce((total, value) => total * value, 1), 6));
+  const name = match[1].trim();
+  const count = Math.max(1, Math.min(Number(match[2]), 6));
   if (!name) return [token];
   return Array.from({ length: count }, () => name);
 }
@@ -3195,7 +3188,11 @@ async function applyTitleAndProductNote(doc, row) {
     : titleLineCount > 1 && productNoteLayer2
       ? productNoteLayer2
       : productNoteLayer1 || findLayerByName(doc, "txt.productNote");
-  const fallbackNoteLayer = productNoteLayer || findLayerByName(doc, "txt.subtitle");
+  const subtitleLayer = findLayerByName(doc, "txt.subtitle");
+  const forceSubtitleLayer = getCurrentTemplateConfig().productNameToSubtitle && hasValue(row, "txt.subtitle");
+  const fallbackNoteLayer = forceSubtitleLayer
+    ? subtitleLayer || productNoteLayer
+    : productNoteLayer || subtitleLayer;
 
   if (fallbackNoteLayer && noteText !== undefined) {
     [productNoteLayer1, productNoteLayer2, productNoteLayer3].forEach((layer) => {
@@ -3217,11 +3214,13 @@ async function applyTitleAndProductNote(doc, row) {
 }
 
 function isGiftControlColumn(column) {
-  return /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
+  return PRODUCT_NAME_COLUMNS.includes(column) ||
+    /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
     /^product\.(heightMode|lotion500HeightRatio|lotion5HeightRatio|cream50HeightRatio|tube100HeightRatio|tube25HeightRatio|sameLotionHeightRatio|sameCream50HeightRatio|sameTubeHeightRatio|sameSample5HeightRatio|samePumpHeightRatio|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
+    /^subtitle\.rectanglePadding[XY]$/.test(column) ||
     /^productNote\.(gap|offsetY)$/.test(column) ||
     /^(note|remark|remarks|备注|产品视角)$/.test(column);
 }
