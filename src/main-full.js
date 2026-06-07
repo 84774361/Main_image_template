@@ -749,8 +749,12 @@ function getGiftLeftHeightRatio(row, index) {
   const category = getProductCategoryFromSource(source);
   const specs = getProductSpecFromSource(source);
 
+  if (category === "tube" && (specs.ml >= 80 || specs.g >= 80)) {
+    return readNumber(row, "giftLeft.tube100HeightRatio", 0.9);
+  }
+
   if (category === "tube" && specs.g > 0 && specs.g <= 30) {
-    return readNumber(row, "giftLeft.tube25HeightRatio", 0.276);
+    return readNumber(row, "giftLeft.tube25HeightRatio", 0.7);
   }
 
   return getDefaultHeightRatio(makeSingleGiftLeftSourceRow(row, source), "giftLeft");
@@ -2855,7 +2859,7 @@ async function applyTitleAndProductNote(doc, row) {
 
 function isGiftControlColumn(column) {
   return /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
-    /^giftLeft\.(tube25HeightRatio|minHeightRatio)$/.test(column) ||
+    /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
     /^product\.(heightMode|lotion500HeightRatio|lotion5HeightRatio|cream50HeightRatio|tube100HeightRatio|tube25HeightRatio|sameLotionHeightRatio|sameCream50HeightRatio|sameTubeHeightRatio|sameSample5HeightRatio|samePumpHeightRatio|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||

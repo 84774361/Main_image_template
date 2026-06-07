@@ -18,10 +18,11 @@
 
 | 条件 | 默认 heightRatio |
 |---|---:|
-| `tube` 且规格 `<=30g` | 原始比例 `0.276` |
+| `tube` 且规格 `>=80g/ml` | `0.9` |
+| `tube` 且规格 `<=30g` | `0.7` |
 | 其他左赠品 | 沿用原有 `giftLeft` 默认规则 |
 
-`0.276` 等于 `0.92 * 0.3`，用于让 25g、10g 等小管赠品在混合赠品组里明显小于 100g 身体乳等大规格赠品。
+`tube <=30g` 使用 `0.7`，用于让 25g、10g 等小管赠品在混合赠品组里仍然可读，不会因为 `giftLeft.area` 偏小而显得过小。
 
 为了避免 `giftLeft.area` 本身偏小时，小规格赠品突然缩得过小，自动规则还会应用一个面积适配下限：
 
@@ -47,11 +48,18 @@ giftLeft.heightRatio.1,giftLeft.heightRatio.2,giftLeft.heightRatio.3
 0.9,0.276,0.276
 ```
 
+只调整大管默认比例：
+
+```csv
+giftLeft.tube100HeightRatio
+0.9
+```
+
 只调整小管默认比例：
 
 ```csv
 giftLeft.tube25HeightRatio
-0.3
+0.7
 ```
 
 调整自动下限：
