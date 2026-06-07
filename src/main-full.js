@@ -2368,7 +2368,7 @@ const PRODUCT_VIEW_NOTE_COLUMNS = [
 ];
 
 function getProductImageView(row) {
-  const explicit = firstTextValue(row, PRODUCT_VIEW_COLUMNS).toLowerCase();
+  const explicit = String(firstTextValue(row, PRODUCT_VIEW_COLUMNS) || "").toLowerCase();
   if (/^(front|face|f|正面|正面图)$/.test(explicit)) return "front";
   if (/^(angle|angled|tilt|tilted|side|a|斜侧|倾斜|斜侧图|倾斜图)$/.test(explicit)) return "angle";
 
