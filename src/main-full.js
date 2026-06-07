@@ -86,9 +86,9 @@ const TEMPLATE_CONFIGS = {
     label: "PDD SKU",
     filePrefixPlaceholder: "pdd_sku_",
     paths: {
-      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\sku模板.psd",
-      csv: "F:\\SOFT\\CODEX\\PROJECT\\Main_image_template\\sample-data-pdd-sku.csv",
-      assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU",
+      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\PDD_SKU_Template.psd",
+      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\sample-data-pdd-sku.csv",
+      assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\assets",
       output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\export"
     },
     exportNameColumns: ["exportName", "PDD_SKU", "pddSku", "pdd_sku", "sku", "id", "goodsId"],
@@ -2362,20 +2362,41 @@ async function getAssetEntry(filename, options = {}) {
 function getProductImageViewFallbacks(filename) {
   const normalized = String(filename || "").replace(/\\/g, "/");
   const match = normalized.match(/^(.*?)-(angle|front)(\.[^.]+)$/i);
-  if (!match) return [normalized];
+  if (!match) {
+    const baseMatch = normalized.match(/^(.*?)(\.[^.]+)$/);
+    if (!baseMatch) return [normalized];
+
+    const base = baseMatch[1];
+    const ext = baseMatch[2];
+    const withoutProducts = base.replace(/^products\//i, "");
+    return Array.from(new Set([
+      normalized,
+      normalized.replace(/^products\//i, ""),
+      `${base}-front${ext}`,
+      `${withoutProducts}-front${ext}`,
+      `front/${withoutProducts}-front${ext}`,
+      `${base}-angle${ext}`,
+      `${withoutProducts}-angle${ext}`,
+      `angle/${withoutProducts}-angle${ext}`
+    ]));
+  }
 
   const base = match[1];
   const view = match[2].toLowerCase();
   const ext = match[3];
+  const withoutProducts = base.replace(/^products\//i, "");
   const candidates = [normalized];
+  candidates.push(normalized.replace(/^products\//i, ""));
   if (view === "angle") {
     candidates.push(`${base}${ext}`);
     candidates.push(`${base.replace(/(^|\/)angle(\/)/i, "$1$2")}${ext}`);
+    candidates.push(`angle/${withoutProducts.replace(/(^|\/)angle(\/)/i, "$1")}-angle${ext}`);
   }
   if (view === "front") {
     candidates.push(`${base}-F${ext}`);
     candidates.push(`${base.replace(/(^|\/)front(\/)/i, "$1$2")}-F${ext}`);
     candidates.push(`${base.replace(/(^|\/)front(\/)/i, "$1$2")}-front${ext}`);
+    candidates.push(`front/${withoutProducts.replace(/(^|\/)front(\/)/i, "$1")}-front${ext}`);
   }
   return Array.from(new Set(candidates));
 }
@@ -2472,11 +2493,19 @@ function expandRepeatedProductNameToken(token) {
     .replace(/＊/g, "*")
     .replace(/Ｘ/g, "x")
     .replace(/ｘ/g, "x");
-  const match = normalized.match(/^(.*?)(?:\s*(?:\*|x)\s*(\d+))$/i);
-  if (!match) return [token];
 
-  const name = match[1].trim();
-  const count = Math.max(1, Math.min(Number(match[2]), 6));
+  const factors = [];
+  let name = normalized.trim();
+  let match = name.match(/^(.*?)(?:\s*(?:\*|x)\s*(\d+))$/i);
+  while (match) {
+    factors.unshift(Number(match[2]));
+    name = match[1].trim();
+    match = name.match(/^(.*?)(?:\s*(?:\*|x)\s*(\d+))$/i);
+  }
+
+  if (!factors.length) return [token];
+
+  const count = Math.max(1, Math.min(factors.reduce((total, value) => total * value, 1), 6));
   if (!name) return [token];
   return Array.from({ length: count }, () => name);
 }

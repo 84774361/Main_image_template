@@ -8,9 +8,9 @@ This project now keeps platform/template differences in `TEMPLATE_CONFIGS` insid
 
 Default entries:
 
-- PSD: `F:\NEWPAGE\AI生图\批量生图测试\PDDSKU\sku模板.psd`
-- CSV: `F:\SOFT\CODEX\PROJECT\Main_image_template\sample-data-pdd-sku.csv`
-- Assets: `F:\NEWPAGE\AI生图\批量生图测试\PDDSKU`
+- PSD: `F:\NEWPAGE\AI生图\批量生图测试\PDDSKU\PDD_SKU_Template.psd`
+- CSV: `F:\NEWPAGE\AI生图\批量生图测试\PDDSKU\sample-data-pdd-sku.csv`
+- Assets: `F:\NEWPAGE\AI生图\批量生图测试\assets`
 - Output: `F:\NEWPAGE\AI生图\批量生图测试\PDDSKU\export`
 
 ## CSV fields
