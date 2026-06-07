@@ -87,7 +87,7 @@ const TEMPLATE_CONFIGS = {
     filePrefixPlaceholder: "pdd_sku_",
     paths: {
       template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\sku模板.psd",
-      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\sample-data-pdd-sku.csv",
+      csv: "F:\\SOFT\\CODEX\\PROJECT\\Main_image_template\\sample-data-pdd-sku.csv",
       assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU",
       output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\export"
     },
