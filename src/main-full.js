@@ -23,19 +23,81 @@ const TITLE_SUPERSCRIPT_FONT = {
   fontName: "LINE Seed Sans App Regular"
 };
 
-const DEFAULT_PATHS = {
-  template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\jingdongpop612sample.psd",
-  csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\sample-data.csv",
-  assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample",
-  output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\export"
+const BASE_TEMPLATE_CONFIG = {
+  id: "base",
+  label: "Base",
+  filePrefixPlaceholder: "",
+  paths: {
+    template: "",
+    csv: "",
+    assets: "",
+    output: ""
+  },
+  exportNameColumns: ["exportName", "sku", "id", "goodsId"],
+  ignoredDataColumns: [],
+  giftRightBox: {
+    left: 390,
+    top: 595,
+    width: 350,
+    height: 117
+  },
+  giftRightTemplateSwitch: null,
+  personTemplateSwitch: null,
+  keepPersonOnTop: true
 };
 
-const DEFAULT_GIFT_RIGHT_BOX = {
-  left: 390,
-  top: 595,
-  width: 350,
-  height: 117
+const TEMPLATE_CONFIGS = {
+  jd618: {
+    ...BASE_TEMPLATE_CONFIG,
+    id: "jd618",
+    label: "JD618 POP",
+    filePrefixPlaceholder: "jd_618_",
+    paths: {
+      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\jingdongpop612sample.psd",
+      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\sample-data.csv",
+      assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample",
+      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\export"
+    },
+    giftRightTemplateSwitch: {
+      enabled: true,
+      right178Names: ["img.giftRight.178", "img.giftRight178"],
+      right298Names: ["img.giftRight.298", "img.giftRight.289", "img.giftRight298", "img.giftRight289"],
+      middleNames: ["img.giftMiddle.178", "img.giftMiddle178", "img.giftMiddle"],
+      dividerNames: ["gift.Leftdivideline", "gift.LeftDivideLine", "gift.LeftDividerLine"]
+    },
+    personTemplateSwitch: {
+      enabled: true,
+      legacyName: "img.person",
+      variants: {
+        cuiyutao: {
+          names: ["img.person.cuiyutao", "img.personCuiyutao"],
+          tokens: ["cuiyutao", "cui", "崔玉涛"]
+        },
+        zhangziyi: {
+          names: ["img.person.zhangziyi", "img.personZhangziyi"],
+          tokens: ["zhangziyi", "zhang", "章子怡"]
+        }
+      }
+    }
+  },
+  pddSku: {
+    ...BASE_TEMPLATE_CONFIG,
+    id: "pddSku",
+    label: "PDD SKU",
+    filePrefixPlaceholder: "pdd_sku_",
+    paths: {
+      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\sku模板.psd",
+      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\sample-data-pdd-sku.csv",
+      assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU",
+      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\export"
+    },
+    exportNameColumns: ["exportName", "PDD_SKU", "pddSku", "pdd_sku", "sku", "id", "goodsId"],
+    ignoredDataColumns: ["template.profile", "templateProfile"],
+    keepPersonOnTop: false
+  }
 };
+
+let activeTemplateId = "pddSku";
 
 const state = {
   rows: [],
@@ -93,6 +155,56 @@ function setProgress(done, total) {
   const progress = $("progress");
   progress.max = Math.max(total, 1);
   progress.value = done;
+}
+
+function getTemplateConfig(id = activeTemplateId) {
+  return TEMPLATE_CONFIGS[id] || TEMPLATE_CONFIGS.pddSku || TEMPLATE_CONFIGS.jd618;
+}
+
+function getCurrentTemplateConfig() {
+  const selector = $("templateProfile");
+  if (selector && selector.value && TEMPLATE_CONFIGS[selector.value]) {
+    activeTemplateId = selector.value;
+  }
+  return getTemplateConfig();
+}
+
+function getConfiguredPath(kind) {
+  const config = getCurrentTemplateConfig();
+  return config && config.paths ? config.paths[kind] : "";
+}
+
+function getConfiguredExportName(row, index) {
+  const config = getCurrentTemplateConfig();
+  const columns = config.exportNameColumns || BASE_TEMPLATE_CONFIG.exportNameColumns;
+  for (const column of columns) {
+    const value = row && row[column];
+    if (String(value || "").trim()) return String(value).trim();
+  }
+  return `image_${index + 1}`;
+}
+
+function isIdentifierColumn(column) {
+  const config = getCurrentTemplateConfig();
+  const columns = new Set([
+    ...BASE_TEMPLATE_CONFIG.exportNameColumns,
+    ...(config.exportNameColumns || []),
+    ...(config.ignoredDataColumns || [])
+  ]);
+  return columns.has(column);
+}
+
+function syncTemplateProfileUi() {
+  const selector = $("templateProfile");
+  if (selector && TEMPLATE_CONFIGS[activeTemplateId]) {
+    selector.value = activeTemplateId;
+  }
+
+  const config = getCurrentTemplateConfig();
+  const prefix = $("filePrefix");
+  if (prefix && config.filePrefixPlaceholder) {
+    prefix.setAttribute("placeholder", config.filePrefixPlaceholder);
+  }
 }
 
 function shouldAutoFitImages() {
@@ -907,13 +1019,16 @@ function hideGiftLeftTemplateContent(doc) {
 }
 
 function applyGiftRightTemplateSwitch(doc, row) {
+  const config = getCurrentTemplateConfig();
+  const switchConfig = config.giftRightTemplateSwitch;
+  if (!switchConfig || !switchConfig.enabled) return;
+
   const hasLeft = hasGiftLeftContent(row);
   const rightType = getGiftRightTemplateType(row);
-
-  const right178Names = ["img.giftRight.178", "img.giftRight178"];
-  const right298Names = ["img.giftRight.298", "img.giftRight.289", "img.giftRight298", "img.giftRight289"];
-  const middleNames = ["img.giftMiddle.178", "img.giftMiddle178", "img.giftMiddle"];
-  const dividerNames = ["gift.Leftdivideline", "gift.LeftDivideLine", "gift.LeftDividerLine"];
+  const right178Names = switchConfig.right178Names || [];
+  const right298Names = switchConfig.right298Names || [];
+  const middleNames = switchConfig.middleNames || [];
+  const dividerNames = switchConfig.dividerNames || [];
 
   setLayerVisibleByAnyName(doc, right178Names, false, "img.giftRight.178");
   setLayerVisibleByAnyName(doc, right298Names, false, "img.giftRight.298");
@@ -933,33 +1048,44 @@ function applyGiftRightTemplateSwitch(doc, row) {
 }
 
 function getPersonTemplateType(row) {
+  const config = getCurrentTemplateConfig();
+  const switchConfig = config.personTemplateSwitch;
+  if (!switchConfig || !switchConfig.enabled) return "";
+
   const value = String(row && row["img.person"] || "").trim().toLowerCase();
   if (!value) return "";
-  if (value.includes("zhangziyi") || value.includes("zhang") || value.includes("章子怡")) return "zhangziyi";
-  if (value.includes("cuiyutao") || value.includes("cui") || value.includes("崔玉涛")) return "cuiyutao";
+
+  for (const [type, variant] of Object.entries(switchConfig.variants || {})) {
+    const tokens = variant.tokens || [];
+    if (tokens.some((token) => value.includes(String(token).toLowerCase()))) {
+      return type;
+    }
+  }
+
   return "";
 }
 
 function applyPersonTemplateSwitch(doc, row) {
+  const config = getCurrentTemplateConfig();
+  const switchConfig = config.personTemplateSwitch;
+  if (!switchConfig || !switchConfig.enabled) return;
+
   const type = getPersonTemplateType(row);
-  const cuiLayer = findLayerByAnyName(doc, ["img.person.cuiyutao", "img.personCuiyutao"]);
-  const zhangLayer = findLayerByAnyName(doc, ["img.person.zhangziyi", "img.personZhangziyi"]);
-  const legacyLayer = findLayerByName(doc, "img.person");
+  const legacyLayer = findLayerByName(doc, switchConfig.legacyName || "img.person");
+  const variantLayers = {};
 
-  if (cuiLayer) cuiLayer.visible = false;
-  if (zhangLayer) zhangLayer.visible = false;
-
-  if (type === "cuiyutao" && cuiLayer) {
-    if (legacyLayer) legacyLayer.visible = false;
-    cuiLayer.visible = true;
-    log("  Person template switch: show img.person.cuiyutao.");
-    return;
+  for (const [variantType, variant] of Object.entries(switchConfig.variants || {})) {
+    variantLayers[variantType] = findLayerByAnyName(doc, variant.names || []);
   }
 
-  if (type === "zhangziyi" && zhangLayer) {
+  Object.values(variantLayers).forEach((layer) => {
+    if (layer) layer.visible = false;
+  });
+
+  if (type && variantLayers[type]) {
     if (legacyLayer) legacyLayer.visible = false;
-    zhangLayer.visible = true;
-    log("  Person template switch: show img.person.zhangziyi.");
+    variantLayers[type].visible = true;
+    log(`  Person template switch: show ${type}.`);
     return;
   }
 
@@ -1270,11 +1396,13 @@ function getImageGroupAreaBox(row, prefix, fallbackBox) {
 }
 
 function getGiftRightAnchorBox(row) {
+  const config = getCurrentTemplateConfig();
+  const defaultBox = config.giftRightBox || BASE_TEMPLATE_CONFIG.giftRightBox;
   const fallbackBox = makeBox(
-    DEFAULT_GIFT_RIGHT_BOX.left,
-    DEFAULT_GIFT_RIGHT_BOX.top,
-    DEFAULT_GIFT_RIGHT_BOX.width,
-    DEFAULT_GIFT_RIGHT_BOX.height
+    defaultBox.left,
+    defaultBox.top,
+    defaultBox.width,
+    defaultBox.height
   );
   const hasManualBox = ["x", "y", "w", "width", "h", "height"].some((key) => {
     const value = row && row[`giftRight.${key}`];
@@ -2278,7 +2406,7 @@ async function getAssetEntryWithoutProductViewFallback(normalized, options = {})
 
 function getExportName(row, index) {
   const prefix = $("filePrefix").value || "";
-  const base = String(row.exportName || row.sku || row.id || row.goodsId || `image_${index + 1}`).trim() || `image_${index + 1}`;
+  const base = getConfiguredExportName(row, index);
   return `${prefix}${base}.jpg`;
 }
 
@@ -2935,10 +3063,7 @@ async function applyRowToDocument(doc, row) {
   for (const [column, value] of Object.entries(expandedRow)) {
     if (
       !value ||
-      column === "exportName" ||
-      column === "sku" ||
-      column === "id" ||
-      column === "goodsId" ||
+      isIdentifierColumn(column) ||
       column.startsWith("imag.") ||
       column.startsWith("image.") ||
       column === "img.person" ||
@@ -2990,7 +3115,9 @@ async function applyRowToDocument(doc, row) {
   log("  Before product arrange.");
   await arrangeProductLineAfterReplace(doc, expandedRow);
   log("  After product arrange.");
-  await keepPersonOnTop(doc);
+  if (getCurrentTemplateConfig().keepPersonOnTop) {
+    await keepPersonOnTop(doc);
+  }
 }
 
 async function processOne(row, index) {
@@ -3043,7 +3170,7 @@ async function runBatch() {
       async () => {
         for (let i = 0; i < state.rows.length; i += 1) {
           const row = state.rows[i];
-          const rowName = row.exportName || row.sku || row.id || row.goodsId || `row_${i + 1}`;
+          const rowName = getConfiguredExportName(row, i) || `row_${i + 1}`;
           setSummary(`Generating ${i + 1}/${state.rows.length}`);
           log(`[${i + 1}] ${rowName}`);
           try {
@@ -3137,25 +3264,45 @@ async function getDefaultEntry(path) {
 
 async function loadDefaultPaths() {
   try {
-    templateFile = await getDefaultEntry(DEFAULT_PATHS.template);
+    const templatePath = getConfiguredPath("template");
+    const csvPath = getConfiguredPath("csv");
+    const assetsPath = getConfiguredPath("assets");
+    const outputPath = getConfiguredPath("output");
+
+    if (!templatePath || !csvPath || !assetsPath || !outputPath) {
+      throw new Error("Current template profile does not define all default paths.");
+    }
+
+    templateFile = await getDefaultEntry(templatePath);
     setLabel("templateName", templateFile);
 
-    csvFile = await getDefaultEntry(DEFAULT_PATHS.csv);
+    csvFile = await getDefaultEntry(csvPath);
     setLabel("csvName", csvFile);
 
-    assetsFolder = await getDefaultEntry(DEFAULT_PATHS.assets);
+    assetsFolder = await getDefaultEntry(assetsPath);
     setLabel("assetsName", assetsFolder);
 
-    outputFolder = await getDefaultEntry(DEFAULT_PATHS.output);
+    outputFolder = await getDefaultEntry(outputPath);
     setLabel("outputName", outputFolder);
 
-    log("Default paths loaded.");
+    log(`Default paths loaded: ${getCurrentTemplateConfig().label}.`);
   } catch (error) {
     log(`Default paths not loaded: ${formatError(error)}`);
   }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  syncTemplateProfileUi();
+
+  const templateProfile = $("templateProfile");
+  if (templateProfile) {
+    templateProfile.addEventListener("change", () => {
+      activeTemplateId = templateProfile.value;
+      syncTemplateProfileUi();
+      loadDefaultPaths();
+    });
+  }
+
   $("toggleSetup").addEventListener("click", () => {
     const setupBox = $("setupBox");
     const collapsed = !setupBox.classList.contains("isCollapsed");

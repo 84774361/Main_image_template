@@ -37,6 +37,18 @@ body {
   margin-top: 4px;
 }
 
+.fieldLabel {
+  display: block;
+  margin: 7px 0 3px;
+  font-size: 12px;
+}
+
+select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 28px;
+}
+
 .toggleButton {
   margin-top: 6px;
   min-height: 24px;
