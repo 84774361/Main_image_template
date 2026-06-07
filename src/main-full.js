@@ -738,6 +738,55 @@ function applyProductHeightRatioToBox(row, index, areaBox, box, count = 1) {
   };
 }
 
+function getGiftLeftHeightRatio(row, index) {
+  const explicitItemRatio = readNumber(row, `giftLeft.heightRatio.${index}`, null);
+  if (Number.isFinite(explicitItemRatio)) return explicitItemRatio;
+
+  const explicitRatio = readNumber(row, "giftLeft.heightRatio", null);
+  if (Number.isFinite(explicitRatio)) return explicitRatio;
+
+  const source = getImageSourceForIndex(row, "giftLeft", index);
+  const category = getProductCategoryFromSource(source);
+  const specs = getProductSpecFromSource(source);
+
+  if (category === "tube" && specs.g > 0 && specs.g <= 30) {
+    return readNumber(row, "giftLeft.tube25HeightRatio", 0.276);
+  }
+
+  return getDefaultHeightRatio(makeSingleGiftLeftSourceRow(row, source), "giftLeft");
+}
+
+function makeSingleGiftLeftSourceRow(row, source) {
+  const single = { ...row };
+  single["img.giftLeft"] = source;
+  single["img.giftLeftSet"] = "";
+  for (let i = 1; i <= 6; i += 1) {
+    single[`img.giftLeft.${i}`] = "";
+  }
+  return single;
+}
+
+function applyGiftLeftHeightRatioToBox(row, index, areaBox, box) {
+  if (!row || !areaBox || !box) return box;
+  if (row["giftLeft.itemH"] || row["giftLeft.itemHeight"]) return box;
+
+  const ratio = getGiftLeftHeightRatio(row, index);
+  const height = areaBox.height * ratio;
+  if (!Number.isFinite(height) || height <= 0) return box;
+
+  const width = height * (box.width / box.height);
+  return {
+    ...box,
+    left: box.centerX - width / 2,
+    top: box.bottom - height,
+    right: box.centerX + width / 2,
+    bottom: box.bottom,
+    width,
+    height,
+    centerY: box.bottom - height / 2
+  };
+}
+
 function getProductOverlapRatio(row, items) {
   const explicit = readNumber(row, "product.overlapRatio", null);
   if (Number.isFinite(explicit)) {
@@ -1574,7 +1623,9 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     layer.visible = true;
     const targetBox = prefix === "product"
       ? applyProductHeightRatioToBox(row, i, areaBox, targetBoxes[i - 1], count)
-      : targetBoxes[i - 1];
+      : prefix === "giftLeft"
+        ? applyGiftLeftHeightRatioToBox(row, i, areaBox, targetBoxes[i - 1])
+        : targetBoxes[i - 1];
 
     const fitByHeight = prefix === "product" && getImageSourceForIndex(row, prefix, i).includes("cream") ||
       prefix === "giftLeft" ||
@@ -1595,7 +1646,7 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     }
     if (prefix === "giftLeft") {
       const finalBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
-      log(`  GiftLeft placed: ${layer.name}, count=${count}, heightRatio=${readNumber(row, "giftLeft.heightRatio", getDefaultHeightRatio(row, "giftLeft"))}, giftScale=${getImageGroupScale(row, "giftLeft")}, productScale=${getImageGroupScale(row, "product")}, targetH=${Math.round(targetBox.height)}, finalH=${finalBox ? Math.round(finalBox.height) : "?"}`);
+      log(`  GiftLeft placed: ${layer.name}, category=${getProductCategoryFromSource(getImageSourceForIndex(row, "giftLeft", i))}, ratio=${getGiftLeftHeightRatio(row, i)}, giftScale=${getImageGroupScale(row, "giftLeft")}, productScale=${getImageGroupScale(row, "product")}, targetH=${Math.round(targetBox.height)}, finalH=${finalBox ? Math.round(finalBox.height) : "?"}`);
     }
 
     state.placedImageLayers[layer.name] = true;
@@ -2794,6 +2845,7 @@ async function applyTitleAndProductNote(doc, row) {
 
 function isGiftControlColumn(column) {
   return /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
+    /^giftLeft\.(tube25HeightRatio)$/.test(column) ||
     /^product\.(heightMode|lotion500HeightRatio|lotion5HeightRatio|cream50HeightRatio|tube100HeightRatio|tube25HeightRatio|sameLotionHeightRatio|sameCream50HeightRatio|sameTubeHeightRatio|sameSample5HeightRatio|samePumpHeightRatio|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
