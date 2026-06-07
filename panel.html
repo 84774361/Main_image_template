@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="src/styles.css?v=20260605-log-scroll" />
+    <script src="src/main-full.js?v=20260605-product-cn-english-fallback2"></script>
+  </head>
+  <body>
+    <main class="panel">
+      <div class="header">
+        <div>
+          <h1>&#20027;&#22270;&#25209;&#37327;&#29983;&#25104;</h1>
+          <p>PSD &#27169;&#26495; + CSV &#25968;&#25454; + &#32032;&#26448;&#30446;&#24405;</p>
+        </div>
+      </div>
+
+      <button id="toggleSetup" class="toggleButton" type="button">&#25910;&#36215;&#35774;&#32622;</button>
+      <div id="setupBox" class="setupBox">
+        <div class="controls">
+          <button id="pickTemplate" class="secondary" type="button">&#36873;&#25321; PSD &#27169;&#26495;</button>
+          <div id="templateName" class="fileLabel">&#26410;&#36873;&#25321;</div>
+
+          <button id="pickCsv" class="secondary" type="button">&#36873;&#25321; CSV &#25968;&#25454;</button>
+          <div id="csvName" class="fileLabel">&#26410;&#36873;&#25321;</div>
+          <div class="hint">CSV &#35831;&#21478;&#23384;&#20026; CSV UTF-8</div>
+
+          <button id="pickAssets" class="secondary" type="button">&#36873;&#25321;&#32032;&#26448;&#30446;&#24405;</button>
+          <div id="assetsName" class="fileLabel">&#26410;&#36873;&#25321;</div>
+
+          <button id="pickOutput" class="secondary" type="button">&#36873;&#25321;&#23548;&#20986;&#30446;&#24405;</button>
+          <div id="outputName" class="fileLabel">&#26410;&#36873;&#25321;</div>
+        </div>
+
+        <div class="options">
+          <div class="optionGrid">
+            <label for="jpgQuality">JPG</label>
+            <input id="jpgQuality" type="number" min="1" max="12" value="10" />
+
+            <label for="filePrefix">&#21069;&#32512;</label>
+            <input id="filePrefix" type="text" placeholder="jd_618_" />
+          </div>
+
+          <label class="checkboxRow">
+            <input id="autoFitImages" type="checkbox" checked />
+            <span>&#22270;&#29255;&#33258;&#21160;&#31561;&#27604;&#36866;&#37197;&#21344;&#20301;&#26694;</span>
+          </label>
+
+          <label class="checkboxRow">
+            <input id="useTrimmedAssets" type="checkbox" checked />
+            <span>&#20248;&#20808;&#20351;&#29992; __trimmed &#35009;&#36793;&#22270;</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="status">
+        <button id="runBatch" class="primary" type="button">&#24320;&#22987;&#25209;&#37327;&#29983;&#25104;</button>
+        <div id="summary">&#31561;&#24453;&#24320;&#22987;</div>
+        <progress id="progress" value="0" max="1"></progress>
+        <button id="scrollLogBottom" class="secondary logButton" type="button">&#26085;&#24535;&#21040;&#24213;&#37096;</button>
+        <pre id="log"></pre>
+      </div>
+    </main>
+  </body>
+</html>
