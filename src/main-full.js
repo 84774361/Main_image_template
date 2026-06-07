@@ -754,7 +754,7 @@ function getGiftLeftHeightRatio(row, index) {
   }
 
   if (category === "tube" && specs.g > 0 && specs.g <= 30) {
-    return readNumber(row, "giftLeft.tube25HeightRatio", 0.7);
+    return readNumber(row, "giftLeft.tube25HeightRatio", 0.85);
   }
 
   return getDefaultHeightRatio(makeSingleGiftLeftSourceRow(row, source), "giftLeft");
