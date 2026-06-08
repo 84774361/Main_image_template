@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-line-fit-before-move";
+const SCRIPT_VERSION = "20260608-line-single-controller";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -2081,6 +2081,7 @@ async function prepareImageGroupLayers(doc, row, prefix) {
   if (!baseBox) return;
 
   const layout = resolveImageGroupLayout(row, prefix, count);
+  const isProductLine = prefix === "product" && layout === "line";
   const targetBoxes = getImageGroupTargetBoxes(row, prefix, baseBox, areaBox, count, layout);
 
   if (prefix === "giftLeft" && isGiftLeftAmpouleSet(row)) {
@@ -2118,16 +2119,17 @@ async function prepareImageGroupLayers(doc, row, prefix) {
 
     layer.visible = true;
     await fitLayerToBox(layer, targetBoxes[i - 1], { alignY: prefix === "product" ? "bottom" : "center" });
-    if (areaBox) {
+    if (areaBox && !isProductLine) {
       await clampLayerToBox(layer, areaBox);
     }
     state.giftTargets[layerName] = {
       prefix,
       targetBox: targetBoxes[i - 1],
       areaBox,
-      scale: getImageGroupScale(row, prefix),
+      scale: isProductLine ? 1 : getImageGroupScale(row, prefix),
       alignY: prefix === "product" ? "bottom" : "center",
-      fitBy: prefix === "product" && getImageGroupSourceText(row, prefix).includes("cream") ? "height" : "contain"
+      fitBy: prefix === "product" && getImageGroupSourceText(row, prefix).includes("cream") ? "height" : "contain",
+      skipClamp: isProductLine
     };
     layers.push(layer);
   }
@@ -2211,6 +2213,7 @@ async function placeAssetAsLayer(file) {
 
 async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, targetBoxes, areaBox, count, layout) {
   state.placedImageLayers = state.placedImageLayers || {};
+  const isProductLine = prefix === "product" && layout === "line";
 
   for (let i = 1; i <= 6; i += 1) {
     const oldLayer = findLayerByName(doc, `img.${prefix}.${i}`);
@@ -2248,13 +2251,15 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     if (prefix === "product" && areaBox) {
       log(`  Product height rule: ${layer.name}, mode=${getProductHeightMode(row, count)}, category=${getProductCategory(row, i)}, ratio=${getProductHeightRatio(row, i, count)}, targetH=${Math.round(targetBox.height)}`);
     }
-    await scaleLayerByFactor(layer, getImageGroupScale(row, prefix), {
-      anchor: prefix === "product" ? "bottomCenter" : "center"
-    });
-    if (areaBox) {
+    if (!isProductLine) {
+      await scaleLayerByFactor(layer, getImageGroupScale(row, prefix), {
+        anchor: prefix === "product" ? "bottomCenter" : "center"
+      });
+    }
+    if (areaBox && !isProductLine) {
       await clampLayerToBox(layer, areaBox);
     }
-    if (prefix === "product" && areaBox) {
+    if (prefix === "product" && areaBox && !isProductLine) {
       await alignLayerBottomToBox(layer, areaBox);
     }
     if (prefix === "giftLeft") {
@@ -3145,7 +3150,7 @@ async function replaceSmartObjectLayer(layer, file) {
         await layer.translate(0, giftTarget.targetBox.bottom - afterScaleBox.bottom);
       }
     }
-    if (giftTarget.areaBox) {
+    if (giftTarget.areaBox && !giftTarget.skipClamp) {
       await clampLayerToBox(layer, giftTarget.areaBox);
     }
     return;
