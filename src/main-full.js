@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-category-ratio-gap-bottom-scale";
+const SCRIPT_VERSION = "20260608-product-line-touch-edges";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -1902,6 +1902,11 @@ function getProductItemGaps(row, items, layout, itemWidth, fallbackGap) {
   return gaps;
 }
 
+function shouldTouchProductEdges(row) {
+  const value = String(row && (row["product.touchEdges"] || row["product.touch"] || "") || "").trim().toLowerCase();
+  return /^(1|true|yes|y|on|贴边)$/.test(value);
+}
+
 function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, layout) {
   const areaBox = getImageGroupAreaBox(row, prefix, areaFallbackBox || baseBox);
   const aspect = baseBox.width / baseBox.height;
@@ -2326,9 +2331,10 @@ function getItemsTotalWidth(items, gapsOrGap) {
 }
 
 async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
-  const gap = getImageGroupGap(row, "product", "line", 0);
-  let gaps = getProductItemGaps(row, items, "line", 0, gap);
-  const slotFill = readNumber(row, "product.slotFill", rawLayout === "auto" ? 0.96 : 0.98);
+  const touchEdges = shouldTouchProductEdges(row);
+  const gap = touchEdges ? 0 : getImageGroupGap(row, "product", "line", 0);
+  let gaps = touchEdges ? [] : getProductItemGaps(row, items, "line", 0, gap);
+  const slotFill = touchEdges ? 1 : readNumber(row, "product.slotFill", rawLayout === "auto" ? 0.96 : 0.98);
   const maxTotalWidth = areaBox.width * slotFill;
 
   let freshItems = items.map((item) => ({
@@ -2336,7 +2342,7 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
     box: getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds)
   })).filter((item) => item.box);
 
-  gaps = getProductItemGaps(row, freshItems, "line", 0, gap);
+  gaps = touchEdges ? Array(Math.max(0, freshItems.length - 1)).fill(0) : getProductItemGaps(row, freshItems, "line", 0, gap);
   const currentTotalWidth = getItemsTotalWidth(freshItems, gaps);
   if (currentTotalWidth > maxTotalWidth) {
     await scaleProductItemsByFactor(freshItems, maxTotalWidth / currentTotalWidth);
@@ -2346,7 +2352,7 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
     })).filter((item) => item.box);
   }
 
-  gaps = getProductItemGaps(row, freshItems, "line", 0, gap);
+  gaps = touchEdges ? Array(Math.max(0, freshItems.length - 1)).fill(0) : getProductItemGaps(row, freshItems, "line", 0, gap);
   const finalTotalWidth = getItemsTotalWidth(freshItems, gaps);
   let left = areaBox.centerX - finalTotalWidth / 2;
 
@@ -2358,7 +2364,7 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
   }
 
   await arrangeProductLayerStacking(freshItems, getImageGroupZOrder(row, "product"));
-  log(`  Arranged product line after replace. gap=${gaps.join("|") || gap}, totalWidth=${Math.round(finalTotalWidth)}, items=${freshItems.length}`);
+  log(`  Arranged product line after replace. touchEdges=${touchEdges}, gap=${gaps.join("|") || gap}, totalWidth=${Math.round(finalTotalWidth)}, items=${freshItems.length}`);
 }
 
 async function arrangeProductOverlapItems(items, row, areaBox, layout) {
@@ -3938,7 +3944,7 @@ function isGiftControlColumn(column) {
     /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
     /^product\.gap\.\d+$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
-    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
+    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch)$/.test(column) ||
     /^productShadow\.(top|opacity)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||

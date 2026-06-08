@@ -20,6 +20,15 @@ The same category-order rule applies to `product.gap.N`:
 
 `product.scale` is applied after heightRatio sizing. It scales product layers around their bottom-center point so the product bottom stays visually anchored to `product.area`.
 
+For line layout, use edge-touch placement when adjacent products should sit exactly side by side:
+
+```csv
+product.layout,product.touchEdges
+line,1
+```
+
+`product.touchEdges = 1` forces line-layout gaps to `0` and uses `product.slotFill = 1`, so products are placed by their visible bounding-box edges. If the combined width still exceeds `product.area`, the group is scaled down just enough to fit.
+
 ## Bottle and Pump
 
 Pump products use the bottle table with a `+0.04` default boost, capped by the normal heightRatio clamp.
