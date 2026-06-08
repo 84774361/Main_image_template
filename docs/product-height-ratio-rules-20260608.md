@@ -27,7 +27,15 @@ product.layout,product.touchEdges
 line,1
 ```
 
-`product.touchEdges = 1` forces line-layout gaps to `0` and uses `product.slotFill = 1`, so products are placed by their visible bounding-box edges. If the combined width still exceeds `product.area`, the group is scaled down just enough to fit.
+`product.touchEdges = 1` forces line-layout gaps to `0`, so products are placed by their visible bounding-box edges.
+
+Line-layout placement order:
+
+1. Each product is sized by its category `heightRatio`.
+2. Products are arranged left-to-right with the resolved `gap` values.
+3. The arranged product group is checked against both `product.area` width and height.
+4. If the group exceeds either dimension, the whole group is scaled down just enough to fit.
+5. The whole group is aligned to the bottom center of `product.area`.
 
 ## Bottle and Pump
 

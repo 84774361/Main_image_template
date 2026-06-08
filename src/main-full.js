@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-product-line-touch-edges";
+const SCRIPT_VERSION = "20260608-product-line-group-fit";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -2299,7 +2299,7 @@ async function scaleProductItemsToHeight(items, row, areaBox) {
     const ratio = getProductHeightRatio(row, i + 1, items.length);
     const targetHeight = areaBox.height * ratio;
     if (targetHeight > 0 && item.box.height > 0) {
-      await scaleLayerByFactor(item.layer, targetHeight / item.box.height);
+      await scaleLayerByFactor(item.layer, targetHeight / item.box.height, { anchor: "bottomCenter" });
     }
     log(`  Product height rule: ${item.layer.name}, mode=${getProductHeightMode(row, items.length)}, category=${getProductCategory(row, i + 1)}, ratio=${ratio}, targetH=${Math.round(targetHeight)}`);
   }
@@ -2330,41 +2330,74 @@ function getItemsTotalWidth(items, gapsOrGap) {
   return width + gapsOrGap * Math.max(0, items.length - 1);
 }
 
-async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
-  const touchEdges = shouldTouchProductEdges(row);
-  const gap = touchEdges ? 0 : getImageGroupGap(row, "product", "line", 0);
-  let gaps = touchEdges ? [] : getProductItemGaps(row, items, "line", 0, gap);
-  const slotFill = touchEdges ? 1 : readNumber(row, "product.slotFill", rawLayout === "auto" ? 0.96 : 0.98);
-  const maxTotalWidth = areaBox.width * slotFill;
+function getItemsGroupBox(items) {
+  const boxes = items.map((item) => item.box).filter(Boolean);
+  if (!boxes.length) return null;
 
-  let freshItems = items.map((item) => ({
+  const left = Math.min(...boxes.map((box) => box.left));
+  const top = Math.min(...boxes.map((box) => box.top));
+  const right = Math.max(...boxes.map((box) => box.right));
+  const bottom = Math.max(...boxes.map((box) => box.bottom));
+  return makeBox(left, top, right - left, bottom - top);
+}
+
+function refreshProductItems(items) {
+  return items.map((item) => ({
     layer: item.layer,
     box: getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds)
   })).filter((item) => item.box);
+}
 
-  gaps = touchEdges ? Array(Math.max(0, freshItems.length - 1)).fill(0) : getProductItemGaps(row, freshItems, "line", 0, gap);
-  const currentTotalWidth = getItemsTotalWidth(freshItems, gaps);
-  if (currentTotalWidth > maxTotalWidth) {
-    await scaleProductItemsByFactor(freshItems, maxTotalWidth / currentTotalWidth);
-    freshItems = freshItems.map((item) => ({
-      layer: item.layer,
-      box: getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds)
-    })).filter((item) => item.box);
+async function translateProductItems(items, dx, dy) {
+  if (!dx && !dy) return;
+  for (const item of items) {
+    await item.layer.translate(dx, dy);
+  }
+}
+
+async function scaleProductItemsToFitArea(items, areaBox) {
+  const groupBox = getItemsGroupBox(items);
+  if (!groupBox || !areaBox) return items;
+
+  const factor = Math.min(areaBox.width / groupBox.width, areaBox.height / groupBox.height, 1);
+  if (Number.isFinite(factor) && factor > 0 && factor < 1) {
+    await scaleProductItemsByFactor(items, factor);
+    return refreshProductItems(items);
   }
 
-  gaps = touchEdges ? Array(Math.max(0, freshItems.length - 1)).fill(0) : getProductItemGaps(row, freshItems, "line", 0, gap);
-  const finalTotalWidth = getItemsTotalWidth(freshItems, gaps);
-  let left = areaBox.centerX - finalTotalWidth / 2;
+  return items;
+}
+
+async function alignProductGroupBottomCenter(items, areaBox) {
+  const groupBox = getItemsGroupBox(items);
+  if (!groupBox || !areaBox) return items;
+
+  await translateProductItems(items, areaBox.centerX - groupBox.centerX, areaBox.bottom - groupBox.bottom);
+  return refreshProductItems(items);
+}
+
+async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
+  const touchEdges = shouldTouchProductEdges(row);
+  const gap = touchEdges ? 0 : getImageGroupGap(row, "product", "line", 0);
+  let freshItems = refreshProductItems(items);
+
+  const gaps = touchEdges ? Array(Math.max(0, freshItems.length - 1)).fill(0) : getProductItemGaps(row, freshItems, "line", 0, gap);
+  let left = 0;
 
   for (let i = 0; i < freshItems.length; i += 1) {
     const item = freshItems[i];
     const targetCenterX = left + item.box.width / 2;
-    await item.layer.translate(targetCenterX - item.box.centerX, areaBox.bottom - item.box.bottom);
+    await item.layer.translate(targetCenterX - item.box.centerX, -item.box.bottom);
     left += item.box.width + (gaps[i] || 0);
   }
 
+  freshItems = refreshProductItems(freshItems);
+  freshItems = await scaleProductItemsToFitArea(freshItems, areaBox);
+  freshItems = await alignProductGroupBottomCenter(freshItems, areaBox);
+  const finalGroupBox = getItemsGroupBox(freshItems);
+
   await arrangeProductLayerStacking(freshItems, getImageGroupZOrder(row, "product"));
-  log(`  Arranged product line after replace. touchEdges=${touchEdges}, gap=${gaps.join("|") || gap}, totalWidth=${Math.round(finalTotalWidth)}, items=${freshItems.length}`);
+  log(`  Arranged product line after replace. touchEdges=${touchEdges}, gap=${gaps.join("|") || gap}, groupW=${finalGroupBox ? Math.round(finalGroupBox.width) : "?"}, groupH=${finalGroupBox ? Math.round(finalGroupBox.height) : "?"}, items=${freshItems.length}`);
 }
 
 async function arrangeProductOverlapItems(items, row, areaBox, layout) {
