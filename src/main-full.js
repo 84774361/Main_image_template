@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-pdd-sku-bottom-contents-only-rect-keep";
+const SCRIPT_VERSION = "20260608-pdd-sku-bottom-content-only-final";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -1378,6 +1378,71 @@ function buildMixedTextColorRanges(text, baseStyle, styleConfig) {
   });
 }
 
+function getStyleRangeForIndex(ranges, index) {
+  if (!Array.isArray(ranges)) return null;
+  return ranges.find((range) => index >= range.from && index < range.to) || ranges[0] || null;
+}
+
+function getTemplateTextStyleByKind(textKey, fallbackStyle) {
+  const text = String(textKey && textKey.textKey || "");
+  const chars = Array.from(text);
+  const ranges = textKey && textKey.textStyleRange;
+  const result = {
+    chinese: fallbackStyle,
+    latin: fallbackStyle
+  };
+
+  chars.forEach((char, index) => {
+    const kind = isLatinDigitChar(char) ? "latin" : "chinese";
+    if (result[kind] && result[kind] !== fallbackStyle) return;
+
+    const range = getStyleRangeForIndex(ranges, index);
+    if (range && range.textStyle) {
+      result[kind] = range.textStyle;
+    }
+  });
+
+  return result;
+}
+
+function buildMixedTextTemplateStyleRanges(text, styleByKind, styleConfig) {
+  const chars = Array.from(toPhotoshopText(text));
+  const ranges = [];
+  let start = 0;
+  let current = null;
+
+  chars.forEach((char, index) => {
+    const kind = isLatinDigitChar(char) ? "latin" : "chinese";
+    if (current === null) {
+      current = kind;
+      start = index;
+      return;
+    }
+    if (kind !== current) {
+      ranges.push({ from: start, to: index, kind: current });
+      current = kind;
+      start = index;
+    }
+  });
+
+  if (current !== null) {
+    ranges.push({ from: start, to: chars.length, kind: current });
+  }
+
+  return ranges.map((range) => {
+    const config = styleConfig[range.kind] || {};
+    return {
+      _obj: "textStyleRange",
+      from: range.from,
+      to: range.to,
+      textStyle: {
+        ...(styleByKind[range.kind] || styleByKind.chinese),
+        color: makeRgbColor(config.color || (styleByKind[range.kind] && styleByKind[range.kind].color))
+      }
+    };
+  });
+}
+
 function estimateTextLineWidth(text, fontSize) {
   return Array.from(String(text || "")).reduce((width, char) => {
     if (char === "\r" || char === "\n") return width;
@@ -2669,6 +2734,7 @@ async function replaceTextLayerMixedColor(layer, value, styleConfig, label) {
       await replaceTextLayer(layer, value);
       return;
     }
+    const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle);
 
     await photoshop.action.batchPlay(
       [
@@ -2681,7 +2747,7 @@ async function replaceTextLayerMixedColor(layer, value, styleConfig, label) {
             _obj: "textLayer",
             ...textKey,
             textKey: textValue,
-            textStyleRange: buildMixedTextColorRanges(textValue, baseStyle, styleConfig)
+            textStyleRange: buildMixedTextTemplateStyleRanges(textValue, styleByKind, styleConfig)
           },
           _options: { dialogOptions: "dontDisplay" }
         }
@@ -2758,7 +2824,7 @@ async function applyBottomTextRules(layer, value) {
   const mixedStyle = getCurrentTemplateConfig().bottomTextMixedStyle;
   if (mixedStyle) {
     await replaceTextLayer(layer, value);
-    log("  Bottom text contents only; PSD geometry, font, size, and color untouched.");
+    log("  Bottom text contents only; style writes disabled to preserve PSD geometry.");
   } else {
     await replaceTextLayerPreserveFirstStyle(layer, value);
     const explicitScale = readNumber(state.currentRow || {}, "txt.bottomTextScale", readNumber(state.currentRow || {}, "bottomText.scale", 1));
