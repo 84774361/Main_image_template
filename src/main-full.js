@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260609-line-split-ampoule-set";
+const SCRIPT_VERSION = "20260609-line-visual-overlap";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -1860,7 +1860,7 @@ function getImageGroupGap(row, prefix, layout, itemWidth) {
 
   if (layout === "line") {
     if (gapValue !== undefined && gapValue !== "") {
-      return Math.max(0, readNumber(row, `${prefix}.gap`, 0));
+      return readNumber(row, `${prefix}.gap`, 0);
     }
     return 0;
   }
@@ -1885,11 +1885,15 @@ function hasProductCategoryGap(row) {
   return Object.keys(row).some((key) => /^product\.gap\.\d+$/.test(key) && row[key] !== "");
 }
 
+function hasProductManualLineGap(row) {
+  return row && (row["product.gap"] !== undefined && row["product.gap"] !== "" || hasProductCategoryGap(row));
+}
+
 function getProductGapAt(row, leftIndex, layout, itemWidth, fallbackGap) {
   const categoryRank = getProductCategoryRank(row, leftIndex, Math.max(leftIndex + 1, getGiftCount(row, "product") || 1));
   const categoryGap = readNumber(row, `product.gap.${categoryRank}`, null);
   if (Number.isFinite(categoryGap)) {
-    return layout === "line" ? Math.max(0, categoryGap) : categoryGap;
+    return categoryGap;
   }
   return fallbackGap;
 }
@@ -2383,13 +2387,20 @@ async function alignProductGroupBottomCenter(items, areaBox) {
 
 async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
   const touchEdges = shouldTouchProductEdges(row);
-  const gap = touchEdges ? 0 : getImageGroupGap(row, "product", "line", 0);
   let freshItems = refreshProductItems(items);
   if (!freshItems.length || !areaBox) return;
 
-  const gaps = touchEdges ? Array(Math.max(0, freshItems.length - 1)).fill(0) : getProductItemGaps(row, freshItems, "line", 0, gap);
   await applyProductScaleToItems(freshItems, row);
   freshItems = refreshProductItems(freshItems);
+  const minItemWidth = Math.min(...freshItems.map((item) => item.box.width));
+  const manualGap = hasProductManualLineGap(row);
+  const overlapRatio = readNumber(row, "product.lineOverlapRatio", readNumber(row, "product.visualOverlapRatio", 0.1));
+  const defaultGap = manualGap || touchEdges
+    ? getImageGroupGap(row, "product", "line", minItemWidth)
+    : -minItemWidth * Math.max(0, Math.min(overlapRatio, 0.45));
+  const gaps = touchEdges
+    ? Array(Math.max(0, freshItems.length - 1)).fill(0)
+    : getProductItemGaps(row, freshItems, "line", minItemWidth, defaultGap);
 
   let totalWidth = getItemsTotalWidth(freshItems, gaps);
   const maxHeight = Math.max(...freshItems.map((item) => item.box.height));
@@ -2413,7 +2424,7 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
   const finalGroupBox = getItemsGroupBox(freshItems);
 
   await arrangeProductLayerStacking(freshItems, getImageGroupZOrder(row, "product"));
-  log(`  Arranged product line after replace. touchEdges=${touchEdges}, gap=${gaps.join("|") || gap}, fit=${Number.isFinite(fitFactor) ? fitFactor.toFixed(3) : "?"}, groupW=${finalGroupBox ? Math.round(finalGroupBox.width) : "?"}, groupH=${finalGroupBox ? Math.round(finalGroupBox.height) : "?"}, items=${freshItems.length}`);
+  log(`  Arranged product line after replace. touchEdges=${touchEdges}, manualGap=${manualGap}, gap=${gaps.map((item) => Math.round(item)).join("|") || Math.round(defaultGap)}, overlapRatio=${manualGap ? "manual" : overlapRatio}, fit=${Number.isFinite(fitFactor) ? fitFactor.toFixed(3) : "?"}, groupW=${finalGroupBox ? Math.round(finalGroupBox.width) : "?"}, groupH=${finalGroupBox ? Math.round(finalGroupBox.height) : "?"}, items=${freshItems.length}`);
 }
 
 async function arrangeProductOverlapItems(items, row, areaBox, layout) {
@@ -4019,7 +4030,7 @@ function isGiftControlColumn(column) {
     /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
     /^product\.gap\.\d+$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
-    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch)$/.test(column) ||
+    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|lineOverlapRatio|visualOverlapRatio)$/.test(column) ||
     /^productShadow\.(top|opacity)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
