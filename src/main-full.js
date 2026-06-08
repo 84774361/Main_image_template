@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-pdd-sku-text-layout-fix";
+const SCRIPT_VERSION = "20260608-pdd-sku-title-rect-shadow";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -46,7 +46,8 @@ const BASE_TEMPLATE_CONFIG = {
   keepPersonOnTop: true,
   productNameToSubtitle: false,
   subtitleRectangle: null,
-  bottomTextMixedStyle: null
+  bottomTextMixedStyle: null,
+  productShadow: null
 };
 
 const TEMPLATE_CONFIGS = {
@@ -111,8 +112,8 @@ const TEMPLATE_CONFIGS = {
       color: { red: 255, green: 255, blue: 255 }
     },
     bottomTextMixedStyle: {
-      fontSize: 72,
-      maxWidth: 430,
+      centerX: 400,
+      preserveFontSize: true,
       chinese: {
         postScriptName: "FZLanTingHei_GBK",
         fontName: "方正兰亭黑_GBK",
@@ -123,6 +124,14 @@ const TEMPLATE_CONFIGS = {
         fontName: "LINE Seed Sans App Regular",
         color: { red: 197, green: 39, blue: 20 }
       }
+    },
+    productShadow: {
+      enabled: true,
+      sourceGroupName: "PRODUCT",
+      targetGroupName: "PROJECT",
+      name: "PRODUCT.shadow",
+      top: 740,
+      opacity: 32
     }
   }
 };
@@ -1310,7 +1319,7 @@ function buildMixedTextStyleRanges(text, baseStyle, styleConfig) {
 
   return ranges.map((range) => {
     const config = styleConfig[range.kind] || {};
-    const fontSize = Number(config.fontSize || styleConfig.fontSize);
+    const fontSize = styleConfig.preserveFontSize ? NaN : Number(config.fontSize || styleConfig.fontSize);
     const textStyle = {
       ...baseStyle,
       fontPostScriptName: config.postScriptName || baseStyle.fontPostScriptName,
@@ -2176,6 +2185,124 @@ async function keepPersonOnTop(doc) {
   }
 }
 
+async function mergeActiveLayerBestEffort(layer) {
+  if (!layer) return layer;
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "mergeLayers",
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: false, modalBehavior: "execute" }
+    );
+    return photoshop.app.activeDocument.activeLayers[0] || layer;
+  } catch (error) {
+    log(`  Product shadow merge skipped: ${formatError(error)}`);
+    return layer;
+  }
+}
+
+async function flipLayerVertical(layer) {
+  if (!layer) return;
+  try {
+    await layer.scale(100, -100, photoshop.constants.AnchorPosition.MIDDLECENTER, {
+      interpolation: photoshop.constants.InterpolationMethod.AUTOMATIC
+    });
+  } catch (error) {
+    ensureModules();
+    photoshop.app.activeDocument.activeLayers = [layer];
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "transform",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          freeTransformCenterState: {
+            _enum: "quadCenterState",
+            _value: "QCSAverage"
+          },
+          height: {
+            _unit: "percentUnit",
+            _value: -100
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: false, modalBehavior: "execute" }
+    );
+  }
+}
+
+async function applyProductShadow(doc) {
+  const config = getCurrentTemplateConfig().productShadow;
+  if (!config || !config.enabled) return;
+
+  const productGroup = findLayerByName(doc, config.sourceGroupName || "PRODUCT");
+  if (!productGroup) {
+    log("  Product shadow skipped: PRODUCT group not found.");
+    return;
+  }
+
+  try {
+    let shadowLayer = await productGroup.duplicate();
+    shadowLayer.name = config.name || "PRODUCT.shadow";
+    shadowLayer.visible = true;
+
+    shadowLayer = await mergeActiveLayerBestEffort(shadowLayer);
+    shadowLayer.name = config.name || "PRODUCT.shadow";
+    await flipLayerVertical(shadowLayer);
+
+    let shadowBox = getBoundsBox(shadowLayer.boundsNoEffects || shadowLayer.bounds);
+    const top = readNumber(state.currentRow || {}, "productShadow.top", Number(config.top) || 740);
+    if (shadowBox && Number.isFinite(top)) {
+      await shadowLayer.translate(0, top - shadowBox.top);
+    }
+
+    const opacity = readNumber(state.currentRow || {}, "productShadow.opacity", Number(config.opacity) || 32);
+    if (Number.isFinite(opacity) && opacity >= 0 && opacity <= 100) {
+      try {
+        shadowLayer.opacity = opacity;
+      } catch (error) {
+        log(`  Product shadow opacity skipped: ${formatError(error)}`);
+      }
+    }
+
+    const projectGroup = findLayerByName(doc, config.targetGroupName || "PROJECT");
+    if (projectGroup) {
+      const placements = [
+        photoshop.constants.ElementPlacement.PLACEINSIDE,
+        photoshop.constants.ElementPlacement.PLACEATEND,
+        photoshop.constants.ElementPlacement.INSIDE
+      ].filter(Boolean);
+      for (const placement of placements) {
+        try {
+          await shadowLayer.move(projectGroup, placement);
+          break;
+        } catch (error) {
+          // Try the next UXP placement constant.
+        }
+      }
+    }
+
+    try {
+      await shadowLayer.move(productGroup, photoshop.constants.ElementPlacement.PLACEAFTER);
+    } catch (error) {
+      log(`  Product shadow z-order skipped: ${formatError(error)}`);
+    }
+
+    shadowBox = getBoundsBox(shadowLayer.boundsNoEffects || shadowLayer.bounds);
+    log(`  Product shadow applied: top=${shadowBox ? Math.round(shadowBox.top) : "?"}, opacity=${opacity}.`);
+  } catch (error) {
+    log(`  Product shadow skipped: ${formatError(error)}`);
+  }
+}
+
 async function fitLayerToBox(layer, targetBox, options = {}) {
   const currentBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
   if (!targetBox || !currentBox) return;
@@ -2252,11 +2379,52 @@ async function resizeLayerToBox(layer, targetBox, options = {}) {
   const currentBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
   if (!currentBox || currentBox.width <= 0 || currentBox.height <= 0) return;
 
+  const applyTransform = async (fromBox) => {
+    const scaleX = Math.max(targetBox.width / fromBox.width, 0.01);
+    const scaleY = options.preserveHeight ? 1 : Math.max(targetBox.height / fromBox.height, 0.01);
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "transform",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          freeTransformCenterState: {
+            _enum: "quadCenterState",
+            _value: "QCSAverage"
+          },
+          width: {
+            _unit: "percentUnit",
+            _value: scaleX * 100
+          },
+          height: {
+            _unit: "percentUnit",
+            _value: scaleY * 100
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: false, modalBehavior: "execute" }
+    );
+  };
+
   const scaleX = Math.max(targetBox.width / currentBox.width, 0.01);
   const scaleY = options.preserveHeight ? 1 : Math.max(targetBox.height / currentBox.height, 0.01);
-  await layer.scale(scaleX * 100, scaleY * 100, photoshop.constants.AnchorPosition.MIDDLECENTER, {
-    interpolation: photoshop.constants.InterpolationMethod.AUTOMATIC
-  });
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+
+  try {
+    await layer.scale(scaleX * 100, scaleY * 100, photoshop.constants.AnchorPosition.MIDDLECENTER, {
+      interpolation: photoshop.constants.InterpolationMethod.AUTOMATIC
+    });
+  } catch (error) {
+    await applyTransform(currentBox);
+  }
+
+  const afterScaleBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (afterScaleBox && Math.abs(afterScaleBox.width - targetBox.width) > 2) {
+    await applyTransform(afterScaleBox);
+  }
 
   const scaledBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
   if (!scaledBox) return;
@@ -2459,32 +2627,20 @@ async function applyBottomTextRules(layer, value) {
     await replaceTextLayerMixedStyle(layer, value, mixedStyle, "Bottom text");
   } else {
     await replaceTextLayerPreserveFirstStyle(layer, value);
-  }
-
-  const explicitScale = readNumber(state.currentRow || {}, "txt.bottomTextScale", readNumber(state.currentRow || {}, "bottomText.scale", 1));
-  if (Number.isFinite(explicitScale) && explicitScale > 0 && explicitScale !== 1) {
-    await scaleTextLayerFontSize(layer, explicitScale);
-    log(`  Bottom text scaled by CSV: scale=${explicitScale}.`);
-  }
-
-  let afterBox = getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
-  if (originalBox && afterBox) {
-    const configuredMaxWidth = mixedStyle && Number(mixedStyle.maxWidth);
-    const maxWidth = readNumber(
-      state.currentRow || {},
-      "bottomText.maxWidth",
-      Number.isFinite(configuredMaxWidth) && configuredMaxWidth > 0 ? configuredMaxWidth : originalBox.width * 1.35
-    );
-    if (Number.isFinite(maxWidth) && maxWidth > 0 && afterBox.width > maxWidth) {
-      await scaleTextLayerFontSize(layer, maxWidth / afterBox.width);
-      afterBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
-      log(`  Bottom text constrained to maxWidth=${Math.round(maxWidth)}.`);
+    const explicitScale = readNumber(state.currentRow || {}, "txt.bottomTextScale", readNumber(state.currentRow || {}, "bottomText.scale", 1));
+    if (Number.isFinite(explicitScale) && explicitScale > 0 && explicitScale !== 1) {
+      await scaleTextLayerFontSize(layer, explicitScale);
+      log(`  Bottom text scaled by CSV: scale=${explicitScale}.`);
     }
   }
 
+  const afterBox = getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
   if (originalBox && afterBox) {
-    await layer.translate(originalBox.centerX - afterBox.centerX, originalBox.top - afterBox.top);
-    log("  Bottom text anchor restored.");
+    const targetCenterX = mixedStyle && Number.isFinite(Number(mixedStyle.centerX))
+      ? Number(mixedStyle.centerX)
+      : originalBox.centerX;
+    await layer.translate(targetCenterX - afterBox.centerX, originalBox.top - afterBox.top);
+    log(`  Bottom text anchor restored: centerX=${Math.round(targetCenterX)}.`);
   }
 }
 
@@ -3346,6 +3502,7 @@ function isGiftControlColumn(column) {
     /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
     /^product\.(heightMode|lotion500HeightRatio|lotion5HeightRatio|cream50HeightRatio|tube100HeightRatio|tube25HeightRatio|sameLotionHeightRatio|sameCream50HeightRatio|sameTubeHeightRatio|sameSample5HeightRatio|samePumpHeightRatio|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
+    /^productShadow\.(top|opacity)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
     /^bottomText\.maxWidth$/.test(column) ||
@@ -3474,6 +3631,7 @@ async function applyRowToDocument(doc, row) {
   log("  Before product arrange.");
   await arrangeProductLineAfterReplace(doc, expandedRow);
   log("  After product arrange.");
+  await applyProductShadow(doc);
   if (getCurrentTemplateConfig().keepPersonOnTop) {
     await keepPersonOnTop(doc);
   }
