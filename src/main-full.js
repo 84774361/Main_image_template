@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260607-product-view-angle-front";
+const SCRIPT_VERSION = "20260608-pdd-sku-text-layout-fix";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -106,7 +106,13 @@ const TEMPLATE_CONFIGS = {
       minHeight: 44,
       maxTextWidth: 560
     },
+    subtitleTextStyle: {
+      fontSize: 30,
+      color: { red: 255, green: 255, blue: 255 }
+    },
     bottomTextMixedStyle: {
+      fontSize: 72,
+      maxWidth: 430,
       chinese: {
         postScriptName: "FZLanTingHei_GBK",
         fontName: "方正兰亭黑_GBK",
@@ -1304,18 +1310,88 @@ function buildMixedTextStyleRanges(text, baseStyle, styleConfig) {
 
   return ranges.map((range) => {
     const config = styleConfig[range.kind] || {};
+    const fontSize = Number(config.fontSize || styleConfig.fontSize);
+    const textStyle = {
+      ...baseStyle,
+      fontPostScriptName: config.postScriptName || baseStyle.fontPostScriptName,
+      fontName: config.fontName || baseStyle.fontName,
+      color: makeRgbColor(config.color || baseStyle.color)
+    };
+    if (Number.isFinite(fontSize) && fontSize > 0) {
+      textStyle.size = makePointValue(fontSize);
+      textStyle.impliedFontSize = makePointValue(fontSize);
+    }
     return {
       _obj: "textStyleRange",
       from: range.from,
       to: range.to,
-      textStyle: {
-        ...baseStyle,
-        fontPostScriptName: config.postScriptName || baseStyle.fontPostScriptName,
-        fontName: config.fontName || baseStyle.fontName,
-        color: makeRgbColor(config.color || baseStyle.color)
-      }
+      textStyle
     };
   });
+}
+
+async function applyTextLayerUniformStyle(layer, styleConfig, label) {
+  if (!layer || !layer.textItem || !styleConfig) return;
+
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+
+  try {
+    const result = await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "get",
+          _target: [
+            { _property: "textKey" },
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+
+    const textKey = result && result[0] && result[0].textKey;
+    const ranges = textKey && textKey.textStyleRange;
+    if (!textKey || !Array.isArray(ranges) || !ranges.length) return;
+
+    const fontSize = Number(styleConfig.fontSize);
+    const textStyleRange = ranges.map((range) => {
+      const textStyle = { ...(range.textStyle || {}) };
+      if (styleConfig.postScriptName) textStyle.fontPostScriptName = styleConfig.postScriptName;
+      if (styleConfig.fontName) textStyle.fontName = styleConfig.fontName;
+      if (styleConfig.color) textStyle.color = makeRgbColor(styleConfig.color);
+      if (Number.isFinite(fontSize) && fontSize > 0) {
+        textStyle.size = makePointValue(fontSize);
+        textStyle.impliedFontSize = makePointValue(fontSize);
+      }
+      return {
+        ...range,
+        textStyle
+      };
+    });
+
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "set",
+          _target: [
+            { _ref: "textLayer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          to: {
+            _obj: "textLayer",
+            ...textKey,
+            textStyleRange
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: false, modalBehavior: "execute" }
+    );
+    log(`  ${label || layer.name} uniform style applied.`);
+  } catch (error) {
+    log(`  Uniform text style skipped for ${layer.name}: ${formatError(error)}`);
+  }
 }
 
 function getTitleLineHeightRatio(row, hasScaledSecondLine) {
@@ -2171,13 +2247,13 @@ async function scaleLayerByFactor(layer, factor) {
   });
 }
 
-async function resizeLayerToBox(layer, targetBox) {
+async function resizeLayerToBox(layer, targetBox, options = {}) {
   if (!layer || !targetBox) return;
   const currentBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
   if (!currentBox || currentBox.width <= 0 || currentBox.height <= 0) return;
 
   const scaleX = Math.max(targetBox.width / currentBox.width, 0.01);
-  const scaleY = Math.max(targetBox.height / currentBox.height, 0.01);
+  const scaleY = options.preserveHeight ? 1 : Math.max(targetBox.height / currentBox.height, 0.01);
   await layer.scale(scaleX * 100, scaleY * 100, photoshop.constants.AnchorPosition.MIDDLECENTER, {
     interpolation: photoshop.constants.InterpolationMethod.AUTOMATIC
   });
@@ -2393,7 +2469,12 @@ async function applyBottomTextRules(layer, value) {
 
   let afterBox = getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
   if (originalBox && afterBox) {
-    const maxWidth = readNumber(state.currentRow || {}, "bottomText.maxWidth", originalBox.width * 1.35);
+    const configuredMaxWidth = mixedStyle && Number(mixedStyle.maxWidth);
+    const maxWidth = readNumber(
+      state.currentRow || {},
+      "bottomText.maxWidth",
+      Number.isFinite(configuredMaxWidth) && configuredMaxWidth > 0 ? configuredMaxWidth : originalBox.width * 1.35
+    );
     if (Number.isFinite(maxWidth) && maxWidth > 0 && afterBox.width > maxWidth) {
       await scaleTextLayerFontSize(layer, maxWidth / afterBox.width);
       afterBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
@@ -3055,7 +3136,7 @@ function getTitleMaxWidth(row, titleLayer) {
   return 620;
 }
 
-async function wrapTitleToMeasuredWidth(layer, title, maxWidth) {
+async function wrapTitleToMeasuredWidth(layer, title, maxWidth, options = {}) {
   const raw = String(title || "").replace(/[ \t]+/g, " ").trim();
   if (!raw || raw.includes("\n")) {
     await setTextAndMeasure(layer, raw);
@@ -3063,6 +3144,7 @@ async function wrapTitleToMeasuredWidth(layer, title, maxWidth) {
   }
 
   const row = state.currentRow || {};
+  const forceMaxWidth = !!options.forceMaxWidth;
   const hasExplicitWrap = hasValue(row, "title.wrapAt") || hasValue(row, "txt.titleWrapAt");
   const hasExplicitMaxWidth = hasValue(row, "txt.titleMaxWidth") || hasValue(row, "title.maxWidth");
   const wrapAt = readNumber(row, "title.wrapAt", readNumber(row, "txt.titleWrapAt", null));
@@ -3074,13 +3156,17 @@ async function wrapTitleToMeasuredWidth(layer, title, maxWidth) {
   }
 
   const singleLineBox = await setTextAndMeasure(layer, raw);
-  if (!hasExplicitMaxWidth || !singleLineBox || singleLineBox.width <= maxWidth) {
+  if ((!forceMaxWidth && !hasExplicitMaxWidth) || !singleLineBox || singleLineBox.width <= maxWidth) {
     return raw;
   }
 
   const words = raw.split(/\s+/).filter(Boolean);
   if (words.length <= 1) {
-    const fallback = wrapTitle(raw, readNumber(state.currentRow || {}, "title.wrapAt", 13));
+    const displayLength = Math.max(getDisplayLength(raw), 1);
+    const dynamicWrapAt = singleLineBox && singleLineBox.width > 0
+      ? Math.max(8, Math.floor(displayLength * maxWidth / singleLineBox.width))
+      : readNumber(state.currentRow || {}, "title.wrapAt", 13);
+    const fallback = wrapTitle(raw, readNumber(state.currentRow || {}, "title.wrapAt", dynamicWrapAt));
     await setTextAndMeasure(layer, fallback);
     return fallback;
   }
@@ -3153,7 +3239,10 @@ async function resizeSubtitleRectangle(doc, textLayer) {
   const paddingX = readNumber(state.currentRow || {}, "subtitle.rectanglePaddingX", Number(config.paddingX) || 0);
   const paddingY = readNumber(state.currentRow || {}, "subtitle.rectanglePaddingY", Number(config.paddingY) || 0);
   const targetWidth = Math.max(textBox.width + paddingX * 2, Number(config.minWidth) || 0);
-  const targetHeight = Math.max(textBox.height + paddingY * 2, Number(config.minHeight) || 0);
+  const currentBox = getBoundsBox(rectangleLayer.boundsNoEffects || rectangleLayer.bounds);
+  const targetHeight = currentBox
+    ? currentBox.height
+    : Math.max(textBox.height + paddingY * 2, Number(config.minHeight) || 0);
   const targetBox = makeBox(
     textBox.centerX - targetWidth / 2,
     textBox.centerY - targetHeight / 2,
@@ -3163,7 +3252,7 @@ async function resizeSubtitleRectangle(doc, textLayer) {
 
   try {
     rectangleLayer.visible = true;
-    await resizeLayerToBox(rectangleLayer, targetBox);
+    await resizeLayerToBox(rectangleLayer, targetBox, { preserveHeight: true });
     log(`  Subtitle rectangle resized: w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
   } catch (error) {
     log(`  Subtitle rectangle resize skipped: ${formatError(error)}`);
@@ -3220,16 +3309,24 @@ async function applyTitleAndProductNote(doc, row) {
       if (layer && layer !== fallbackNoteLayer) layer.visible = false;
     });
     fallbackNoteLayer.visible = true;
+    const noteOriginalBox = getBoundsBox(fallbackNoteLayer.boundsNoEffects || fallbackNoteLayer.bounds);
     const subtitleConfig = getCurrentTemplateConfig().subtitleRectangle;
     const maxSubtitleWidth = fallbackNoteLayer.name === "txt.subtitle" && subtitleConfig
       ? readNumber(row, "subtitle.maxTextWidth", Number(subtitleConfig.maxTextWidth) || null)
       : null;
     if (fallbackNoteLayer.name === "txt.subtitle" && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
-      await wrapTitleToMeasuredWidth(fallbackNoteLayer, noteText, maxSubtitleWidth);
+      await applyTextLayerUniformStyle(fallbackNoteLayer, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
+      await wrapTitleToMeasuredWidth(fallbackNoteLayer, noteText, maxSubtitleWidth, { forceMaxWidth: true });
+      await applyTextLayerUniformStyle(fallbackNoteLayer, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
       log(`  Subtitle wrapped to maxWidth=${Math.round(maxSubtitleWidth)}.`);
     } else {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
+    }
+    const noteAfterBox = getBoundsBox(fallbackNoteLayer.boundsNoEffects || fallbackNoteLayer.bounds);
+    if (fallbackNoteLayer.name === "txt.subtitle" && noteOriginalBox && noteAfterBox) {
+      await fallbackNoteLayer.translate(noteOriginalBox.centerX - noteAfterBox.centerX, noteOriginalBox.top - noteAfterBox.top);
+      log("  Subtitle anchor restored.");
     }
     if (fallbackNoteLayer.name === "txt.subtitle") {
       await resizeSubtitleRectangle(doc, fallbackNoteLayer);
