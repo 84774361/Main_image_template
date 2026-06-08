@@ -2,8 +2,8 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="src/styles.css?v=20260608-pdd-sku-text-layout-fix" />
-    <script src="src/main-full.js?v=20260608-pdd-sku-text-layout-fix"></script>
+    <link rel="stylesheet" href="src/styles.css?v=20260608-export-format-psd-jpg" />
+    <script src="src/main-full.js?v=20260608-export-format-psd-jpg"></script>
   </head>
   <body>
     <main class="panel">
@@ -39,6 +39,13 @@
 
         <div class="options">
           <div class="optionGrid">
+            <label for="exportFormat">&#26684;&#24335;</label>
+            <select id="exportFormat">
+              <option value="jpg" selected>JPG</option>
+              <option value="psd">PSD</option>
+              <option value="jpg,psd">JPG + PSD</option>
+            </select>
+
             <label for="jpgQuality">JPG</label>
             <input id="jpgQuality" type="number" min="1" max="12" value="10" />
 

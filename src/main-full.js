@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-product-line-group-fit";
+const SCRIPT_VERSION = "20260608-export-format-psd-jpg";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -34,7 +34,7 @@ const BASE_TEMPLATE_CONFIG = {
     output: ""
   },
   exportNameColumns: ["exportName", "sku", "id", "goodsId"],
-  ignoredDataColumns: [],
+  ignoredDataColumns: ["export.format", "exportFormat", "导出格式"],
   giftRightBox: {
     left: 390,
     top: 595,
@@ -3265,10 +3265,37 @@ async function getAssetEntryWithoutProductViewFallback(normalized, options = {})
   return assetsFolder.getEntry(normalized);
 }
 
-function getExportName(row, index) {
+function getExportBaseName(row, index) {
   const prefix = $("filePrefix").value || "";
   const base = getConfiguredExportName(row, index);
-  return `${prefix}${base}.jpg`;
+  return `${prefix}${base}`.replace(/\.(?:jpe?g|psd)$/i, "");
+}
+
+function getExportName(row, index, format = "jpg") {
+  const extension = format === "psd" ? "psd" : "jpg";
+  return `${getExportBaseName(row, index)}.${extension}`;
+}
+
+function normalizeExportFormats(value) {
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/jpeg/g, "jpg")
+    .replace(/both|all|jpg\s*\+\s*psd|psd\s*\+\s*jpg/g, "jpg,psd");
+  const formats = raw
+    .split(/[,+|/;；、\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => item === "jpeg" ? "jpg" : item)
+    .filter((item) => item === "jpg" || item === "psd");
+  const unique = Array.from(new Set(formats));
+  return unique.length ? unique : ["jpg"];
+}
+
+function getExportFormats(row) {
+  const rowFormat = row && (row["export.format"] || row.exportFormat || row["导出格式"]);
+  const uiFormat = $("exportFormat") && $("exportFormat").value;
+  return normalizeExportFormats(rowFormat || uiFormat || "jpg");
 }
 
 function splitImageList(value) {
@@ -3989,8 +4016,8 @@ function isGiftControlColumn(column) {
 
 async function exportJpg(doc, row, index) {
   const quality = Number($("jpgQuality").value || 10);
-  const outputName = getExportName(row, index);
-  log(`  Saving as: ${outputName}`);
+  const outputName = getExportName(row, index, "jpg");
+  log(`  Saving JPG as: ${outputName}`);
   const jpgFile = await outputFolder.createFile(outputName, { overwrite: true });
 
   if (doc.saveAs && doc.saveAs.jpg) {
@@ -4023,6 +4050,56 @@ async function exportJpg(doc, row, index) {
   );
 
   return outputName;
+}
+
+async function exportPsd(doc, row, index) {
+  const outputName = getExportName(row, index, "psd");
+  log(`  Saving PSD as: ${outputName}`);
+  const psdFile = await outputFolder.createFile(outputName, { overwrite: true });
+
+  if (doc.saveAs && doc.saveAs.psd) {
+    await doc.saveAs.psd(psdFile, { maximizeCompatibility: true }, true);
+    return outputName;
+  }
+
+  const token = fs.createSessionToken(psdFile);
+  await photoshop.action.batchPlay(
+    [
+      {
+        _obj: "save",
+        as: {
+          _obj: "photoshop35Format",
+          maximizeCompatibility: true
+        },
+        in: {
+          _kind: "local",
+          _path: token
+        },
+        copy: true,
+        lowerCase: true,
+        _options: {
+          dialogOptions: "dontDisplay"
+        }
+      }
+    ],
+    { synchronousExecution: false, modalBehavior: "execute" }
+  );
+
+  return outputName;
+}
+
+async function exportDocument(doc, row, index) {
+  const formats = getExportFormats(row);
+  log(`  Exporting ${formats.map((format) => format.toUpperCase()).join(" + ")}...`);
+  const outputNames = [];
+  for (const format of formats) {
+    if (format === "psd") {
+      outputNames.push(await exportPsd(doc, row, index));
+    } else {
+      outputNames.push(await exportJpg(doc, row, index));
+    }
+  }
+  return outputNames.join(", ");
 }
 
 async function closeDocWithoutSaving(doc) {
@@ -4125,8 +4202,7 @@ async function processOne(row, index) {
   try {
     log("  Applying row data...");
     await applyRowToDocument(doc, row);
-    log("  Exporting JPG...");
-    return await exportJpg(doc, row, index);
+    return await exportDocument(doc, row, index);
   } finally {
     await closeDocWithoutSaving(doc);
   }

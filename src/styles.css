@@ -115,7 +115,8 @@ button {
   font-size: 12px;
 }
 
-.options input {
+.options input,
+.options select {
   box-sizing: border-box;
   width: 100%;
   min-height: 24px;

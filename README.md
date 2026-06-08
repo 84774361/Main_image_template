@@ -160,6 +160,7 @@ img.giftLeft
 
 - `sku`、`id`、`goodsId`：可作为导出文件名。
 - `exportName`：优先作为导出文件名，不需要写 `.jpg`。
+- `export.format` / `exportFormat` / `导出格式`：可选导出格式，支持 `jpg`、`psd`、`jpg+psd`；不填时使用面板里的格式选择。
 
 ## 模板制作建议
 
