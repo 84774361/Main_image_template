@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-pdd-sku-direct-product-token";
+const SCRIPT_VERSION = "20260608-pdd-sku-height-ratio-chart";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -354,6 +354,11 @@ async function loadProductNameMap() {
     if (compact && compact !== normalized) {
       addProductNameMapBucket(buckets, compact, value);
     }
+
+    const matchKey = compactProductNameMatchKey(normalized);
+    if (matchKey && matchKey !== normalized && matchKey !== compact) {
+      addProductNameMapBucket(buckets, matchKey, value);
+    }
   };
 
   rows.forEach((row) => {
@@ -368,8 +373,12 @@ async function loadProductNameMap() {
     const productEn = row.product_en || row["product_en"] || "";
     const fullParts = String(fullName || "").split("-").map((part) => part.trim()).filter(Boolean);
     const standardProduct = fullParts.length >= 2 ? fullParts[1] : "";
+    const fullCategory = fullParts.length >= 3 ? fullParts[2] : "";
+    const fullSpecTail = fullParts.length >= 4 ? fullParts.slice(3).join("-") : "";
+    const ageAliases = getAgeCnAliases(age);
     const productAliases = getChineseProductAliases({ age, product, standardProduct, productEn });
     const englishDerived = getEnglishDerivedChineseProductAliases(row, fileName);
+    const englishAgeAliases = getAgeCnAliases(englishDerived.age);
 
     put(fullName, imagePath);
     put([age, product, category, spec].filter(Boolean).join("-"), imagePath);
@@ -380,11 +389,38 @@ async function loadProductNameMap() {
     put([age, standardProduct, spec].filter(Boolean).join("-"), imagePath);
     put([standardProduct, category, spec].filter(Boolean).join("-"), imagePath);
     put([standardProduct, spec].filter(Boolean).join("-"), imagePath);
+    if (fullSpecTail) {
+      put([standardProduct, fullSpecTail].filter(Boolean).join("-"), imagePath);
+      put([standardProduct, fullCategory, fullSpecTail].filter(Boolean).join("-"), imagePath);
+    }
+    ageAliases.forEach((ageAlias) => {
+      put([ageAlias, product, category, spec].filter(Boolean).join("-"), imagePath);
+      put([ageAlias, product, spec].filter(Boolean).join("-"), imagePath);
+      put([ageAlias, standardProduct, category, spec].filter(Boolean).join("-"), imagePath);
+      put([ageAlias, standardProduct, spec].filter(Boolean).join("-"), imagePath);
+      if (fullSpecTail) {
+        put([ageAlias, standardProduct, fullCategory, fullSpecTail].filter(Boolean).join("-"), imagePath);
+        put([ageAlias, standardProduct, fullSpecTail].filter(Boolean).join("-"), imagePath);
+      }
+    });
     productAliases.forEach((alias) => {
       put([age, alias, category, spec].filter(Boolean).join("-"), imagePath);
       put([age, alias, spec].filter(Boolean).join("-"), imagePath);
       put([alias, category, spec].filter(Boolean).join("-"), imagePath);
       put([alias, spec].filter(Boolean).join("-"), imagePath);
+      ageAliases.forEach((ageAlias) => {
+        put([ageAlias, alias, category, spec].filter(Boolean).join("-"), imagePath);
+        put([ageAlias, alias, spec].filter(Boolean).join("-"), imagePath);
+        put(`${ageAlias || ""}${alias || ""}${spec ? `-${spec}` : ""}`, imagePath);
+      });
+      if (fullSpecTail) {
+        put([alias, fullSpecTail].filter(Boolean).join("-"), imagePath);
+        put([alias, fullCategory, fullSpecTail].filter(Boolean).join("-"), imagePath);
+        ageAliases.forEach((ageAlias) => {
+          put([ageAlias, alias, fullCategory, fullSpecTail].filter(Boolean).join("-"), imagePath);
+          put([ageAlias, alias, fullSpecTail].filter(Boolean).join("-"), imagePath);
+        });
+      }
       put(`${age || ""}${alias || ""}${spec ? `-${spec}` : ""}`, imagePath);
     });
     englishDerived.productAliases.forEach((alias) => {
@@ -392,6 +428,11 @@ async function loadProductNameMap() {
       put([englishDerived.age, alias, spec].filter(Boolean).join("-"), imagePath);
       put([alias, englishDerived.category, spec].filter(Boolean).join("-"), imagePath);
       put([alias, spec].filter(Boolean).join("-"), imagePath);
+      englishAgeAliases.forEach((ageAlias) => {
+        put([ageAlias, alias, englishDerived.category, spec].filter(Boolean).join("-"), imagePath);
+        put([ageAlias, alias, spec].filter(Boolean).join("-"), imagePath);
+        put(`${ageAlias || ""}${alias || ""}${spec ? `-${spec}` : ""}`, imagePath);
+      });
       put(`${englishDerived.age || ""}${alias || ""}${spec ? `-${spec}` : ""}`, imagePath);
     });
     put(fileName.replace(/\.[^.]+$/, ""), imagePath);
@@ -425,6 +466,28 @@ function addProductNameMapBucket(buckets, key, value) {
 
 function compactSpecHyphenKey(key) {
   return String(key || "").replace(/-(\d+(?:\.\d+)?(?:g|ml|kg|l)(?:-[a-z0-9]+)?)$/i, "$1");
+}
+
+function compactProductNameMatchKey(key) {
+  return String(key || "")
+    .replace(/[＊*×Ｘｘ]/g, "x")
+    .replace(/((?:kg|ml|g|l))x(?=\d)/gi, "$1")
+    .replace(/[\\/_\-\s]+/g, "")
+    .toLowerCase();
+}
+
+function getAgeCnAliases(age) {
+  const normalized = normalizeProductNameKey(age);
+  if (normalized === "婴童" || normalized === "一页") return ["婴童", "一页"];
+  if (normalized === "学龄") return ["学龄"];
+  return age ? [String(age)] : [];
+}
+
+function getAgeCnCanonicalFromText(value) {
+  const normalized = normalizeProductNameKey(value);
+  if (normalized.includes("婴童") || normalized.includes("一页")) return "婴童";
+  if (normalized.includes("学龄")) return "学龄";
+  return "";
 }
 
 function choosePreferredProductImageForKey(key, values) {
@@ -681,6 +744,7 @@ function getImageSourceForIndex(row, prefix, index) {
 
 function getProductCategoryFromSource(source) {
   const text = String(source || "").toLowerCase();
+  if (/(ampoule|次抛|安瓶|set-\d+x|\d+x)/.test(text)) return "ampoule";
   if (/(tube|管)/.test(text)) return "tube";
   if (/(pump|泵|按压)/.test(text)) return "pump";
   if (/(jar|pot|罐)/.test(text)) return "jar";
@@ -817,6 +881,81 @@ function getGiftLeftAmpouleImagePath(row) {
   return row["img.giftLeft"] || row["img.giftLeftSet"] || row["img.giftLeft.1"];
 }
 
+function clampHeightRatio(value) {
+  return Math.max(0.25, Math.min(Number(value), 1.05));
+}
+
+function getProductSpecSize(specs) {
+  return Math.max(specs.ml || 0, specs.g || 0);
+}
+
+function readProductHeightRatio(row, key, fallback) {
+  return clampHeightRatio(readNumber(row, `product.${key}HeightRatio`, fallback));
+}
+
+function isAmpouleSetSource(source) {
+  const text = String(source || "").toLowerCase();
+  return /(ampoule[-_\s]*set|set-\d+x|\d+x|\*\s*\d+|次抛.*(?:x|\*)\s*\d+)/.test(text);
+}
+
+function getBottleHeightRatioBySpec(row, size, mode, category) {
+  const same = mode === "same";
+  const pumpBoost = category === "pump" ? 0.04 : 0;
+
+  if (size >= 500) return readProductHeightRatio(row, "bottle500", (same ? 0.98 : 0.95) + pumpBoost);
+  if (size >= 400) return readProductHeightRatio(row, "bottle400", (same ? 0.94 : 0.9) + pumpBoost);
+  if (size >= 300) return readProductHeightRatio(row, "bottle300", (same ? 0.91 : 0.86) + pumpBoost);
+  if (size >= 200) return readProductHeightRatio(row, "bottle200", (same ? 0.88 : 0.82) + pumpBoost);
+  if (size >= 150) return readProductHeightRatio(row, "bottle150", (same ? 0.86 : 0.8) + pumpBoost);
+  if (size >= 100) return readProductHeightRatio(row, "bottle100", same ? 0.8 : 0.72);
+  if (size >= 60) return readProductHeightRatio(row, "bottle60", same ? 0.72 : 0.66);
+  if (size >= 40) return readProductHeightRatio(row, "bottle40", same ? 0.66 : 0.58);
+  if (size >= 10) return readProductHeightRatio(row, "bottle10", same ? 0.58 : 0.5);
+  if (size > 0) return readProductHeightRatio(row, "bottle5", same ? 0.48 : 0.42);
+  return readProductHeightRatio(row, "bottleDefault", same ? 0.86 : 0.78);
+}
+
+function getJarHeightRatioBySpec(row, size, mode) {
+  const same = mode === "same";
+  if (size >= 65) return readProductHeightRatio(row, "jar65", same ? 0.62 : 0.5);
+  if (size >= 50) return readProductHeightRatio(row, "jar50", same ? 0.58 : 0.46);
+  if (size >= 30) return readProductHeightRatio(row, "jar30", same ? 0.5 : 0.4);
+  if (size >= 25) return readProductHeightRatio(row, "jar25", same ? 0.46 : 0.36);
+  if (size > 0) return readProductHeightRatio(row, "jarSmall", same ? 0.42 : 0.32);
+  return readProductHeightRatio(row, "jarDefault", same ? 0.56 : 0.46);
+}
+
+function getTubeHeightRatioBySpec(row, size, mode) {
+  const same = mode === "same";
+  if (size >= 100) return readProductHeightRatio(row, "tube100", same ? 0.92 : 0.88);
+  if (size >= 80) return readProductHeightRatio(row, "tube80", same ? 0.86 : 0.82);
+  if (size >= 50) return readProductHeightRatio(row, "tube50", same ? 0.78 : 0.72);
+  if (size >= 30) return readProductHeightRatio(row, "tube30", same ? 0.68 : 0.62);
+  if (size >= 25) return readProductHeightRatio(row, "tube25", same ? 0.62 : 0.58);
+  if (size >= 10) return readProductHeightRatio(row, "tube10", same ? 0.5 : 0.42);
+  if (size > 0) return readProductHeightRatio(row, "tube5", same ? 0.42 : 0.36);
+  return readProductHeightRatio(row, "tubeDefault", same ? 0.84 : 0.7);
+}
+
+function getAmpouleHeightRatioBySpec(row, size, mode, source) {
+  const same = mode === "same";
+  if (isAmpouleSetSource(source)) return readProductHeightRatio(row, "ampouleSet", 0.95);
+  if (size >= 60) return readProductHeightRatio(row, "ampoule60", same ? 0.78 : 0.72);
+  if (size >= 40) return readProductHeightRatio(row, "ampoule40", same ? 0.72 : 0.66);
+  if (size >= 10) return readProductHeightRatio(row, "ampoule10", same ? 0.6 : 0.54);
+  if (size > 0) return readProductHeightRatio(row, "ampouleSmall", same ? 0.42 : 0.36);
+  return readProductHeightRatio(row, "ampouleDefault", same ? 0.72 : 0.62);
+}
+
+function getChartProductHeightRatio(row, category, specs, mode, source) {
+  const size = getProductSpecSize(specs);
+  if (category === "ampoule") return getAmpouleHeightRatioBySpec(row, size, mode, source);
+  if (category === "jar") return getJarHeightRatioBySpec(row, size, mode);
+  if (category === "tube") return getTubeHeightRatioBySpec(row, size, mode);
+  if (category === "pump" || category === "bottle") return getBottleHeightRatioBySpec(row, size, mode, category);
+  return readProductHeightRatio(row, "default", mode === "same" ? 0.86 : 0.76);
+}
+
 function getProductHeightRatio(row, index, count = 1) {
   const explicitItemRatio = readNumber(row, `product.heightRatio.${index}`, null);
   if (Number.isFinite(explicitItemRatio)) return explicitItemRatio;
@@ -828,46 +967,7 @@ function getProductHeightRatio(row, index, count = 1) {
   const category = getProductCategory(row, index);
   const source = getImageSourceForIndex(row, "product", index);
   const specs = getProductSpecFromSource(source);
-  const baseRatio = readNumber(row, "product.lotion500HeightRatio", 0.92);
-
-  if (category === "bottle" && specs.ml > 0 && specs.ml <= 10) {
-    return readNumber(row, "product.lotion5HeightRatio", 0.52);
-  }
-
-  if (mode === "same") {
-    if (specs.g > 0 && specs.g <= 5) {
-      return readNumber(row, "product.sameSample5HeightRatio", 0.9);
-    }
-    if (category === "bottle" && (specs.ml === 400 || specs.ml === 200)) {
-      return readNumber(row, "product.sameLotionHeightRatio", 1);
-    }
-    if (category === "jar" && specs.g > 0 && specs.g <= 60) {
-      return readNumber(row, "product.sameCream50HeightRatio", 0.7);
-    }
-    if (category === "tube" && (specs.ml > 0 || specs.g > 0)) {
-      return readNumber(row, "product.sameTubeHeightRatio", 0.9);
-    }
-    if (category === "pump") {
-      return readNumber(row, "product.samePumpHeightRatio", 0.9);
-    }
-  }
-
-  if (category === "bottle" && specs.ml >= 300) return baseRatio;
-  if (category === "jar" && specs.g > 0 && specs.g <= 60) {
-    return readNumber(row, "product.cream50HeightRatio", baseRatio * 0.5);
-  }
-  if (category === "tube" && (specs.ml >= 80 || specs.g >= 80)) {
-    return readNumber(row, "product.tube100HeightRatio", baseRatio * 0.5);
-  }
-  if (category === "tube" && specs.g > 0 && specs.g <= 30) {
-    return readNumber(row, "product.tube25HeightRatio", baseRatio * 0.38);
-  }
-
-  if (category === "jar") return 0.56;
-  if (category === "tube") return 0.92;
-  if (category === "pump") return 0.92;
-  if (category === "bottle") return 0.95;
-  return 0.88;
+  return getChartProductHeightRatio(row, category, specs, mode, source);
 }
 
 function applyProductHeightRatioToBox(row, index, areaBox, box, count = 1) {
@@ -3105,13 +3205,39 @@ function expandRepeatedProductNameToken(token) {
   return Array.from({ length: count }, () => name);
 }
 
-function resolveProductNameToImage(name) {
+function resolveProductNameToImage(name, options = {}) {
   const raw = String(name || "").trim();
   if (!raw) return "";
   if (/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(raw)) return raw;
   if (!state.productNameMap) return "";
   const normalized = normalizeProductNameKey(raw);
-  return state.productNameMap.get(normalized) || state.productNameMap.get(compactSpecHyphenKey(normalized)) || resolveProductNameByRows(raw);
+  const compact = compactSpecHyphenKey(normalized);
+  const matchKey = compactProductNameMatchKey(normalized);
+  const mapped = state.productNameMap.get(normalized)
+    || state.productNameMap.get(compact)
+    || state.productNameMap.get(matchKey);
+  if (mapped) return mapped;
+  if (options.allowRows === false) return "";
+  return resolveProductNameByRows(raw);
+}
+
+function resolveProductNameTokenToImages(token) {
+  const directImage = resolveProductNameToImage(token, { allowRows: false });
+  if (directImage) {
+    return { images: [directImage], missing: [] };
+  }
+
+  const images = [];
+  const missing = [];
+  expandRepeatedProductNameToken(token).forEach((name) => {
+    const image = resolveProductNameToImage(name);
+    if (image) {
+      images.push(image);
+    } else {
+      missing.push(name);
+    }
+  });
+  return { images, missing };
 }
 
 const PRODUCT_VIEW_COLUMNS = [
@@ -3192,7 +3318,7 @@ function resolveProductNameByRows(name) {
   if (!normalized || !state.productNameRows || !state.productNameRows.length) return "";
 
   const querySpec = extractProductSpec(normalized);
-  const queryAge = normalized.includes("婴童") ? "婴童" : normalized.includes("学龄") ? "学龄" : "";
+  const queryAge = getAgeCnCanonicalFromText(normalized);
   const queryCategory = normalized.includes("瓶装") ? "瓶装" : normalized.includes("管装") ? "管装" : normalized.includes("罐装") ? "罐装" : "";
   const candidates = new Set();
 
@@ -3210,7 +3336,7 @@ function resolveProductNameByRows(name) {
     const fullParts = String(fullName || "").split("-").map((part) => part.trim()).filter(Boolean);
     const standardProduct = fullParts.length >= 2 ? fullParts[1] : "";
 
-    if (queryAge && age && normalizeProductNameKey(age) !== normalizeProductNameKey(queryAge)) return;
+    if (queryAge && age && !getAgeCnAliases(age).some((alias) => normalizeProductNameKey(alias) === normalizeProductNameKey(queryAge))) return;
     if (queryCategory && category && normalizeProductNameKey(category) !== normalizeProductNameKey(queryCategory)) return;
     if (querySpec && normalizeProductNameKey(spec) !== normalizeProductNameKey(querySpec)) return;
     if (/body-lotion/i.test(imagePath) && normalized.includes("安心霜")) return;
@@ -3243,18 +3369,15 @@ function expandProductNamesToSet(row) {
   const source = getProductNameField(expanded);
   if (!source.value) return expanded;
 
-  const names = splitProductNameList(source.value).flatMap(expandRepeatedProductNameToken);
-  if (!names.length) return expanded;
-
   const images = [];
   const missing = [];
-  names.forEach((name) => {
-    const image = resolveProductNameToImage(name);
-    if (image) {
-      images.push(image);
-    } else {
-      missing.push(name);
-    }
+  const tokens = splitProductNameList(source.value);
+  if (!tokens.length) return expanded;
+
+  tokens.forEach((token) => {
+    const resolved = resolveProductNameTokenToImages(token);
+    images.push(...resolved.images);
+    missing.push(...resolved.missing);
   });
 
   if (images.length) {
@@ -3715,7 +3838,7 @@ function isGiftControlColumn(column) {
   return PRODUCT_NAME_COLUMNS.includes(column) ||
     /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
-    /^product\.(heightMode|lotion500HeightRatio|lotion5HeightRatio|cream50HeightRatio|tube100HeightRatio|tube25HeightRatio|sameLotionHeightRatio|sameCream50HeightRatio|sameTubeHeightRatio|sameSample5HeightRatio|samePumpHeightRatio|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
+    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
     /^productShadow\.(top|opacity)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
