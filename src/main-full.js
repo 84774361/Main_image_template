@@ -889,8 +889,18 @@ function getProductSpecSize(specs) {
   return Math.max(specs.ml || 0, specs.g || 0);
 }
 
-function readProductHeightRatio(row, key, fallback) {
-  return clampHeightRatio(readNumber(row, `product.${key}HeightRatio`, fallback));
+function readProductLegacyHeightRatio(row, key) {
+  const value = readNumber(row, key, null);
+  return Number.isFinite(value) ? clampHeightRatio(value) : null;
+}
+
+function readProductHeightRatio(row, key, fallback, aliases = []) {
+  const keys = [`product.${key}HeightRatio`, ...aliases];
+  for (const candidate of keys) {
+    const value = readNumber(row, candidate, null);
+    if (Number.isFinite(value)) return clampHeightRatio(value);
+  }
+  return clampHeightRatio(fallback);
 }
 
 function isAmpouleSetSource(source) {
@@ -902,23 +912,37 @@ function getBottleHeightRatioBySpec(row, size, mode, category) {
   const same = mode === "same";
   const pumpBoost = category === "pump" ? 0.04 : 0;
 
-  if (size >= 500) return readProductHeightRatio(row, "bottle500", (same ? 0.98 : 0.95) + pumpBoost);
-  if (size >= 400) return readProductHeightRatio(row, "bottle400", (same ? 0.94 : 0.9) + pumpBoost);
-  if (size >= 300) return readProductHeightRatio(row, "bottle300", (same ? 0.91 : 0.86) + pumpBoost);
+  if (same && category === "pump") {
+    const legacySamePump = readProductLegacyHeightRatio(row, "product.samePumpHeightRatio");
+    if (legacySamePump !== null) return legacySamePump;
+  }
+  if (same && (size === 400 || size === 200)) {
+    const legacySameLotion = readProductLegacyHeightRatio(row, "product.sameLotionHeightRatio");
+    if (legacySameLotion !== null) return legacySameLotion;
+  }
+
+  if (size >= 500) return readProductHeightRatio(row, "bottle500", (same ? 0.98 : 0.95) + pumpBoost, ["product.lotion500HeightRatio"]);
+  if (size >= 400) return readProductHeightRatio(row, "bottle400", (same ? 0.94 : 0.9) + pumpBoost, ["product.lotion500HeightRatio"]);
+  if (size >= 300) return readProductHeightRatio(row, "bottle300", (same ? 0.91 : 0.86) + pumpBoost, ["product.lotion500HeightRatio"]);
   if (size >= 200) return readProductHeightRatio(row, "bottle200", (same ? 0.88 : 0.82) + pumpBoost);
   if (size >= 150) return readProductHeightRatio(row, "bottle150", (same ? 0.86 : 0.8) + pumpBoost);
   if (size >= 100) return readProductHeightRatio(row, "bottle100", same ? 0.8 : 0.72);
   if (size >= 60) return readProductHeightRatio(row, "bottle60", same ? 0.72 : 0.66);
   if (size >= 40) return readProductHeightRatio(row, "bottle40", same ? 0.66 : 0.58);
-  if (size >= 10) return readProductHeightRatio(row, "bottle10", same ? 0.58 : 0.5);
-  if (size > 0) return readProductHeightRatio(row, "bottle5", same ? 0.48 : 0.42);
+  if (size >= 10) return readProductHeightRatio(row, "bottle10", same ? 0.58 : 0.5, ["product.lotion5HeightRatio"]);
+  if (size > 0) return readProductHeightRatio(row, "bottle5", same ? 0.48 : 0.42, ["product.lotion5HeightRatio"]);
   return readProductHeightRatio(row, "bottleDefault", same ? 0.86 : 0.78);
 }
 
 function getJarHeightRatioBySpec(row, size, mode) {
   const same = mode === "same";
+  if (same && size > 0 && size <= 60) {
+    const legacySameCream = readProductLegacyHeightRatio(row, "product.sameCream50HeightRatio");
+    if (legacySameCream !== null) return legacySameCream;
+  }
+
   if (size >= 65) return readProductHeightRatio(row, "jar65", same ? 0.62 : 0.5);
-  if (size >= 50) return readProductHeightRatio(row, "jar50", same ? 0.58 : 0.46);
+  if (size >= 50) return readProductHeightRatio(row, "jar50", same ? 0.58 : 0.46, ["product.cream50HeightRatio"]);
   if (size >= 30) return readProductHeightRatio(row, "jar30", same ? 0.5 : 0.4);
   if (size >= 25) return readProductHeightRatio(row, "jar25", same ? 0.46 : 0.36);
   if (size > 0) return readProductHeightRatio(row, "jarSmall", same ? 0.42 : 0.32);
@@ -927,6 +951,15 @@ function getJarHeightRatioBySpec(row, size, mode) {
 
 function getTubeHeightRatioBySpec(row, size, mode) {
   const same = mode === "same";
+  if (same && size > 0 && size <= 5) {
+    const legacySameSample = readProductLegacyHeightRatio(row, "product.sameSample5HeightRatio");
+    if (legacySameSample !== null) return legacySameSample;
+  }
+  if (same && size > 0) {
+    const legacySameTube = readProductLegacyHeightRatio(row, "product.sameTubeHeightRatio");
+    if (legacySameTube !== null) return legacySameTube;
+  }
+
   if (size >= 100) return readProductHeightRatio(row, "tube100", same ? 0.92 : 0.88);
   if (size >= 80) return readProductHeightRatio(row, "tube80", same ? 0.86 : 0.82);
   if (size >= 50) return readProductHeightRatio(row, "tube50", same ? 0.78 : 0.72);
