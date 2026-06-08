@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-pdd-sku-bottomtext-static-rect-width";
+const SCRIPT_VERSION = "20260608-pdd-sku-bottom-contents-only-rect-keep";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -105,7 +105,9 @@ const TEMPLATE_CONFIGS = {
       paddingY: 10,
       minWidth: 220,
       minHeight: 44,
-      maxTextWidth: 560
+      maxTextWidth: 560,
+      radius: 28,
+      color: { red: 197, green: 39, blue: 20 }
     },
     subtitleTextStyle: {
       fontSize: 30,
@@ -1338,6 +1340,44 @@ function buildMixedTextStyleRanges(text, baseStyle, styleConfig) {
   });
 }
 
+function buildMixedTextColorRanges(text, baseStyle, styleConfig) {
+  const chars = Array.from(toPhotoshopText(text));
+  const ranges = [];
+  let start = 0;
+  let current = null;
+
+  chars.forEach((char, index) => {
+    const kind = isLatinDigitChar(char) ? "latin" : "chinese";
+    if (current === null) {
+      current = kind;
+      start = index;
+      return;
+    }
+    if (kind !== current) {
+      ranges.push({ from: start, to: index, kind: current });
+      current = kind;
+      start = index;
+    }
+  });
+
+  if (current !== null) {
+    ranges.push({ from: start, to: chars.length, kind: current });
+  }
+
+  return ranges.map((range) => {
+    const config = styleConfig[range.kind] || {};
+    return {
+      _obj: "textStyleRange",
+      from: range.from,
+      to: range.to,
+      textStyle: {
+        ...baseStyle,
+        color: makeRgbColor(config.color || baseStyle.color)
+      }
+    };
+  });
+}
+
 function estimateTextLineWidth(text, fontSize) {
   return Array.from(String(text || "")).reduce((width, char) => {
     if (char === "\r" || char === "\n") return width;
@@ -1351,6 +1391,18 @@ function estimateTextLineWidth(text, fontSize) {
 function estimateMultilineTextWidth(text, fontSize) {
   const lines = String(text || "").split(/\r\n|\r|\n/);
   return Math.max(...lines.map((line) => estimateTextLineWidth(line, fontSize)), 0);
+}
+
+function formatPddSubtitleText(value) {
+  const text = String(value || "").trim();
+  const plusCount = (text.match(/\+/g) || []).length;
+  if (plusCount < 3 || text.includes("\n") || text.includes("\r")) return text;
+
+  const parts = text.split("+").map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 4) return text;
+
+  const splitIndex = Math.ceil(parts.length / 2);
+  return `${parts.slice(0, splitIndex).join("+")}+\n${parts.slice(splitIndex).join("+")}`;
 }
 
 async function applyTextLayerUniformStyle(layer, styleConfig, label) {
@@ -2445,6 +2497,16 @@ async function resizeLayerToBox(layer, targetBox, options = {}) {
   await layer.translate(targetBox.centerX - scaledBox.centerX, targetBox.centerY - scaledBox.centerY);
 }
 
+async function duplicateLayerToBox(sourceLayer, name, targetBox, options = {}) {
+  if (!sourceLayer || !targetBox) return null;
+
+  const layer = await sourceLayer.duplicate();
+  layer.name = name;
+  layer.visible = true;
+  await resizeLayerToBox(layer, targetBox, options);
+  return layer;
+}
+
 async function replaceTextLayer(layer, value) {
   if (!layer || value === undefined || value === null) return;
   if (!layer.textItem) {
@@ -2575,6 +2637,64 @@ async function replaceTextLayerMixedStyle(layer, value, styleConfig, label) {
   }
 }
 
+async function replaceTextLayerMixedColor(layer, value, styleConfig, label) {
+  if (!layer || value === undefined || value === null) return;
+  if (!layer.textItem) {
+    throw new Error(`Layer "${layer.name}" is not a text layer`);
+  }
+
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+  const textValue = toPhotoshopText(value);
+
+  try {
+    const result = await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "get",
+          _target: [
+            { _property: "textKey" },
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+
+    const textKey = result && result[0] && result[0].textKey;
+    const baseRange = textKey && textKey.textStyleRange && textKey.textStyleRange[0];
+    const baseStyle = baseRange && baseRange.textStyle;
+    if (!textKey || !baseStyle) {
+      await replaceTextLayer(layer, value);
+      return;
+    }
+
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "set",
+          _target: [
+            { _ref: "textLayer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          to: {
+            _obj: "textLayer",
+            ...textKey,
+            textKey: textValue,
+            textStyleRange: buildMixedTextColorRanges(textValue, baseStyle, styleConfig)
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: false, modalBehavior: "execute" }
+    );
+    log(`  ${label || layer.name} color style applied.`);
+  } catch (error) {
+    log(`  Mixed color skipped for ${layer.name}: ${formatError(error)}`);
+    await replaceTextLayer(layer, value);
+  }
+}
+
 async function scaleTextLayerFontSize(layer, scale) {
   if (!layer || !layer.textItem || !Number.isFinite(scale) || scale <= 0 || scale === 1) return;
 
@@ -2637,8 +2757,8 @@ async function scaleTextLayerFontSize(layer, scale) {
 async function applyBottomTextRules(layer, value) {
   const mixedStyle = getCurrentTemplateConfig().bottomTextMixedStyle;
   if (mixedStyle) {
-    await replaceTextLayerMixedStyle(layer, value, mixedStyle, "Bottom text");
-    log("  Bottom text geometry untouched.");
+    await replaceTextLayer(layer, value);
+    log("  Bottom text contents only; PSD geometry, font, size, and color untouched.");
   } else {
     await replaceTextLayerPreserveFirstStyle(layer, value);
     const explicitScale = readNumber(state.currentRow || {}, "txt.bottomTextScale", readNumber(state.currentRow || {}, "bottomText.scale", 1));
@@ -3420,11 +3540,23 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   );
 
   try {
-    rectangleLayer.visible = true;
-    await resizeLayerToBox(rectangleLayer, targetBox, { preserveHeight: true });
-    log(`  Subtitle rectangle resized: textW=${Math.round(measuredTextWidth)}, w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
+    rectangleLayer.visible = false;
+    const newRectangle = await duplicateLayerToBox(
+      rectangleLayer,
+      config.layerName || "txt.subtitle.rectangle",
+      targetBox,
+      { preserveHeight: true }
+    );
+    if (newRectangle) {
+      try {
+        await newRectangle.move(textLayer, photoshop.constants.ElementPlacement.PLACEAFTER);
+      } catch (error) {
+        log(`  Subtitle rectangle z-order skipped: ${formatError(error)}`);
+      }
+    }
+    log(`  Subtitle rectangle duplicated: textW=${Math.round(measuredTextWidth)}, w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
   } catch (error) {
-    log(`  Subtitle rectangle resize skipped: ${formatError(error)}`);
+    log(`  Subtitle rectangle duplicate skipped: ${formatError(error)}`);
   }
 }
 
@@ -3483,13 +3615,15 @@ async function applyTitleAndProductNote(doc, row) {
     const maxSubtitleWidth = fallbackNoteLayer.name === "txt.subtitle" && subtitleConfig
       ? readNumber(row, "subtitle.maxTextWidth", Number(subtitleConfig.maxTextWidth) || null)
       : null;
-    let finalNoteText = noteText;
-    if (fallbackNoteLayer.name === "txt.subtitle" && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
+    const pddSubtitle = fallbackNoteLayer.name === "txt.subtitle" && getCurrentTemplateConfig().productNameToSubtitle;
+    let finalNoteText = pddSubtitle ? formatPddSubtitleText(noteText) : noteText;
+    if (pddSubtitle) {
+      await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, finalNoteText);
+      await applyTextLayerUniformStyle(fallbackNoteLayer, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
+      log(`  Subtitle plus-wrap rule applied: plusCount=${(String(noteText).match(/\+/g) || []).length}.`);
+    } else if (fallbackNoteLayer.name === "txt.subtitle" && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
-      await applyTextLayerUniformStyle(fallbackNoteLayer, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
       finalNoteText = await wrapTitleToMeasuredWidth(fallbackNoteLayer, noteText, maxSubtitleWidth, { forceMaxWidth: true });
-      await applyTextLayerUniformStyle(fallbackNoteLayer, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
-      log(`  Subtitle wrapped to maxWidth=${Math.round(maxSubtitleWidth)}.`);
     } else {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
     }
@@ -3520,7 +3654,7 @@ function isGiftControlColumn(column) {
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
     /^bottomText\.maxWidth$/.test(column) ||
-    /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|maxTextWidth|fontSize)$/.test(column) ||
+    /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleRadius|maxTextWidth|fontSize)$/.test(column) ||
     /^productNote\.(gap|offsetY)$/.test(column) ||
     /^(note|remark|remarks|备注|产品视角)$/.test(column);
 }
