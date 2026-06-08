@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-line-single-controller";
+const SCRIPT_VERSION = "20260609-line-split-ampoule-set";
 
 const TITLE_FONT_RULE = {
   latin: {
