@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-pdd-sku-bottom-content-only-final";
+const SCRIPT_VERSION = "20260608-pdd-sku-direct-product-token";
 
 const TITLE_FONT_RULE = {
   latin: {
