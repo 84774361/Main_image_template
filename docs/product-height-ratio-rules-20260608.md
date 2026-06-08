@@ -1,12 +1,24 @@
 # Product heightRatio Rules - 2026-06-08
 
-Default priority is unchanged:
+Default priority:
 
-1. `product.heightRatio.N`
+1. `product.heightRatio.N`, where `N` is the product category order in the row
 2. `product.heightRatio`
 3. Size-chart defaults below
 
 Same-category product groups use the `same` value. Mixed-category groups use the `mixed` value.
+
+`product.heightRatio.N` is category-based, not image-index-based. If a row contains `jar | jar | bottle`, then:
+
+- `product.heightRatio.1` controls all `jar` products.
+- `product.heightRatio.2` controls all `bottle` products.
+
+The same category-order rule applies to `product.gap.N`:
+
+- `product.gap.1` controls the gap after products from the first category.
+- `product.gap.2` controls the gap after products from the second category.
+
+`product.scale` is applied after heightRatio sizing. It scales product layers around their bottom-center point so the product bottom stays visually anchored to `product.area`.
 
 ## Bottle and Pump
 

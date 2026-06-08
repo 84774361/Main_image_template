@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-pdd-sku-height-ratio-chart";
+const SCRIPT_VERSION = "20260608-category-ratio-gap-bottom-scale";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -761,6 +761,20 @@ function getProductCategory(row, index) {
   return getProductCategoryFromSource(getImageSourceForIndex(row, "product", index));
 }
 
+function getProductCategoryRank(row, index, count = 1) {
+  const categories = [];
+  for (let i = 1; i <= Math.max(count, index, 1); i += 1) {
+    const category = getProductCategory(row, i) || "default";
+    if (!categories.includes(category)) {
+      categories.push(category);
+    }
+    if (i === index) {
+      return Math.max(1, categories.indexOf(category) + 1);
+    }
+  }
+  return 1;
+}
+
 function getProductSpecFromSource(source) {
   const text = String(source || "")
     .toLowerCase()
@@ -990,8 +1004,9 @@ function getChartProductHeightRatio(row, category, specs, mode, source) {
 }
 
 function getProductHeightRatio(row, index, count = 1) {
-  const explicitItemRatio = readNumber(row, `product.heightRatio.${index}`, null);
-  if (Number.isFinite(explicitItemRatio)) return explicitItemRatio;
+  const categoryRank = getProductCategoryRank(row, index, count);
+  const explicitCategoryRatio = readNumber(row, `product.heightRatio.${categoryRank}`, null);
+  if (Number.isFinite(explicitCategoryRatio)) return explicitCategoryRatio;
 
   const explicitRatio = readNumber(row, "product.heightRatio", null);
   if (Number.isFinite(explicitRatio)) return explicitRatio;
@@ -1865,6 +1880,28 @@ function getImageGroupGap(row, prefix, layout, itemWidth) {
   return 0;
 }
 
+function hasProductCategoryGap(row) {
+  if (!row) return false;
+  return Object.keys(row).some((key) => /^product\.gap\.\d+$/.test(key) && row[key] !== "");
+}
+
+function getProductGapAt(row, leftIndex, layout, itemWidth, fallbackGap) {
+  const categoryRank = getProductCategoryRank(row, leftIndex, Math.max(leftIndex + 1, getGiftCount(row, "product") || 1));
+  const categoryGap = readNumber(row, `product.gap.${categoryRank}`, null);
+  if (Number.isFinite(categoryGap)) {
+    return layout === "line" ? Math.max(0, categoryGap) : categoryGap;
+  }
+  return fallbackGap;
+}
+
+function getProductItemGaps(row, items, layout, itemWidth, fallbackGap) {
+  const gaps = [];
+  for (let i = 0; i < Math.max(0, items.length - 1); i += 1) {
+    gaps.push(getProductGapAt(row, i + 1, layout, itemWidth, fallbackGap));
+  }
+  return gaps;
+}
+
 function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, layout) {
   const areaBox = getImageGroupAreaBox(row, prefix, areaFallbackBox || baseBox);
   const aspect = baseBox.width / baseBox.height;
@@ -2206,7 +2243,9 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     if (prefix === "product" && areaBox) {
       log(`  Product height rule: ${layer.name}, mode=${getProductHeightMode(row, count)}, category=${getProductCategory(row, i)}, ratio=${getProductHeightRatio(row, i, count)}, targetH=${Math.round(targetBox.height)}`);
     }
-    await scaleLayerByFactor(layer, getImageGroupScale(row, prefix));
+    await scaleLayerByFactor(layer, getImageGroupScale(row, prefix), {
+      anchor: prefix === "product" ? "bottomCenter" : "center"
+    });
     if (areaBox) {
       await clampLayerToBox(layer, areaBox);
     }
@@ -2266,7 +2305,7 @@ async function applyProductScaleToItems(items, row) {
   if (!Number.isFinite(factor) || factor <= 0 || factor === 1) return;
 
   for (const item of items) {
-    await scaleLayerByFactor(item.layer, factor);
+    await scaleLayerByFactor(item.layer, factor, { anchor: "bottomCenter" });
   }
   log(`  Product scale applied: factor=${factor}, items=${items.length}`);
 }
@@ -2274,16 +2313,21 @@ async function applyProductScaleToItems(items, row) {
 async function scaleProductItemsByFactor(items, factor) {
   if (!Number.isFinite(factor) || factor <= 0 || factor >= 1) return;
   for (const item of items) {
-    await scaleLayerByFactor(item.layer, factor);
+    await scaleLayerByFactor(item.layer, factor, { anchor: "bottomCenter" });
   }
 }
 
-function getItemsTotalWidth(items, gap) {
-  return items.reduce((sum, item) => sum + item.box.width, 0) + gap * Math.max(0, items.length - 1);
+function getItemsTotalWidth(items, gapsOrGap) {
+  const width = items.reduce((sum, item) => sum + item.box.width, 0);
+  if (Array.isArray(gapsOrGap)) {
+    return width + gapsOrGap.reduce((sum, gap) => sum + gap, 0);
+  }
+  return width + gapsOrGap * Math.max(0, items.length - 1);
 }
 
 async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
   const gap = getImageGroupGap(row, "product", "line", 0);
+  let gaps = getProductItemGaps(row, items, "line", 0, gap);
   const slotFill = readNumber(row, "product.slotFill", rawLayout === "auto" ? 0.96 : 0.98);
   const maxTotalWidth = areaBox.width * slotFill;
 
@@ -2292,7 +2336,8 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
     box: getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds)
   })).filter((item) => item.box);
 
-  const currentTotalWidth = getItemsTotalWidth(freshItems, gap);
+  gaps = getProductItemGaps(row, freshItems, "line", 0, gap);
+  const currentTotalWidth = getItemsTotalWidth(freshItems, gaps);
   if (currentTotalWidth > maxTotalWidth) {
     await scaleProductItemsByFactor(freshItems, maxTotalWidth / currentTotalWidth);
     freshItems = freshItems.map((item) => ({
@@ -2301,23 +2346,25 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
     })).filter((item) => item.box);
   }
 
-  const finalTotalWidth = getItemsTotalWidth(freshItems, gap);
+  gaps = getProductItemGaps(row, freshItems, "line", 0, gap);
+  const finalTotalWidth = getItemsTotalWidth(freshItems, gaps);
   let left = areaBox.centerX - finalTotalWidth / 2;
 
-  for (const item of freshItems) {
+  for (let i = 0; i < freshItems.length; i += 1) {
+    const item = freshItems[i];
     const targetCenterX = left + item.box.width / 2;
     await item.layer.translate(targetCenterX - item.box.centerX, areaBox.bottom - item.box.bottom);
-    left += item.box.width + gap;
+    left += item.box.width + (gaps[i] || 0);
   }
 
   await arrangeProductLayerStacking(freshItems, getImageGroupZOrder(row, "product"));
-  log(`  Arranged product line after replace. gap=${gap}, totalWidth=${Math.round(finalTotalWidth)}, items=${freshItems.length}`);
+  log(`  Arranged product line after replace. gap=${gaps.join("|") || gap}, totalWidth=${Math.round(finalTotalWidth)}, items=${freshItems.length}`);
 }
 
 async function arrangeProductOverlapItems(items, row, areaBox, layout) {
   const minWidth = Math.min(...items.map((item) => item.box.width));
   const hasManualOverlapRatio = row["product.overlapRatio"] !== undefined && row["product.overlapRatio"] !== "";
-  const hasManualGap = !hasManualOverlapRatio && row["product.gap"] !== undefined && row["product.gap"] !== "";
+  const hasManualGap = !hasManualOverlapRatio && (row["product.gap"] !== undefined && row["product.gap"] !== "" || hasProductCategoryGap(row));
   const overlapRatio = getProductOverlapRatio(row, items);
 
   if (!hasManualGap && overlapRatio < 0) {
@@ -2334,7 +2381,10 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
   let gap = hasManualGap
     ? getImageGroupGap(row, "product", layout, minWidth)
     : getProductOverlapGap(row, items, areaBox);
-  const totalWidth = getItemsTotalWidth(items, gap);
+  let gaps = hasManualGap && hasProductCategoryGap(row)
+    ? getProductItemGaps(row, items, layout, minWidth, gap)
+    : gap;
+  const totalWidth = getItemsTotalWidth(items, gaps);
 
   if (totalWidth > areaBox.width) {
     await scaleProductItemsByFactor(items, areaBox.width / totalWidth);
@@ -2349,7 +2399,10 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
     gap = getProductOverlapGap(row, finalItems, areaBox);
   }
 
-  const finalTotalWidth = getItemsTotalWidth(finalItems, gap);
+  gaps = hasManualGap && hasProductCategoryGap(row)
+    ? getProductItemGaps(row, finalItems, layout, minWidth, gap)
+    : gap;
+  const finalTotalWidth = getItemsTotalWidth(finalItems, gaps);
   let left = areaBox.centerX - finalTotalWidth / 2;
   const spreadByCenter = !hasManualGap && overlapRatio < 0;
   const centerSpan = spreadByCenter ? getNegativeOverlapSpan(row, finalItems, areaBox, overlapRatio) : 0;
@@ -2361,11 +2414,11 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
     const targetCenterX = spreadByCenter ? centerStart + i * centerStep : left + item.box.width / 2;
     const yOffset = layout === "stack" ? (i - (finalItems.length - 1) / 2) * item.box.height * 0.04 : 0;
     await item.layer.translate(targetCenterX - item.box.centerX, areaBox.bottom - item.box.bottom + yOffset);
-    left += item.box.width + gap;
+    left += item.box.width + (Array.isArray(gaps) ? gaps[i] || 0 : gap);
   }
 
   await arrangeProductLayerStacking(finalItems, getImageGroupZOrder(row, "product"));
-  log(`  Arranged product ${layout} after replace. overlapRatio=${overlapRatio}, gap=${Math.round(gap)}, centerSpan=${Math.round(centerSpan)}, totalWidth=${Math.round(finalTotalWidth)}, items=${finalItems.length}`);
+  log(`  Arranged product ${layout} after replace. overlapRatio=${overlapRatio}, gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, centerSpan=${Math.round(centerSpan)}, totalWidth=${Math.round(finalTotalWidth)}, items=${finalItems.length}`);
 }
 
 async function arrangeProductLineAfterReplace(doc, row) {
@@ -2630,12 +2683,23 @@ async function alignLayerBottomToBox(layer, targetBox) {
   }
 }
 
-async function scaleLayerByFactor(layer, factor) {
+async function scaleLayerByFactor(layer, factor, options = {}) {
   if (!Number.isFinite(factor) || factor <= 0 || factor === 1) return;
+
+  const beforeBox = options.anchor === "bottomCenter"
+    ? getBoundsBox(layer.boundsNoEffects || layer.bounds)
+    : null;
 
   await layer.scale(factor * 100, factor * 100, photoshop.constants.AnchorPosition.MIDDLECENTER, {
     interpolation: photoshop.constants.InterpolationMethod.AUTOMATIC
   });
+
+  if (beforeBox && options.anchor === "bottomCenter") {
+    const afterBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+    if (afterBox) {
+      await layer.translate(beforeBox.centerX - afterBox.centerX, beforeBox.bottom - afterBox.bottom);
+    }
+  }
 }
 
 async function resizeLayerToBox(layer, targetBox, options = {}) {
@@ -3056,7 +3120,9 @@ async function replaceSmartObjectLayer(layer, file) {
     if (prefix === "product") {
       log(`  Product height rule: ${layer.name}, mode=${getProductHeightMode(row, 1)}, category=${getProductCategory(row, 1)}, ratio=${getProductHeightRatio(row, 1, 1)}, targetH=${Math.round(targetBox.height)}`);
     }
-    await scaleLayerByFactor(layer, getImageGroupScale(row, prefix));
+    await scaleLayerByFactor(layer, getImageGroupScale(row, prefix), {
+      anchor: prefix === "product" ? "bottomCenter" : "center"
+    });
     if (prefix !== "giftRight") {
       await clampLayerToBox(layer, areaBox);
     }
@@ -3870,6 +3936,7 @@ async function applyTitleAndProductNote(doc, row) {
 function isGiftControlColumn(column) {
   return PRODUCT_NAME_COLUMNS.includes(column) ||
     /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
+    /^product\.gap\.\d+$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
     /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note)$/.test(column) ||
     /^productShadow\.(top|opacity)$/.test(column) ||
