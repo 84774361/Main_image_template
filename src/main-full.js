@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-export-format-psd-jpg";
+const SCRIPT_VERSION = "20260608-line-virtual-layout";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -2383,21 +2383,24 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
 
   const gaps = touchEdges ? Array(Math.max(0, freshItems.length - 1)).fill(0) : getProductItemGaps(row, freshItems, "line", 0, gap);
   let left = 0;
+  const stagingBottom = areaBox ? areaBox.bottom : Math.max(...freshItems.map((item) => item.box.bottom));
 
   for (let i = 0; i < freshItems.length; i += 1) {
     const item = freshItems[i];
     const targetCenterX = left + item.box.width / 2;
-    await item.layer.translate(targetCenterX - item.box.centerX, -item.box.bottom);
+    await item.layer.translate(targetCenterX - item.box.centerX, stagingBottom - item.box.bottom);
     left += item.box.width + (gaps[i] || 0);
   }
 
+  freshItems = refreshProductItems(freshItems);
+  await applyProductScaleToItems(freshItems, row);
   freshItems = refreshProductItems(freshItems);
   freshItems = await scaleProductItemsToFitArea(freshItems, areaBox);
   freshItems = await alignProductGroupBottomCenter(freshItems, areaBox);
   const finalGroupBox = getItemsGroupBox(freshItems);
 
   await arrangeProductLayerStacking(freshItems, getImageGroupZOrder(row, "product"));
-  log(`  Arranged product line after replace. touchEdges=${touchEdges}, gap=${gaps.join("|") || gap}, groupW=${finalGroupBox ? Math.round(finalGroupBox.width) : "?"}, groupH=${finalGroupBox ? Math.round(finalGroupBox.height) : "?"}, items=${freshItems.length}`);
+  log(`  Arranged product line after replace. touchEdges=${touchEdges}, gap=${gaps.join("|") || gap}, stagingBottom=${Math.round(stagingBottom)}, groupW=${finalGroupBox ? Math.round(finalGroupBox.width) : "?"}, groupH=${finalGroupBox ? Math.round(finalGroupBox.height) : "?"}, items=${freshItems.length}`);
 }
 
 async function arrangeProductOverlapItems(items, row, areaBox, layout) {
@@ -2487,7 +2490,6 @@ async function arrangeProductLineAfterReplace(doc, row) {
   }
 
   await scaleProductItemsToHeight(layers, row, areaBox);
-  await applyProductScaleToItems(layers, row);
   const refreshed = layers.map((item) => ({
     layer: item.layer,
     box: getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds)
