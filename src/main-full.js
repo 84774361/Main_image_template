@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-export-format-psd-jpg-line-spec-gap";
+const SCRIPT_VERSION = "20260608-export-format-psd-jpg-ampoule-set-2slots";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -750,7 +750,8 @@ function getProductCategoryFromSource(source) {
   if (/(jar|pot|罐)/.test(text)) return "jar";
   if (/(bottle|瓶)/.test(text)) return "bottle";
   if (/(cream|面霜)/.test(text)) return "jar";
-  if (/(diaper|repairing|安心霜|学龄霜|冰沙霜|身体乳100g)/.test(text)) return "tube";
+  if (/(安心霜|学龄霜|冰沙霜)/.test(text)) return "jar";
+  if (/(diaper|repairing|身体乳100g)/.test(text)) return "tube";
   if (/(wash|foam|shampoo|body-lotion|lotion|乳|oil|精油|sunscreen|sun)/.test(text)) return "bottle";
   return "default";
 }
@@ -993,12 +994,12 @@ function getTubeHeightRatioBySpec(row, size, mode) {
 
 function getAmpouleHeightRatioBySpec(row, size, mode, source) {
   const same = mode === "same";
-  if (isAmpouleSetSource(source)) return readProductHeightRatio(row, "ampouleSet", 0.95);
+  if (isAmpouleSetSource(source)) return readProductHeightRatio(row, "ampouleSet", 0.65);
   if (size >= 60) return readProductHeightRatio(row, "ampoule60", same ? 0.78 : 0.72);
   if (size >= 40) return readProductHeightRatio(row, "ampoule40", same ? 0.72 : 0.66);
   if (size >= 10) return readProductHeightRatio(row, "ampoule10", same ? 0.6 : 0.54);
   if (size > 0) return readProductHeightRatio(row, "ampouleSmall", same ? 0.42 : 0.36);
-  return readProductHeightRatio(row, "ampouleDefault", same ? 0.72 : 0.62);
+  return readProductHeightRatio(row, "ampouleDefault", same ? 0.8 : 0.72);
 }
 
 function getChartProductHeightRatio(row, category, specs, mode, source) {
@@ -1906,17 +1907,17 @@ function getProductCategoryPairGapRatio(leftCategory, rightCategory, layout = "o
   const right = normalizeProductCategory(rightCategory);
   const pair = [left, right].sort().join("|");
   const lineRatios = {
-    "jar|jar": 0.62,
-    "bottle|bottle": 0.18,
-    "tube|tube": 0.16,
-    "ampoule|ampoule": 0.20,
-    "bottle|jar": 0.42,
-    "jar|tube": 0.46,
-    "ampoule|jar": 0.50,
-    "bottle|tube": 0.22,
-    "ampoule|bottle": 0.28,
-    "ampoule|tube": 0.30,
-    "default|jar": 0.42
+    "jar|jar": 1.50,
+    "bottle|bottle": 0,
+    "tube|tube": 0,
+    "ampoule|ampoule": 0.01,
+    "bottle|jar": 0.72,
+    "jar|tube": 0.78,
+    "ampoule|jar": 0.84,
+    "bottle|tube": 0.01,
+    "ampoule|bottle": 0.02,
+    "ampoule|tube": 0.02,
+    "default|jar": 0.72
   };
   const ratios = {
     "jar|jar": 1.10,
@@ -1962,6 +1963,19 @@ function getProductGapKeyCandidates(row, index) {
   return [specKey, category].filter((key, itemIndex, keys) => key && keys.indexOf(key) === itemIndex);
 }
 
+function getProductLayoutSlotSpan(row, index) {
+  const source = getImageSourceForIndex(row, "product", index);
+  const explicit = readNumber(row, `product.slotSpan.${index}`, null);
+  if (Number.isFinite(explicit)) return Math.max(1, Math.min(explicit, 4));
+
+  if (isAmpouleSetSource(source)) {
+    const ampouleSetSlots = readNumber(row, "product.ampouleSetSlotSpan", readNumber(row, "product.ampouleSetSlots", 2));
+    return Math.max(1, Math.min(ampouleSetSlots, 4));
+  }
+
+  return 1;
+}
+
 function parseProductSpecGapKey(key) {
   const match = String(key || "").match(/^(bottle|jar|tube|ampoule)(\d+(?:p\d+)?)(ml|g)$/);
   if (!match) return null;
@@ -1974,66 +1988,66 @@ function parseProductSpecGapKey(key) {
 
 function getProductLineSpecGapWeight(key) {
   const weights = {
-    bottle: 0.16,
-    bottle25g: 0.16,
-    bottle30ml: 0.12,
-    bottle40ml: 0.12,
-    bottle60ml: 0.13,
-    bottle100ml: 0.14,
-    bottle150ml: 0.15,
-    bottle200ml: 0.16,
-    bottle300ml: 0.17,
-    bottle400ml: 0.18,
-    bottle500ml: 0.20,
-    jar: 0.34,
-    jar25g: 0.30,
-    jar30g: 0.32,
-    jar50g: 0.38,
-    jar65g: 0.44,
-    tube: 0.20,
-    tube5g: 0.10,
-    tube10g: 0.12,
-    tube25g: 0.16,
-    tube30g: 0.18,
-    tube50g: 0.20,
-    tube80g: 0.22,
-    tube100g: 0.24,
-    ampoule: 0.20,
-    ampouleSet: 0.24,
-    ampoule1p8ml: 0.18,
-    ampoule3p8g: 0.18,
-    ampoule5ml: 0.18,
-    ampoule10ml: 0.20,
-    ampoule40ml: 0.24,
-    ampoule60ml: 0.26
+    bottle: 0.01,
+    bottle25g: 0.01,
+    bottle30ml: 0,
+    bottle40ml: 0,
+    bottle60ml: 0.01,
+    bottle100ml: 0.01,
+    bottle150ml: 0.01,
+    bottle200ml: 0.02,
+    bottle300ml: 0.03,
+    bottle400ml: 0.04,
+    bottle500ml: 0.05,
+    jar: 1.10,
+    jar25g: 0.96,
+    jar30g: 1.08,
+    jar50g: 1.22,
+    jar65g: 1.36,
+    tube: 0.02,
+    tube5g: 0,
+    tube10g: 0,
+    tube25g: 0.01,
+    tube30g: 0.02,
+    tube50g: 0.02,
+    tube80g: 0.03,
+    tube100g: 0.04,
+    ampoule: 0.02,
+    ampouleSet: 0.03,
+    ampoule1p8ml: 0.01,
+    ampoule3p8g: 0.01,
+    ampoule5ml: 0.01,
+    ampoule10ml: 0.02,
+    ampoule40ml: 0.03,
+    ampoule60ml: 0.04
   };
   if (weights[key] !== undefined) return weights[key];
 
   const spec = parseProductSpecGapKey(key);
   if (!spec) return null;
   if (spec.category === "bottle") {
-    if (spec.unit === "g" && spec.size <= 30) return 0.16;
-    if (spec.size >= 500) return 0.20;
-    if (spec.size >= 300) return 0.18;
-    if (spec.size >= 150) return 0.16;
-    if (spec.size >= 60) return 0.13;
-    return 0.12;
+    if (spec.unit === "g" && spec.size <= 30) return 0.01;
+    if (spec.size >= 500) return 0.05;
+    if (spec.size >= 300) return 0.03;
+    if (spec.size >= 150) return 0.01;
+    if (spec.size >= 60) return 0.01;
+    return 0;
   }
   if (spec.category === "jar") {
-    if (spec.size >= 65) return 0.44;
-    if (spec.size >= 50) return 0.38;
-    if (spec.size >= 30) return 0.32;
-    return 0.30;
+    if (spec.size >= 65) return 1.36;
+    if (spec.size >= 50) return 1.22;
+    if (spec.size >= 30) return 1.08;
+    return 0.96;
   }
   if (spec.category === "tube") {
-    if (spec.size >= 100) return 0.24;
-    if (spec.size >= 50) return 0.20;
-    if (spec.size >= 25) return 0.16;
-    return 0.12;
+    if (spec.size >= 100) return 0.04;
+    if (spec.size >= 50) return 0.02;
+    if (spec.size >= 25) return 0.01;
+    return 0;
   }
   if (spec.category === "ampoule") {
-    if (spec.size >= 40) return 0.24;
-    return 0.18;
+    if (spec.size >= 40) return 0.03;
+    return 0.01;
   }
   return null;
 }
@@ -2043,17 +2057,30 @@ function getProductLineSpecPairGapRatio(row, leftIndex, rightIndex) {
   const rightKey = getProductSpecGapKey(row, rightIndex);
   const pair = [leftKey, rightKey].sort().join("|");
   const ratios = {
-    "bottle25g|bottle500ml": 0.22,
-    "bottle25g|bottle400ml": 0.21,
-    "bottle25g|bottle300ml": 0.20,
-    "bottle25g|jar30g": 0.28,
-    "bottle25g|jar50g": 0.32,
-    "bottle25g|tube100g": 0.24,
-    "bottle500ml|tube100g": 0.22,
-    "bottle500ml|jar50g": 0.34,
-    "ampouleSet|bottle500ml": 0.28,
-    "ampouleSet|jar50g": 0.34,
-    "ampouleSet|tube100g": 0.30
+    "jar25g|jar25g": 1.32,
+    "jar25g|jar30g": 1.38,
+    "jar25g|jar50g": 1.46,
+    "jar30g|jar30g": 1.42,
+    "jar30g|jar50g": 1.50,
+    "jar50g|jar50g": 1.62,
+    "jar50g|jar65g": 1.70,
+    "jar65g|jar65g": 1.80,
+    "bottle30ml|jar30g": 0.82,
+    "bottle30ml|jar50g": 0.90,
+    "bottle40ml|jar30g": 0.82,
+    "bottle60ml|jar30g": 0.84,
+    "bottle100ml|jar30g": 0.86,
+    "bottle25g|bottle500ml": 0.01,
+    "bottle25g|bottle400ml": 0.01,
+    "bottle25g|bottle300ml": 0.01,
+    "bottle25g|jar30g": 0.64,
+    "bottle25g|jar50g": 0.74,
+    "bottle25g|tube100g": 0.02,
+    "bottle500ml|tube100g": 0.02,
+    "bottle500ml|jar50g": 0.76,
+    "ampouleSet|bottle500ml": 0.03,
+    "ampouleSet|jar50g": 0.78,
+    "ampouleSet|tube100g": 0.03
   };
   if (ratios[pair] !== undefined) return ratios[pair];
 
@@ -2181,13 +2208,22 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
     for (let i = 0; i < count; i += 1) {
       const ratio = getProductHeightRatio(row, i + 1, count);
       const height = Math.min(areaBox.height, areaBox.height * ratio);
-      const width = height * aspect;
+      const width = height * aspect * getProductLayoutSlotSpan(row, i + 1);
       itemBoxes.push({ width, height });
     }
 
     let gaps = getProductCategoryPairGaps(row, itemBoxes, -itemWidth * 0.42, layout);
     gaps = fitProductGapsToArea(itemBoxes.map((box) => box.width), gaps, areaBox.width);
-    const totalWidth = itemBoxes.reduce((sum, box) => sum + box.width, 0) + gaps.reduce((sum, value) => sum + value, 0);
+    let totalWidth = itemBoxes.reduce((sum, box) => sum + box.width, 0) + gaps.reduce((sum, value) => sum + value, 0);
+    if (layout === "line" && totalWidth > areaBox.width) {
+      const shrink = areaBox.width / totalWidth;
+      itemBoxes.forEach((box) => {
+        box.width *= shrink;
+        box.height *= shrink;
+      });
+      gaps = gaps.map((gap) => Math.max(0, gap * shrink));
+      totalWidth = itemBoxes.reduce((sum, box) => sum + box.width, 0) + gaps.reduce((sum, value) => sum + value, 0);
+    }
     let left = areaBox.centerX - totalWidth / 2;
     const boxes = [];
 
@@ -2211,7 +2247,8 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
 
     const categories = Array.from({ length: count }, (_, index) => normalizeProductCategory(getProductCategory(row, index + 1)));
     const specKeys = Array.from({ length: count }, (_, index) => getProductSpecGapKey(row, index + 1));
-    log(`  Product category gap preset: layout=${layout}, categories=${categories.join("+")}, specKeys=${specKeys.join("+")}, gaps=${gaps.join("|")}, totalWidth=${Math.round(totalWidth)}.`);
+    const slotSpans = Array.from({ length: count }, (_, index) => getProductLayoutSlotSpan(row, index + 1));
+    log(`  Product category gap preset: layout=${layout}, categories=${categories.join("+")}, specKeys=${specKeys.join("+")}, slotSpans=${slotSpans.join("+")}, gaps=${gaps.join("|")}, totalWidth=${Math.round(totalWidth)}.`);
     return boxes;
   }
 
@@ -2530,7 +2567,8 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
         ? applyGiftLeftHeightRatioToBox(row, i, areaBox, targetBoxes[i - 1])
         : targetBoxes[i - 1];
 
-    const fitByHeight = prefix === "product" && getImageSourceForIndex(row, prefix, i).includes("cream") ||
+    const sourceForFit = getImageSourceForIndex(row, prefix, i);
+    const fitByHeight = prefix === "product" && (sourceForFit.includes("cream") || isAmpouleSetSource(sourceForFit)) ||
       prefix === "giftLeft" ||
       prefix === "giftRight";
     await fitLayerToBox(layer, targetBox, {
@@ -4348,11 +4386,11 @@ async function applyTitleAndProductNote(doc, row) {
 
 function isGiftControlColumn(column) {
   return PRODUCT_NAME_COLUMNS.includes(column) ||
-    /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|category|categoryGap|categoryGapMode|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
+    /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|slotSpan|category|categoryGap|categoryGapMode|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
     /^product\.gap\.\d+$/.test(column) ||
     /^product\.gap\.[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
-    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch)$/.test(column) ||
+    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
     /^productShadow\.(top|opacity)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
