@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260608-export-format-psd-jpg-ampoule-set-2slots";
+const SCRIPT_VERSION = "20260616-pdd-sku-gift-subtitle-template-cn-font";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -97,6 +97,7 @@ const TEMPLATE_CONFIGS = {
     },
     exportNameColumns: ["exportName", "PDD_SKU", "pddSku", "pdd_sku", "sku", "id", "goodsId"],
     ignoredDataColumns: ["template.profile", "templateProfile"],
+    defaultProductImageView: "front",
     keepPersonOnTop: false,
     productNameToSubtitle: true,
     subtitleRectangle: {
@@ -133,6 +134,60 @@ const TEMPLATE_CONFIGS = {
       name: "PRODUCT.shadow",
       top: 740,
       opacity: 32
+    }
+  },
+  pddSkuGift: {
+    ...BASE_TEMPLATE_CONFIG,
+    id: "pddSkuGift",
+    label: "PDD SKU GIFT",
+    filePrefixPlaceholder: "pdd_sku_gift_",
+    paths: {
+      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\02\\PDD_SKU_GIFT_Template.psd",
+      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\02\\sku-防晒40ml+叮叮喷雾100ml.csv",
+      assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\assets",
+      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\02\\export"
+    },
+    exportNameColumns: ["exportName", "PDD_SKU_GIFT", "pddSkuGift", "pdd_sku_gift", "PDD_SKU", "pddSku", "pdd_sku", "sku", "id", "goodsId"],
+    ignoredDataColumns: ["template.profile", "templateProfile"],
+    defaultProductImageView: "front",
+    keepPersonOnTop: false,
+    productNameToSubtitle: true,
+    subtitleRectangle: {
+      layerName: "txt.subtitle.rectangle",
+      paddingX: 30,
+      paddingY: 10,
+      minWidth: 220,
+      minHeight: 44,
+      maxTextWidth: 560,
+      radius: 28,
+      color: { red: 197, green: 39, blue: 20 }
+    },
+    subtitleTextStyle: {
+      fontSize: 30,
+      color: { red: 255, green: 255, blue: 255 }
+    },
+    bottomTextMixedStyle: {
+      preserveFontSize: true,
+      chinese: {
+        postScriptName: "FZLanTingHei_GBK",
+        fontName: "方正兰亭黑_GBK",
+        color: { red: 0, green: 0, blue: 0 }
+      },
+      latin: {
+        postScriptName: "LINESeedSansApp-Regular",
+        fontName: "LINE Seed Sans App Regular",
+        color: { red: 197, green: 39, blue: 20 }
+      }
+    },
+    productShadow: {
+      enabled: true,
+      sourceGroupName: "PRODUCT",
+      sourceMode: "group",
+      targetGroupName: "PRODUCT.PROJECT",
+      name: "PRODUCT.shadow",
+      top: 665,
+      opacity: 100,
+      placeAfterSource: false
     }
   }
 };
@@ -224,6 +279,16 @@ function getConfiguredExportName(row, index) {
   return `image_${index + 1}`;
 }
 
+function sanitizeFileBaseName(value, fallback = "image") {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/[<>:"/\\|?*]+/g, "x")
+    .replace(/[\u0000-\u001F]+/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[. ]+$/g, "");
+  return cleaned || fallback;
+}
+
 function isIdentifierColumn(column) {
   const config = getCurrentTemplateConfig();
   const columns = new Set([
@@ -311,8 +376,36 @@ function parseCsv(text) {
 
 async function readCsvRows(file) {
   ensureModules();
-  const text = await file.read({ format: uxpStorage.formats.utf8 });
+  const text = await readCsvText(file);
   return parseCsv(text.replace(/^\uFEFF/, ""));
+}
+
+async function readCsvText(file) {
+  const utf8Text = await file.read({ format: uxpStorage.formats.utf8 });
+  if (!looksMojibake(utf8Text)) return utf8Text;
+
+  try {
+    const binary = await file.read({ format: uxpStorage.formats.binary });
+    const decoder = new TextDecoder("gb18030");
+    const decoded = decoder.decode(binary);
+    if (decoded && !looksMojibake(decoded)) {
+      log(`  CSV decoded as GB18030: ${file.name || ""}`);
+      return decoded;
+    }
+  } catch (error) {
+    log(`  CSV GB18030 decode skipped: ${formatError(error)}`);
+  }
+
+  return utf8Text;
+}
+
+function looksMojibake(text) {
+  const raw = String(text || "");
+  if (!raw) return false;
+  const replacementCount = (raw.match(/\uFFFD/g) || []).length;
+  if (replacementCount >= 3) return true;
+  const suspiciousCount = (raw.match(/[锟斤拷\u0400-\u04FF\u0590-\u05FF]/g) || []).length;
+  return suspiciousCount >= 3;
 }
 
 async function loadProductNameMap() {
@@ -480,19 +573,28 @@ function getAgeCnAliases(age) {
   const normalized = normalizeProductNameKey(age);
   if (normalized === "婴童" || normalized === "一页") return ["婴童", "一页"];
   if (normalized === "学龄") return ["学龄"];
+  if (normalized === "青春" || normalized === "1218") return ["青春", "1218"];
   return age ? [String(age)] : [];
 }
 
 function getAgeCnCanonicalFromText(value) {
   const normalized = normalizeProductNameKey(value);
-  if (normalized.includes("婴童") || normalized.includes("一页")) return "婴童";
-  if (normalized.includes("学龄")) return "学龄";
+  if (normalized.includes("学龄") || normalized.includes("612")) return "学龄";
+  if (normalized.includes("青春") || normalized.includes("1218")) return "青春";
+  if (normalized.includes("婴童") || normalized.includes("婴儿") || normalized.includes("新生儿") || normalized.includes("一页")) return "婴童";
   return "";
+}
+
+function getDefaultProductAgeForQuery(value) {
+  return getAgeCnCanonicalFromText(value) || "婴童";
 }
 
 function choosePreferredProductImageForKey(key, values) {
   const items = Array.from(values);
   const normalizedKey = normalizeProductNameKey(key);
+  const agePreferred = choosePreferredProductByAge(normalizedKey, items);
+  if (agePreferred) return agePreferred;
+
   const specMatch = String(key || "").match(/(\d+(?:\.\d+)?(?:g|ml|kg|l))/i);
   if (specMatch) {
     const spec = specMatch[1].toLowerCase();
@@ -509,6 +611,27 @@ function choosePreferredProductImageForKey(key, values) {
     }
   }
   return choosePreferredProductByCategory(normalizedKey, items);
+}
+
+function choosePreferredProductByAge(normalizedKey, items) {
+  const targetAge = getDefaultProductAgeForQuery(normalizedKey);
+  const ageRules = {
+    "婴童": /(?:^|[\\/])(?:products[\\/])?baby[-\\/]/i,
+    "学龄": /(?:^|[\\/])(?:products[\\/])?(?:612|kids)[-\\/]/i,
+    "青春": /(?:^|[\\/])(?:products[\\/])?(?:1218|youth)[-\\/]/i
+  };
+  const rule = ageRules[targetAge];
+  if (!rule) return "";
+
+  const matched = items.filter((item) => rule.test(String(item).replace(/\\/g, "/")));
+  if (matched.length === 1) return matched[0];
+
+  if (matched.length > 1) {
+    const categoryPreferred = choosePreferredProductByCategory(normalizedKey, matched);
+    if (categoryPreferred) return categoryPreferred;
+  }
+
+  return "";
 }
 
 function choosePreferredProductByCategory(normalizedKey, items) {
@@ -652,6 +775,23 @@ function findLayerByName(doc, name) {
   return getAllLayers(doc.layers).find((layer) => layer.name === name);
 }
 
+function findLayerByPath(doc, path) {
+  const exact = findLayerByName(doc, path);
+  if (exact) return exact;
+
+  const parts = String(path || "").split(".").map((part) => part.trim()).filter(Boolean);
+  if (!parts.length) return null;
+
+  let layers = doc.layers;
+  let current = null;
+  for (const part of parts) {
+    current = Array.from(layers || []).find((layer) => layer.name === part);
+    if (!current) return null;
+    layers = current.layers || [];
+  }
+  return current;
+}
+
 function findLayerByAnyName(doc, names) {
   for (const name of names) {
     const layer = findLayerByName(doc, name);
@@ -716,13 +856,28 @@ async function moveLayerCenterTo(layer, centerX, centerY) {
 }
 
 function getImageGroupLayout(row, prefix) {
-  const layout = String(row[`${prefix}.layout`] || "").trim().toLowerCase();
+  const layout = String(getImageGroupValue(row, prefix, "layout", "") || "").trim().toLowerCase();
   if (layout) return layout;
   return prefix === "product" ? "auto" : "overlap";
 }
 
 function getImageGroupZOrder(row, prefix) {
-  return String(row[`${prefix}.zOrder`] || "leftFront").trim() || "leftFront";
+  return String(getImageGroupValue(row, prefix, "zOrder", "leftFront") || "leftFront").trim() || "leftFront";
+}
+
+function getImageGroupAliasPrefix(prefix) {
+  return prefix === "gift" ? "giftRight" : "";
+}
+
+function getImageGroupValue(row, prefix, key, fallback = "") {
+  if (row && row[`${prefix}.${key}`] !== undefined && row[`${prefix}.${key}`] !== null && row[`${prefix}.${key}`] !== "") {
+    return row[`${prefix}.${key}`];
+  }
+  const aliasPrefix = getImageGroupAliasPrefix(prefix);
+  if (aliasPrefix && row && row[`${aliasPrefix}.${key}`] !== undefined && row[`${aliasPrefix}.${key}`] !== null && row[`${aliasPrefix}.${key}`] !== "") {
+    return row[`${aliasPrefix}.${key}`];
+  }
+  return fallback;
 }
 
 function getImageGroupSourceText(row, prefix) {
@@ -754,6 +909,10 @@ function getProductCategoryFromSource(source) {
   if (/(diaper|repairing|身体乳100g)/.test(text)) return "tube";
   if (/(wash|foam|shampoo|body-lotion|lotion|乳|oil|精油|sunscreen|sun)/.test(text)) return "bottle";
   return "default";
+}
+
+function isAmpouleCategorySource(source) {
+  return getProductCategoryFromSource(source) === "ampoule" || isAmpouleSetSource(source);
 }
 
 function getProductCategory(row, index) {
@@ -837,6 +996,9 @@ function getDefaultHeightRatio(row, prefix) {
   if (prefix === "product" && getProductCategoryFromSource(sourceText) === "jar") {
     return 0.56;
   }
+  if (prefix === "product" && /baby-lip-care-cream-tube-15g|唇周霜15g/.test(sourceText)) {
+    return 0.7;
+  }
   if (prefix === "giftLeft") {
     const specs = getProductSpecFromSource([
       sourceText,
@@ -850,7 +1012,7 @@ function getDefaultHeightRatio(row, prefix) {
     if (maxSpec >= 10) return 0.8;
     return 0.68;
   }
-  if (prefix === "giftLeft" || prefix === "giftRight") {
+  if (prefix === "giftLeft" || prefix === "giftRight" || prefix === "gift") {
     return 0.68;
   }
   return 0.92;
@@ -1147,8 +1309,8 @@ function shouldDuplicateGroupFromBase(row, prefix) {
 }
 
 function shouldPlaceGroupFromFiles(row, prefix) {
-  const defaultMode = prefix === "product" || prefix === "giftLeft" || prefix === "giftRight" ? "place" : "placeholder";
-  const mode = String(row[`${prefix}.sourceMode`] || row[`${prefix}.copyMode`] || defaultMode).trim().toLowerCase();
+  const defaultMode = prefix === "product" || prefix === "giftLeft" || prefix === "giftRight" || prefix === "gift" ? "place" : "placeholder";
+  const mode = String(getImageGroupValue(row, prefix, "sourceMode", "") || getImageGroupValue(row, prefix, "copyMode", "") || defaultMode).trim().toLowerCase();
   return mode === "place" || mode === "placed" || mode === "direct";
 }
 
@@ -1171,6 +1333,10 @@ function getImageGroupScale(row, prefix) {
 
   if (prefix === "giftRight") {
     return readNumber(row, "giftRight.scale", 1);
+  }
+
+  if (prefix === "gift") {
+    return readNumber(row, "gift.scale", readNumber(row, "giftRight.scale", 1));
   }
 
   return readNumber(row, `${prefix}.scale`, 1);
@@ -1453,6 +1619,33 @@ function isLatinDigitChar(char) {
   return /^[A-Za-z0-9]$/.test(char);
 }
 
+function isCjkTextChar(char) {
+  const code = String(char || "").codePointAt(0);
+  if (!Number.isFinite(code)) return false;
+  return (
+    (code >= 0x3400 && code <= 0x4DBF) ||
+    (code >= 0x4E00 && code <= 0x9FFF) ||
+    (code >= 0xF900 && code <= 0xFAFF) ||
+    (code >= 0x20000 && code <= 0x2A6DF) ||
+    (code >= 0x2A700 && code <= 0x2B73F) ||
+    (code >= 0x2B740 && code <= 0x2B81F) ||
+    (code >= 0x2B820 && code <= 0x2CEAF)
+  );
+}
+
+function getMixedTextKind(char, options = {}) {
+  if (options.symbolsAsLatin) {
+    return isCjkTextChar(char) ? "chinese" : "latin";
+  }
+  return isLatinDigitChar(char) ? "latin" : "chinese";
+}
+
+function getTemplateStyleSourceKind(char, options = {}) {
+  if (isLatinDigitChar(char)) return "latin";
+  if (isCjkTextChar(char)) return "chinese";
+  return options.symbolsAsLatin ? "" : "chinese";
+}
+
 function buildMixedTextStyleRanges(text, baseStyle, styleConfig) {
   const chars = Array.from(toPhotoshopText(text));
   const ranges = [];
@@ -1460,7 +1653,7 @@ function buildMixedTextStyleRanges(text, baseStyle, styleConfig) {
   let current = null;
 
   chars.forEach((char, index) => {
-    const kind = isLatinDigitChar(char) ? "latin" : "chinese";
+    const kind = getMixedTextKind(char, styleConfig);
     if (current === null) {
       current = kind;
       start = index;
@@ -1507,7 +1700,7 @@ function buildMixedTextColorRanges(text, baseStyle, styleConfig) {
   let current = null;
 
   chars.forEach((char, index) => {
-    const kind = isLatinDigitChar(char) ? "latin" : "chinese";
+    const kind = getMixedTextKind(char, styleConfig);
     if (current === null) {
       current = kind;
       start = index;
@@ -1543,7 +1736,7 @@ function getStyleRangeForIndex(ranges, index) {
   return ranges.find((range) => index >= range.from && index < range.to) || ranges[0] || null;
 }
 
-function getTemplateTextStyleByKind(textKey, fallbackStyle) {
+function getTemplateTextStyleByKind(textKey, fallbackStyle, options = {}) {
   const text = String(textKey && textKey.textKey || "");
   const chars = Array.from(text);
   const ranges = textKey && textKey.textStyleRange;
@@ -1553,7 +1746,8 @@ function getTemplateTextStyleByKind(textKey, fallbackStyle) {
   };
 
   chars.forEach((char, index) => {
-    const kind = isLatinDigitChar(char) ? "latin" : "chinese";
+    const kind = getTemplateStyleSourceKind(char, options);
+    if (!kind) return;
     if (result[kind] && result[kind] !== fallbackStyle) return;
 
     const range = getStyleRangeForIndex(ranges, index);
@@ -1572,7 +1766,7 @@ function buildMixedTextTemplateStyleRanges(text, styleByKind, styleConfig) {
   let current = null;
 
   chars.forEach((char, index) => {
-    const kind = isLatinDigitChar(char) ? "latin" : "chinese";
+    const kind = getMixedTextKind(char, styleConfig);
     if (current === null) {
       current = kind;
       start = index;
@@ -1691,6 +1885,92 @@ async function applyTextLayerUniformStyle(layer, styleConfig, label) {
     log(`  ${label || layer.name} uniform style applied.`);
   } catch (error) {
     log(`  Uniform text style skipped for ${layer.name}: ${formatError(error)}`);
+  }
+}
+
+function applyFontConfigToTextStyle(style, config = {}) {
+  const textStyle = { ...(style || {}) };
+  if (config.postScriptName) textStyle.fontPostScriptName = config.postScriptName;
+  if (config.fontName) textStyle.fontName = config.fontName;
+  if (config.color) textStyle.color = makeRgbColor(config.color);
+  const fontSize = Number(config.fontSize);
+  if (Number.isFinite(fontSize) && fontSize > 0) {
+    textStyle.size = makePointValue(fontSize);
+    textStyle.impliedFontSize = makePointValue(fontSize);
+  }
+  return textStyle;
+}
+
+async function replaceTextLayerPddSkuGiftSubtitleStyle(layer, value, styleConfig, label) {
+  if (!layer || value === undefined || value === null) return;
+  if (!layer.textItem) {
+    throw new Error(`Layer "${layer.name}" is not a text layer`);
+  }
+
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+  const textValue = toPhotoshopText(value);
+
+  try {
+    const result = await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "get",
+          _target: [
+            { _property: "textKey" },
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+
+    const textKey = result && result[0] && result[0].textKey;
+    const baseRange = textKey && textKey.textStyleRange && textKey.textStyleRange[0];
+    const baseStyle = baseRange && baseRange.textStyle;
+    if (!textKey || !baseStyle) {
+      await replaceTextLayerPreserveFirstStyle(layer, value);
+      return;
+    }
+
+    const white = styleConfig && styleConfig.color;
+    const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle, { symbolsAsLatin: true });
+    styleByKind.chinese = applyFontConfigToTextStyle(styleByKind.chinese || baseStyle, {
+      color: white
+    });
+    styleByKind.latin = applyFontConfigToTextStyle(styleByKind.latin || baseStyle, {
+      postScriptName: "LINESeedSansApp-Regular",
+      fontName: "LINE Seed Sans App Regular",
+      color: white
+    });
+
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "set",
+          _target: [
+            { _ref: "textLayer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          to: {
+            _obj: "textLayer",
+            ...textKey,
+            textKey: textValue,
+            textStyleRange: buildMixedTextTemplateStyleRanges(textValue, styleByKind, {
+              symbolsAsLatin: true,
+              chinese: { color: white },
+              latin: { color: white }
+            })
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    log(`  ${label || layer.name} mixed font style applied.`);
+  } catch (error) {
+    log(`  ${label || layer.name} mixed font style skipped: ${formatError(error)}`);
+    await replaceTextLayerPreserveFirstStyle(layer, value);
   }
 }
 
@@ -2461,12 +2741,13 @@ async function prepareImageGroupLayers(doc, row, prefix) {
     layers.push(layer);
   }
 
-  if (prefix === "product") {
-    const productItems = layers.map((layer) => ({
+  if (["product", "gift", "giftLeft", "giftRight"].includes(prefix)) {
+    const stackedItems = layers.map((layer, index) => ({
       layer,
-      box: getBoundsBox(layer.boundsNoEffects || layer.bounds)
+      box: getBoundsBox(layer.boundsNoEffects || layer.bounds),
+      source: getImageSourceForIndex(row, prefix, index + 1)
     })).filter((item) => item.box);
-    await arrangeProductLayerStacking(productItems, getImageGroupZOrder(row, "product"));
+    await arrangeImageGroupLayerStacking(stackedItems, prefix === "product" ? getImageGroupZOrder(row, "product") : "leftFront", prefix);
   }
 
   baseLayer.visible = false;
@@ -2538,6 +2819,27 @@ async function placeAssetAsLayer(file) {
   return photoshop.app.activeDocument.activeLayers[0];
 }
 
+async function moveLayerBesideReferenceBestEffort(layer, referenceLayer, label) {
+  if (!layer || !referenceLayer) return false;
+  const placements = [
+    photoshop.constants.ElementPlacement.PLACEBEFORE,
+    photoshop.constants.ElementPlacement.PLACEAFTER
+  ].filter(Boolean);
+
+  let lastError = null;
+  for (const placement of placements) {
+    try {
+      await layer.move(referenceLayer, placement);
+      return true;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  log(`  ${label || "Layer"} group placement skipped: ${formatError(lastError)}`);
+  return false;
+}
+
 async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, targetBoxes, areaBox, count, layout) {
   state.placedImageLayers = state.placedImageLayers || {};
 
@@ -2561,6 +2863,7 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     const layer = await placeAssetAsLayer(asset);
     layer.name = `img.${prefix}.${i}`;
     layer.visible = true;
+    await moveLayerBesideReferenceBestEffort(layer, baseLayer, `${layer.name} -> ${baseLayer.name}`);
     const targetBox = prefix === "product"
       ? applyProductHeightRatioToBox(row, i, areaBox, targetBoxes[i - 1], count)
       : prefix === "giftLeft"
@@ -2570,7 +2873,8 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     const sourceForFit = getImageSourceForIndex(row, prefix, i);
     const fitByHeight = prefix === "product" && (sourceForFit.includes("cream") || isAmpouleSetSource(sourceForFit)) ||
       prefix === "giftLeft" ||
-      prefix === "giftRight";
+      prefix === "giftRight" ||
+      prefix === "gift";
     await fitLayerToBox(layer, targetBox, {
       alignY: prefix === "product" ? "bottom" : "center",
       fitBy: fitByHeight ? "height" : "contain"
@@ -2884,11 +3188,18 @@ async function arrangeProductLineAfterReplace(doc, row) {
   await arrangeProductOverlapItems(refreshed, row, areaBox, layout);
 }
 
-async function arrangeProductLayerStacking(items, zOrder) {
+async function arrangeImageGroupLayerStacking(items, zOrder, label = "product") {
   if (!items.length) return;
 
   const leftToRight = [...items].sort((a, b) => a.box.centerX - b.box.centerX);
-  const frontToBack = zOrder === "rightFront" ? [...leftToRight].reverse() : leftToRight;
+  let frontToBack = zOrder === "rightFront" ? [...leftToRight].reverse() : leftToRight;
+  const hasAmpoule = frontToBack.some((item) => isAmpouleCategorySource(item.source));
+  if (hasAmpoule) {
+    frontToBack = [
+      ...frontToBack.filter((item) => !isAmpouleCategorySource(item.source)),
+      ...frontToBack.filter((item) => isAmpouleCategorySource(item.source))
+    ];
+  }
 
   for (let i = frontToBack.length - 2; i >= 0; i -= 1) {
     const frontLayer = frontToBack[i].layer;
@@ -2898,9 +3209,21 @@ async function arrangeProductLayerStacking(items, zOrder) {
       await frontLayer.move(behindLayer, photoshop.constants.ElementPlacement.PLACEBEFORE);
       log(`  Z-order: ${frontLayer.name} above ${behindLayer.name}`);
     } catch (error) {
-      log(`  Warning: product z-order skipped for ${frontLayer.name}: ${formatError(error)}`);
+      log(`  Warning: ${label} z-order skipped for ${frontLayer.name}: ${formatError(error)}`);
     }
   }
+
+  if (hasAmpoule) {
+    log(`  ${label} z-order rule: non-ampoule layers placed above ampoule layers.`);
+  }
+}
+
+async function arrangeProductLayerStacking(items, zOrder) {
+  const enrichedItems = items.map((item, index) => ({
+    ...item,
+    source: item.source || getImageSourceForIndex(state.currentRow || {}, "product", index + 1)
+  }));
+  await arrangeImageGroupLayerStacking(enrichedItems, zOrder, "product");
 }
 
 async function keepPersonOnTop(doc) {
@@ -2937,13 +3260,222 @@ async function mergeActiveLayerBestEffort(layer) {
           _options: { dialogOptions: "dontDisplay" }
         }
       ],
-      { synchronousExecution: false, modalBehavior: "execute" }
+      { synchronousExecution: true, modalBehavior: "execute" }
     );
     return photoshop.app.activeDocument.activeLayers[0] || layer;
   } catch (error) {
     log(`  Product shadow merge skipped: ${formatError(error)}`);
-    return layer;
+    return null;
   }
+}
+
+async function mergeLayersBestEffort(layers, label) {
+  const activeLayers = (layers || []).filter(Boolean);
+  if (!activeLayers.length) return null;
+  if (activeLayers.length === 1) return activeLayers[0];
+
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = activeLayers;
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "mergeLayers",
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    return photoshop.app.activeDocument.activeLayers[0] || activeLayers[0];
+  } catch (error) {
+    log(`  ${label || "Layer"} merge skipped: ${formatError(error)}`);
+    return activeLayers[0];
+  }
+}
+
+async function deleteLayerBestEffort(layer, label) {
+  if (!layer) return false;
+  ensureModules();
+
+  try {
+    if (typeof layer.delete === "function") {
+      await layer.delete();
+      return true;
+    }
+  } catch (error) {
+    log(`  ${label || layer.name} DOM delete skipped: ${formatError(error)}`);
+  }
+
+  try {
+    photoshop.app.activeDocument.activeLayers = [layer];
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "delete",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    return true;
+  } catch (error) {
+    log(`  ${label || layer.name} action delete skipped: ${formatError(error)}`);
+  }
+
+  return false;
+}
+
+async function removeExistingProductShadowLayers(doc, config) {
+  const shadowName = config.name || "PRODUCT.shadow";
+  const existing = getAllLayers(doc.layers).filter((layer) => layer.name === shadowName);
+  if (!existing.length) return;
+
+  let removed = 0;
+  for (const layer of existing) {
+    if (await deleteLayerBestEffort(layer, `Existing ${shadowName}`)) {
+      removed += 1;
+    }
+  }
+
+  if (removed) {
+    log(`  Product shadow cleanup: removed ${removed} existing ${shadowName} layer(s).`);
+  }
+}
+
+async function duplicateLayerBestEffort(layer, name, label) {
+  if (!layer) return null;
+  ensureModules();
+
+  try {
+    const duplicated = await layer.duplicate();
+    duplicated.name = name;
+    duplicated.visible = true;
+    return duplicated;
+  } catch (error) {
+    log(`  ${label || layer.name} DOM duplicate skipped: ${formatError(error)}`);
+  }
+
+  try {
+    photoshop.app.activeDocument.activeLayers = [layer];
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "duplicate",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          name,
+          version: 5,
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    const duplicated = photoshop.app.activeDocument.activeLayers[0];
+    if (duplicated) {
+      duplicated.name = name;
+      duplicated.visible = true;
+      return duplicated;
+    }
+  } catch (error) {
+    log(`  ${label || layer.name} action duplicate skipped: ${formatError(error)}`);
+  }
+
+  return null;
+}
+
+async function createProductShadowSourceLayer(doc, productGroup, config) {
+  const shadowName = config.name || "PRODUCT.shadow";
+  const sourceMode = String(config.sourceMode || "").trim().toLowerCase();
+  const groupCopy = await duplicateLayerBestEffort(productGroup, shadowName, "Product shadow PRODUCT group");
+  if (groupCopy) {
+    const merged = await mergeActiveLayerBestEffort(groupCopy);
+    if (merged) {
+      merged.name = shadowName;
+      return merged;
+    }
+  }
+
+  if (sourceMode === "group" || sourceMode === "productgroup" || sourceMode === "product-group") {
+    log("  Product shadow item fallback skipped: PRODUCT group source is required by profile.");
+    return null;
+  }
+
+  const productItems = collectProductGroupItems(doc, state.currentRow || {});
+  if (!productItems.length) {
+    log("  Product shadow item fallback skipped: no visible product image layers.");
+    return null;
+  }
+
+  const copies = [];
+  for (let i = 0; i < productItems.length; i += 1) {
+    const copy = await duplicateLayerBestEffort(
+      productItems[i].layer,
+      `${shadowName}.${i + 1}`,
+      `Product shadow ${productItems[i].layer.name}`
+    );
+    if (copy) copies.push(copy);
+  }
+
+  const merged = await mergeLayersBestEffort(copies, "Product shadow item fallback");
+  if (!merged) return null;
+  merged.name = shadowName;
+  return merged;
+}
+
+function findProductShadowTargetGroup(doc, config) {
+  const targetGroupNames = [
+    config.targetGroupName,
+    ...(config.targetGroupNames || []),
+    "PROJECT"
+  ].filter(Boolean);
+
+  for (const name of targetGroupNames) {
+    const layer = findLayerByPath(doc, name) || findLayerByName(doc, name);
+    if (layer) return layer;
+  }
+  return null;
+}
+
+async function moveLayerToGroupBestEffort(layer, group) {
+  if (!layer || !group) return false;
+  const placements = [
+    photoshop.constants.ElementPlacement.PLACEINSIDE,
+    photoshop.constants.ElementPlacement.PLACEATBEGINNING,
+    photoshop.constants.ElementPlacement.PLACEATEND,
+    photoshop.constants.ElementPlacement.INSIDE
+  ].filter(Boolean);
+
+  let lastError = null;
+  for (const placement of placements) {
+    try {
+      await layer.move(group, placement);
+      return true;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const childLayers = Array.from(group.layers || []).filter((child) => child && child !== layer);
+  const childTargets = [
+    childLayers[0] && { layer: childLayers[0], placement: photoshop.constants.ElementPlacement.PLACEBEFORE },
+    childLayers[childLayers.length - 1] && { layer: childLayers[childLayers.length - 1], placement: photoshop.constants.ElementPlacement.PLACEAFTER }
+  ].filter((item) => item && item.layer && item.placement);
+
+  for (const item of childTargets) {
+    try {
+      await layer.move(item.layer, item.placement);
+      return true;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  log(`  Product shadow target move skipped: ${formatError(lastError)}`);
+  return false;
 }
 
 async function flipLayerVertical(layer) {
@@ -2989,18 +3521,27 @@ async function applyProductShadow(doc) {
   }
 
   try {
-    let shadowLayer = await productGroup.duplicate();
+    await removeExistingProductShadowLayers(doc, config);
+    const shadowLayer = await createProductShadowSourceLayer(doc, productGroup, config);
+    if (!shadowLayer) {
+      log("  Product shadow skipped: could not duplicate product source.");
+      return;
+    }
     shadowLayer.name = config.name || "PRODUCT.shadow";
-    shadowLayer.visible = true;
-
-    shadowLayer = await mergeActiveLayerBestEffort(shadowLayer);
-    shadowLayer.name = config.name || "PRODUCT.shadow";
-    await flipLayerVertical(shadowLayer);
+    try {
+      await flipLayerVertical(shadowLayer);
+    } catch (error) {
+      log(`  Product shadow flip skipped: ${formatError(error)}`);
+    }
 
     let shadowBox = getBoundsBox(shadowLayer.boundsNoEffects || shadowLayer.bounds);
     const top = readNumber(state.currentRow || {}, "productShadow.top", Number(config.top) || 740);
     if (shadowBox && Number.isFinite(top)) {
-      await shadowLayer.translate(0, top - shadowBox.top);
+      try {
+        await shadowLayer.translate(0, top - shadowBox.top);
+      } catch (error) {
+        log(`  Product shadow top align skipped: ${formatError(error)}`);
+      }
     }
 
     const opacity = readNumber(state.currentRow || {}, "productShadow.opacity", Number(config.opacity) || 32);
@@ -3012,31 +3553,19 @@ async function applyProductShadow(doc) {
       }
     }
 
-    const projectGroup = findLayerByName(doc, config.targetGroupName || "PROJECT");
-    if (projectGroup) {
-      const placements = [
-        photoshop.constants.ElementPlacement.PLACEINSIDE,
-        photoshop.constants.ElementPlacement.PLACEATEND,
-        photoshop.constants.ElementPlacement.INSIDE
-      ].filter(Boolean);
-      for (const placement of placements) {
-        try {
-          await shadowLayer.move(projectGroup, placement);
-          break;
-        } catch (error) {
-          // Try the next UXP placement constant.
-        }
+    const projectGroup = findProductShadowTargetGroup(doc, config);
+    const movedToTargetGroup = await moveLayerToGroupBestEffort(shadowLayer, projectGroup);
+
+    if (config.placeAfterSource !== false || !movedToTargetGroup) {
+      try {
+        await shadowLayer.move(productGroup, photoshop.constants.ElementPlacement.PLACEAFTER);
+      } catch (error) {
+        log(`  Product shadow z-order skipped: ${formatError(error)}`);
       }
     }
 
-    try {
-      await shadowLayer.move(productGroup, photoshop.constants.ElementPlacement.PLACEAFTER);
-    } catch (error) {
-      log(`  Product shadow z-order skipped: ${formatError(error)}`);
-    }
-
     shadowBox = getBoundsBox(shadowLayer.boundsNoEffects || shadowLayer.bounds);
-    log(`  Product shadow applied: top=${shadowBox ? Math.round(shadowBox.top) : "?"}, opacity=${opacity}.`);
+    log(`  Product shadow applied: top=${shadowBox ? Math.round(shadowBox.top) : "?"}, opacity=${opacity}, target=${projectGroup ? projectGroup.name : "none"}.`);
   } catch (error) {
     log(`  Product shadow skipped: ${formatError(error)}`);
   }
@@ -3526,7 +4055,7 @@ async function replaceSmartObjectLayer(layer, file) {
     return;
   }
 
-  const groupMatch = layer.name.match(/^img\.(product|giftLeft|giftRight)$/);
+  const groupMatch = layer.name.match(/^img\.(product|giftLeft|giftRight|gift)$/);
   const areaBox = groupMatch && state.groupAreaBoxes[groupMatch[1]];
   if (areaBox) {
     const prefix = groupMatch[1];
@@ -3534,8 +4063,8 @@ async function replaceSmartObjectLayer(layer, file) {
     let targetBox = prefix === "product"
       ? applyProductHeightRatioToBox(row, 1, areaBox, areaBox, 1)
       : areaBox;
-    let alignY = "bottom";
-    let fitBy = prefix === "product" ? "height" : "contain";
+    let alignY = prefix === "product" ? "bottom" : "center";
+    let fitBy = prefix === "product" || prefix === "gift" ? "height" : "contain";
 
     await fitLayerToBox(layer, targetBox, {
       alignY,
@@ -3567,7 +4096,7 @@ async function replaceSmartObjectLayer(layer, file) {
 async function getAssetEntry(filename, options = {}) {
   if (!filename) return null;
 
-  const normalized = String(filename).replace(/\\/g, "/");
+  const normalized = normalizeImagePathForTemplate(String(filename).replace(/\\/g, "/"));
   const productViewFallbacks = getProductImageViewFallbacks(normalized);
   for (const fallback of productViewFallbacks) {
     try {
@@ -3585,7 +4114,7 @@ async function getAssetEntry(filename, options = {}) {
 }
 
 function getProductImageViewFallbacks(filename) {
-  const normalized = String(filename || "").replace(/\\/g, "/");
+  const normalized = normalizeImagePathForTemplate(String(filename || "").replace(/\\/g, "/"));
   const match = normalized.match(/^(.*?)-(angle|front)(\.[^.]+)$/i);
   if (!match) {
     const baseMatch = normalized.match(/^(.*?)(\.[^.]+)$/);
@@ -3603,7 +4132,7 @@ function getProductImageViewFallbacks(filename) {
       `${base}-angle${ext}`,
       `${withoutProducts}-angle${ext}`,
       `angle/${withoutProducts}-angle${ext}`
-    ]));
+    ].map(normalizeImagePathForTemplate)));
   }
 
   const base = match[1];
@@ -3623,10 +4152,11 @@ function getProductImageViewFallbacks(filename) {
     candidates.push(`${base.replace(/(^|\/)front(\/)/i, "$1$2")}-front${ext}`);
     candidates.push(`front/${withoutProducts.replace(/(^|\/)front(\/)/i, "$1")}-front${ext}`);
   }
-  return Array.from(new Set(candidates));
+  return Array.from(new Set(candidates.map(normalizeImagePathForTemplate)));
 }
 
 async function getAssetEntryWithoutProductViewFallback(normalized, options = {}) {
+  normalized = normalizeImagePathForTemplate(normalized);
   if (options.normalizeGiftRight && !normalized.startsWith("__giftRight/")) {
     try {
       const normalizedGiftRight = await assetsFolder.getEntry(`__giftRight/${normalized}`);
@@ -3652,8 +4182,8 @@ async function getAssetEntryWithoutProductViewFallback(normalized, options = {})
 
 function getExportBaseName(row, index) {
   const prefix = $("filePrefix").value || "";
-  const base = getConfiguredExportName(row, index);
-  return `${prefix}${base}`.replace(/\.(?:jpe?g|psd)$/i, "");
+  const base = sanitizeFileBaseName(getConfiguredExportName(row, index), `image_${index + 1}`);
+  return sanitizeFileBaseName(`${prefix}${base}`.replace(/\.(?:jpe?g|psd)$/i, ""), `image_${index + 1}`);
 }
 
 function getExportName(row, index, format = "jpg") {
@@ -3680,6 +4210,9 @@ function normalizeExportFormats(value) {
 function getExportFormats(row) {
   const rowFormat = row && (row["export.format"] || row.exportFormat || row["导出格式"]);
   const uiFormat = $("exportFormat") && $("exportFormat").value;
+  if (getCurrentTemplateConfig().id === "pddSkuGift") {
+    return normalizeExportFormats(uiFormat || rowFormat || "jpg");
+  }
   return normalizeExportFormats(rowFormat || uiFormat || "jpg");
 }
 
@@ -3766,9 +4299,54 @@ function resolveProductNameToImage(name, options = {}) {
   const mapped = state.productNameMap.get(normalized)
     || state.productNameMap.get(compact)
     || state.productNameMap.get(matchKey);
-  if (mapped) return mapped;
+  if (mapped) return normalizeImagePathForTemplate(mapped);
   if (options.allowRows === false) return "";
-  return resolveProductNameByRows(raw);
+  return normalizeImagePathForTemplate(resolveProductNameByRows(raw));
+}
+
+function normalizeImagePathForTemplate(filename) {
+  const normalized = stripBlobPathPrefix(String(filename || "").replace(/\\/g, "/"));
+  const view = getDefaultProductImageViewForTemplate();
+  if (!view) return normalized;
+  if (!/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(normalized)) return normalized;
+  if (isExplicitProductViewAssetPath(normalized, view)) return normalized;
+  if (!looksLikeProductAssetPath(normalized)) return normalized;
+  return toProductViewAssetPath(normalized, view);
+}
+
+function stripBlobPathPrefix(filename) {
+  return String(filename || "")
+    .replace(/^blob:(?:\/\/)?blob-\d+\//i, "")
+    .replace(/^blob:\/+/i, "");
+}
+
+function toFrontAssetPath(filename) {
+  return toProductViewAssetPath(filename, "front");
+}
+
+function getDefaultProductImageViewForTemplate() {
+  const view = String(getCurrentTemplateConfig().defaultProductImageView || "").trim().toLowerCase();
+  return /^(front|angle)$/.test(view) ? view : "";
+}
+
+function looksLikeProductAssetPath(filename) {
+  const normalized = stripBlobPathPrefix(String(filename || "").replace(/\\/g, "/"));
+  if (/^(?:products\/)?(?:angle|front)\//i.test(normalized)) return true;
+  if (/^products\//i.test(normalized)) return true;
+  const base = normalized.split("/").pop() || "";
+  return /^(?:baby|612|1218|youth)-/i.test(base);
+}
+
+function isExplicitProductViewAssetPath(filename, view) {
+  const normalized = stripBlobPathPrefix(String(filename || "").replace(/\\/g, "/"));
+  return new RegExp(`^(?:products/)?${view}/`, "i").test(normalized);
+}
+
+function toProductViewAssetPath(filename, view) {
+  const normalized = stripBlobPathPrefix(String(filename || "").replace(/\\/g, "/"));
+  const match = normalized.match(/^(?:(?:products\/)?(?:angle|front)\/|products\/)?(.+?)(?:-(?:angle|front|angled|tilt|tilted|face|f))?(\.[^.]+)$/i);
+  if (!match) return withProductImageView(normalized, view);
+  return `${view}/${match[1]}-${view}${match[2]}`;
 }
 
 function resolveProductNameTokenToImages(token) {
@@ -3815,10 +4393,11 @@ function getProductImageView(row) {
   if (/^(angle|angled|tilt|tilted|side|a|斜侧|倾斜|斜侧图|倾斜图)$/.test(explicit)) return "angle";
 
   const note = firstTextValue(row, PRODUCT_VIEW_NOTE_COLUMNS);
-  if (!note) return "angle";
+  const defaultView = getDefaultProductImageViewForTemplate() || "angle";
+  if (!note) return defaultView;
   if (/front|face|正面|正面图/i.test(note)) return "front";
   if (/angle|angled|tilt|tilted|side|斜侧|倾斜|斜侧图|倾斜图/i.test(note)) return "angle";
-  return "front";
+  return defaultView;
 }
 
 function withProductImageView(filename, view) {
@@ -3868,7 +4447,7 @@ function resolveProductNameByRows(name) {
   if (!normalized || !state.productNameRows || !state.productNameRows.length) return "";
 
   const querySpec = extractProductSpec(normalized);
-  const queryAge = getAgeCnCanonicalFromText(normalized);
+  const queryAge = getDefaultProductAgeForQuery(normalized);
   const queryCategory = normalized.includes("瓶装") ? "瓶装" : normalized.includes("管装") ? "管装" : normalized.includes("罐装") ? "罐装" : "";
   const candidates = new Set();
 
@@ -3898,13 +4477,30 @@ function resolveProductNameByRows(name) {
       ...getChineseProductAliases({ age, product, standardProduct, productEn })
     ].map(normalizeProductNameKey).filter(Boolean);
 
-    if (aliases.some((alias) => normalized.includes(alias))) {
+    if (aliases.some((alias) => normalized.includes(alias) || isLooseProductAliasMatch(normalized, alias))) {
       candidates.add(imagePath);
     }
   });
 
   if (candidates.size === 1) return Array.from(candidates)[0];
   return choosePreferredProductImageForKey(normalized, candidates);
+}
+
+function isLooseProductAliasMatch(query, alias) {
+  const normalizedQuery = normalizeProductNameKey(query);
+  const normalizedAlias = normalizeProductNameKey(alias);
+  if (!normalizedQuery || !normalizedAlias) return false;
+  if (normalizedQuery.includes(normalizedAlias) || normalizedAlias.includes(normalizedQuery)) return true;
+
+  const strippedAlias = normalizedAlias.replace(/(乳液|乳霜|乳|霜|露|水|膏|液)$/u, "");
+  if (["婴童", "婴儿", "新生儿", "学龄", "青春", "儿童", "一页"].includes(strippedAlias)) {
+    return false;
+  }
+  if (strippedAlias.length >= 2 && normalizedQuery.includes(strippedAlias)) {
+    return true;
+  }
+
+  return false;
 }
 
 function extractProductSpec(value) {
@@ -3945,6 +4541,69 @@ function expandProductNamesToSet(row) {
   return expanded;
 }
 
+function extractProductNamesFromLabel(value) {
+  return String(value || "")
+    .replace(/^[^:：]*[:：]\s*/, "")
+    .trim();
+}
+
+function expandLabelToImageSet(row, prefix, labelColumns, targetNameColumn) {
+  const expanded = { ...row };
+  if (hasValue(expanded, `img.${prefix}Set`) || hasValue(expanded, `img.${prefix}`)) return expanded;
+
+  const label = firstTextValue(expanded, labelColumns);
+  const names = extractProductNamesFromLabel(label);
+  if (!names) return expanded;
+
+  if (targetNameColumn && !hasValue(expanded, targetNameColumn)) {
+    expanded[targetNameColumn] = names;
+  }
+
+  const images = [];
+  const missing = [];
+  splitProductNameList(names).forEach((token) => {
+    const resolved = resolveProductNameTokenToImages(token);
+    images.push(...resolved.images);
+    missing.push(...resolved.missing);
+  });
+
+  if (images.length) {
+    expanded[`img.${prefix}Set`] = images.join(" | ");
+    if (!expanded[`${prefix}.count`]) {
+      expanded[`${prefix}.count`] = String(images.length);
+    }
+    log(`  ${prefix} label mapped: ${images.join(" | ")}`);
+  }
+
+  if (missing.length) {
+    log(`  ${prefix} label product not found: ${missing.join(" | ")}`);
+  }
+
+  return expanded;
+}
+
+function applySkuGiftLabelSources(row) {
+  let expanded = { ...row };
+  if (getCurrentTemplateConfig().id === "pddSkuGift" && !hasValue(expanded, "product.view")) {
+    expanded["product.view"] = "front";
+  }
+
+  if (!hasValue(expanded, "product.name.cn")) {
+    const mainNames = extractProductNamesFromLabel(expanded["txt.mainProductLabel"]);
+    if (mainNames) {
+      expanded["product.name.cn"] = mainNames;
+    }
+  }
+
+  expanded = expandLabelToImageSet(expanded, "gift", [
+    "txt.giftProductLabel",
+    "txt.giftLabel",
+    "txt.giftDesc"
+  ], "gift.name.cn");
+
+  return expanded;
+}
+
 function parseImageSpec(value) {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -3970,10 +4629,48 @@ function parseCount(value) {
   return match ? Math.max(1, Math.min(Number(match[1]), 6)) : 0;
 }
 
+function extractCountLabelText(row, prefix) {
+  if (!row) return "";
+  if (prefix === "product") {
+    return extractProductNamesFromLabel(row["txt.mainProductLabel"]) || row["product.name.cn"] || "";
+  }
+  if (prefix === "gift" || prefix === "giftRight") {
+    return extractProductNamesFromLabel(row["txt.giftProductLabel"]) || row["gift.name.cn"] || "";
+  }
+  return [
+    row[`txt.${prefix}Title`],
+    row[`txt.${prefix}Desc`],
+    row[`txt.${prefix}`]
+  ].filter(Boolean).join(" ");
+}
+
+function countItemsFromLabel(value) {
+  const tokens = splitProductNameList(value);
+  if (!tokens.length) return 0;
+  const count = tokens
+    .flatMap((token) => expandRepeatedProductNameToken(token))
+    .filter(Boolean)
+    .length;
+  return Math.max(1, Math.min(count, 6));
+}
+
 function getGiftCount(row, prefix) {
-  const explicitCount = parseCount(row[`${prefix}.count`]);
-  if (explicitCount) {
-    return explicitCount;
+  const explicitCount = parseCount(getImageGroupValue(row, prefix, "count", ""));
+  const aliasPrefix = getImageGroupAliasPrefix(prefix);
+  const setSpec = parseImageSpec(
+    row[`img.${prefix}Set`] ||
+    (aliasPrefix && row[`img.${aliasPrefix}Set`]) ||
+    ""
+  );
+  const setCount = Math.max(setSpec.count || 0, setSpec.images ? setSpec.images.length : 0);
+  const labelCount = countItemsFromLabel(extractCountLabelText(row, prefix));
+
+  if (getCurrentTemplateConfig().id === "pddSkuGift") {
+    return Math.max(labelCount, setCount, 0);
+  }
+
+  if (explicitCount || setCount) {
+    return Math.max(explicitCount, setCount);
   }
 
   const text = [
@@ -3995,8 +4692,11 @@ function expandGiftImageSet(row, prefix) {
   const expanded = { ...row };
   const setColumn = `img.${prefix}Set`;
   const baseColumn = `img.${prefix}`;
-  const setSpec = parseImageSpec(row[setColumn]);
-  const baseSpec = parseImageSpec(row[baseColumn]);
+  const aliasPrefix = getImageGroupAliasPrefix(prefix);
+  const aliasSetColumn = aliasPrefix ? `img.${aliasPrefix}Set` : "";
+  const aliasBaseColumn = aliasPrefix ? `img.${aliasPrefix}` : "";
+  const setSpec = parseImageSpec(row[setColumn] || (aliasSetColumn && row[aliasSetColumn]));
+  const baseSpec = parseImageSpec(row[baseColumn] || (aliasBaseColumn && row[aliasBaseColumn]));
   const setImages = setSpec.images;
 
   if (setSpec.count && !expanded[`${prefix}.count`]) {
@@ -4018,6 +4718,13 @@ function expandGiftImageSet(row, prefix) {
   if (baseSpec.layout && !expanded[`${prefix}.layout`]) {
     expanded[`${prefix}.layout`] = baseSpec.layout;
   }
+
+  ["count", "layout", "scale", "heightRatio", "gap", "spacing", "x", "y", "w", "h"].forEach((key) => {
+    const value = getImageGroupValue(row, prefix, key, "");
+    if (value !== "" && !expanded[`${prefix}.${key}`]) {
+      expanded[`${prefix}.${key}`] = value;
+    }
+  });
 
   if (setImages.length) {
     if (!expanded[baseColumn]) {
@@ -4060,12 +4767,50 @@ function normalizeImageAliases(row) {
   return expanded;
 }
 
+function normalizeGiftAliases(row) {
+  const expanded = { ...row };
+  const aliases = [
+    ["img.giftRight", "img.gift"],
+    ["img.giftRightSet", "img.giftSet"],
+    ["txt.giftRightTitle", "txt.giftTitle"]
+  ];
+
+  aliases.forEach(([from, to]) => {
+    if (!hasValue(expanded, to) && hasValue(expanded, from)) {
+      expanded[to] = expanded[from];
+    }
+  });
+
+  Object.keys(row).forEach((key) => {
+    const match = key.match(/^giftRight\.(.+)$/);
+    if (!match) return;
+    const target = `gift.${match[1]}`;
+    if (!hasValue(expanded, target) && hasValue(expanded, key)) {
+      expanded[target] = expanded[key];
+    }
+  });
+
+  Object.keys(row).forEach((key) => {
+    const match = key.match(/^img\.giftRight\.(\d+)$/);
+    if (!match) return;
+    const target = `img.gift.${match[1]}`;
+    if (!hasValue(expanded, target) && hasValue(expanded, key)) {
+      expanded[target] = expanded[key];
+    }
+  });
+
+  return expanded;
+}
+
 function expandRow(row) {
   let expanded = normalizeImageAliases(row);
+  expanded = normalizeGiftAliases(expanded);
+  expanded = applySkuGiftLabelSources(expanded);
   expanded = expandProductNamesToSet(expanded);
   expanded = applyProductImageView(expanded);
   expanded = expandGiftImageSet(expanded, "giftLeft");
   expanded = expandGiftImageSet(expanded, "giftRight");
+  expanded = expandGiftImageSet(expanded, "gift");
   expanded = expandGiftImageSet(expanded, "product");
   expanded = applyTitleTextRules(expanded);
   return expanded;
@@ -4137,6 +4882,271 @@ function firstTextValue(row, keys) {
 
 async function getLayerBox(layer) {
   return getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
+}
+
+function getTextAreaLayerNames(textLayerName) {
+  const suffix = String(textLayerName || "").replace(/^txt\./, "");
+  return [
+    `TEXT.${suffix}.area`,
+    `${textLayerName}.area`,
+    `ttxt.${suffix}.area`,
+    `ttxt.${textLayerName}.area`
+  ];
+}
+
+function shouldKeepTemplateTextBox(layerName) {
+  return getCurrentTemplateConfig().id === "pddSkuGift" && [
+    "txt.bottomText",
+    "txt.mainProductLabel",
+    "txt.giftProductLabel"
+  ].includes(layerName);
+}
+
+function shouldUseLineSeedForSymbols(layerName) {
+  return getCurrentTemplateConfig().id === "pddSkuGift" && [
+    "txt.mainProductLabel",
+    "txt.giftProductLabel"
+  ].includes(layerName);
+}
+
+function getPddSkuGiftLabelWrapConfig(layerName) {
+  if (getCurrentTemplateConfig().id !== "pddSkuGift") return null;
+  if (layerName === "txt.mainProductLabel") {
+    return { displayLength: 22, fallbackWidth: 360, fontSize: 13 };
+  }
+  if (layerName === "txt.giftProductLabel") {
+    return { displayLength: 22, fallbackWidth: 260, fontSize: 13 };
+  }
+  return null;
+}
+
+function splitLabelByPlusBalanced(value) {
+  const raw = String(value || "").replace(/\n+/g, "").trim();
+  if (!raw || !raw.includes("+")) return raw;
+
+  const parts = raw.split("+").map((part) => part.trim()).filter(Boolean);
+  if (parts.length <= 1) return raw;
+
+  const total = getDisplayLength(raw);
+  let best = null;
+  for (let index = 1; index < parts.length; index += 1) {
+    const first = parts.slice(0, index).join("+");
+    const second = parts.slice(index).join("+");
+    const score = Math.abs(getDisplayLength(first) - getDisplayLength(second));
+    const maxLine = Math.max(getDisplayLength(first), getDisplayLength(second));
+    if (!best || score < best.score || (score === best.score && maxLine < best.maxLine)) {
+      best = { text: `${first}\n${second}`, score, maxLine };
+    }
+  }
+  return best && best.maxLine < total ? best.text.replace("\n", "+\n") : raw;
+}
+
+function getTextStyleFontSize(textKey, fallback) {
+  const style = textKey && textKey.textStyleRange && textKey.textStyleRange[0] && textKey.textStyleRange[0].textStyle;
+  const size = style && (style.size && style.size._value || style.impliedFontSize && style.impliedFontSize._value);
+  const numeric = Number(size);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+}
+
+function getTextAreaBoxForLayer(doc, layerName) {
+  if (!doc || !layerName) return null;
+  const areaLayer = getTextAreaLayerNames(layerName)
+    .map((name) => findLayerByName(doc, name))
+    .find(Boolean);
+  return getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
+}
+
+function wrapPddSkuGiftLabelIfNeeded(doc, layer, value, textKey) {
+  const config = getPddSkuGiftLabelWrapConfig(layer && layer.name);
+  const raw = String(value || "");
+  if (!config || raw.includes("\n") || !raw.includes("+")) return raw;
+
+  const fontSize = getTextStyleFontSize(textKey, config.fontSize);
+  const areaBox = getTextAreaBoxForLayer(doc, layer.name);
+  const maxWidth = areaBox ? areaBox.width : config.fallbackWidth;
+  const estimatedWidth = estimateMultilineTextWidth(raw, fontSize);
+  const displayLength = getDisplayLength(raw);
+  if (displayLength <= config.displayLength) return raw;
+
+  const wrapped = splitLabelByPlusBalanced(raw);
+  if (wrapped !== raw) {
+    log(`  Text wrapped by plus: ${layer.name}, displayLength=${displayLength}, textW=${Math.round(estimatedWidth)}, maxW=${Math.round(maxWidth)}.`);
+  }
+  return wrapped;
+}
+
+async function centerTextLayerParagraph(layer) {
+  if (!layer || !layer.textItem) return;
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+
+  try {
+    const justification = photoshop.constants && photoshop.constants.Justification;
+    const candidates = [
+      justification && (justification.CENTER || justification.CENTERED || justification.center),
+      "center",
+      "CENTER"
+    ].filter(Boolean);
+    for (const candidate of candidates) {
+      try {
+        layer.textItem.justification = candidate;
+        break;
+      } catch (error) {
+        // Try the next DOM justification value.
+      }
+    }
+
+    const result = await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "get",
+          _target: [
+            { _property: "textKey" },
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+
+    const textKey = result && result[0] && result[0].textKey;
+    if (!textKey) return;
+
+    const textLength = Array.from(String(textKey.textKey || layer.textItem.contents || "")).length;
+    const paragraphStyleRange = Array.isArray(textKey.paragraphStyleRange) && textKey.paragraphStyleRange.length
+      ? textKey.paragraphStyleRange.map((range) => ({
+        ...range,
+        paragraphStyle: {
+          ...(range.paragraphStyle || {}),
+          justification: { _enum: "justification", _value: "center" }
+        }
+      }))
+      : [
+        {
+          _obj: "paragraphStyleRange",
+          from: 0,
+          to: textLength,
+          paragraphStyle: {
+            _obj: "paragraphStyle",
+            justification: { _enum: "justification", _value: "center" }
+          }
+        }
+      ];
+
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "set",
+          _target: [
+            { _ref: "textLayer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          to: {
+            _obj: "textLayer",
+            ...textKey,
+            paragraphStyleRange
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    log(`  Text paragraph centered: ${layer.name}.`);
+  } catch (error) {
+    log(`  Text paragraph center skipped for ${layer.name}: ${formatError(error)}`);
+  }
+}
+
+async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = null) {
+  if (!layer || value === undefined || value === null) return;
+  if (!layer.textItem) {
+    throw new Error(`Layer "${layer.name}" is not a text layer`);
+  }
+
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+
+  try {
+    const result = await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "get",
+          _target: [
+            { _property: "textKey" },
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+
+    const textKey = result && result[0] && result[0].textKey;
+    const baseStyle = textKey && textKey.textStyleRange && textKey.textStyleRange[0] && textKey.textStyleRange[0].textStyle;
+    const baseParagraph = textKey && textKey.paragraphStyleRange && textKey.paragraphStyleRange[0] && textKey.paragraphStyleRange[0].paragraphStyle;
+    if (!textKey || !baseStyle) {
+      await replaceTextLayerPreserveFirstStyle(layer, value);
+      return;
+    }
+
+    const textValue = toPhotoshopText(wrapPddSkuGiftLabelIfNeeded(doc, layer, value, textKey));
+    const textLength = Array.from(textValue).length;
+    const symbolsAsLatin = shouldUseLineSeedForSymbols(layer.name);
+    const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle, { symbolsAsLatin });
+
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "set",
+          _target: [
+            { _ref: "textLayer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          to: {
+            _obj: "textLayer",
+            ...textKey,
+            textKey: textValue,
+            textStyleRange: buildMixedTextTemplateStyleRanges(textValue, styleByKind, { symbolsAsLatin }),
+            paragraphStyleRange: [
+              {
+                _obj: "paragraphStyleRange",
+                from: 0,
+                to: textLength,
+                paragraphStyle: baseParagraph || { _obj: "paragraphStyle" }
+              }
+            ]
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+  } catch (error) {
+    log(`  Preserve template paragraph skipped for ${layer.name}: ${formatError(error)}`);
+    await replaceTextLayerPreserveFirstStyle(layer, value);
+  }
+}
+
+async function alignTextLayerToArea(doc, layer) {
+  if (!layer || !layer.name || !layer.textItem) return;
+  if (shouldKeepTemplateTextBox(layer.name)) {
+    log(`  Text box kept from PSD: ${layer.name}.`);
+    return;
+  }
+
+  const areaLayer = getTextAreaLayerNames(layer.name)
+    .map((name) => findLayerByName(doc, name))
+    .find(Boolean);
+  if (!areaLayer) return;
+
+  const areaBox = getBoundsBox(areaLayer.boundsNoEffects || areaLayer.bounds);
+  if (!areaBox) return;
+
+  await centerTextLayerParagraph(layer);
+  const textBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!textBox) return;
+  await layer.translate(areaBox.centerX - textBox.centerX, areaBox.top - textBox.top);
+  areaLayer.visible = false;
+  log(`  Text aligned to area: ${layer.name} -> ${areaLayer.name}.`);
 }
 
 async function setTextAndMeasure(layer, contents) {
@@ -4357,8 +5367,7 @@ async function applyTitleAndProductNote(doc, row) {
     const pddSubtitle = fallbackNoteLayer.name === "txt.subtitle" && getCurrentTemplateConfig().productNameToSubtitle;
     let finalNoteText = pddSubtitle ? formatPddSubtitleText(noteText) : noteText;
     if (pddSubtitle) {
-      await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, finalNoteText);
-      await applyTextLayerUniformStyle(fallbackNoteLayer, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
+      await replaceTextLayerPddSkuGiftSubtitleStyle(fallbackNoteLayer, finalNoteText, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
       log(`  Subtitle plus-wrap rule applied: plusCount=${(String(noteText).match(/\+/g) || []).length}.`);
     } else if (fallbackNoteLayer.name === "txt.subtitle" && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
@@ -4386,7 +5395,7 @@ async function applyTitleAndProductNote(doc, row) {
 
 function isGiftControlColumn(column) {
   return PRODUCT_NAME_COLUMNS.includes(column) ||
-    /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|slotSpan|category|categoryGap|categoryGapMode|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
+    /^(giftLeft|giftRight|gift|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|slotSpan|category|categoryGap|categoryGapMode|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
     /^product\.gap\.\d+$/.test(column) ||
     /^product\.gap\.[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
@@ -4512,6 +5521,7 @@ async function applyRowToDocument(doc, row) {
   await prepareImageGroupLayers(doc, expandedRow, "product");
   await prepareImageGroupLayers(doc, expandedRow, "giftLeft");
   await prepareImageGroupLayers(doc, expandedRow, "giftRight");
+  await prepareImageGroupLayers(doc, expandedRow, "gift");
   applyGiftRightTemplateSwitch(doc, expandedRow);
   applyPersonTemplateSwitch(doc, expandedRow);
 
@@ -4525,6 +5535,7 @@ async function applyRowToDocument(doc, row) {
       column === "img.giftRight" ||
       /^img\.giftRight\.\d+$/.test(column) ||
       /^img\.giftLeft\.\d+$/.test(column) ||
+      /^img\.gift\.\d+$/.test(column) ||
       handledTextColumns[column] ||
       state.placedImageLayers[column] ||
       column.endsWith("Set") ||
@@ -4532,6 +5543,7 @@ async function applyRowToDocument(doc, row) {
       column.endsWith(".layout") ||
       isGiftControlColumn(column) ||
       (column === "img.product" && getGiftCount(expandedRow, "product") > 1) ||
+      (column === "img.gift" && getGiftCount(expandedRow, "gift") > 1) ||
       column === "img.giftLeft"
     ) {
       continue;
@@ -4547,11 +5559,17 @@ async function applyRowToDocument(doc, row) {
     }
 
     if (column.startsWith("txt.")) {
+      if (shouldKeepTemplateTextBox(column)) {
+        await replaceTextLayerPreserveTemplateParagraph(layer, value, doc);
+        log(`  Text content replaced; PSD paragraph kept: ${column}.`);
+        continue;
+      }
       if (column === "txt.bottomText") {
         await applyBottomTextRules(layer, value);
       } else {
         await replaceTextLayer(layer, value);
       }
+      await alignTextLayerToArea(doc, layer);
       continue;
     }
 
