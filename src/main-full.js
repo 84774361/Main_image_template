@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260616-pdd-sku-gift-subtitle-template-cn-font";
+const SCRIPT_VERSION = "20260618-pdd-sku-subtitle-rect-length-bands";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -738,6 +738,16 @@ function getEnglishDerivedChineseProductAliases(row, fileName) {
     add("身体乳");
     add("保湿乳");
     add("高保湿乳");
+  }
+  if (/massage[-\s]*oil/.test(combined)) {
+    add("润肤油");
+    add("按摩油");
+  }
+  if (/diaper[-\s]*cream/.test(combined)) {
+    add("护臀膏");
+  }
+  if (/lip[-\s]*care[-\s]*cream/.test(combined)) {
+    add("唇周霜");
   }
   if (/sunscreen[-\s]*lotion|sunscreen/.test(combined)) {
     add("防晒乳");
@@ -1813,15 +1823,7 @@ function estimateMultilineTextWidth(text, fontSize) {
 }
 
 function formatPddSubtitleText(value) {
-  const text = String(value || "").trim();
-  const plusCount = (text.match(/\+/g) || []).length;
-  if (plusCount < 3 || text.includes("\n") || text.includes("\r")) return text;
-
-  const parts = text.split("+").map((part) => part.trim()).filter(Boolean);
-  if (parts.length < 4) return text;
-
-  const splitIndex = Math.ceil(parts.length / 2);
-  return `${parts.slice(0, splitIndex).join("+")}+\n${parts.slice(splitIndex).join("+")}`;
+  return String(value || "").trim();
 }
 
 async function applyTextLayerUniformStyle(layer, styleConfig, label) {
@@ -3685,7 +3687,7 @@ async function resizeLayerToBox(layer, targetBox, options = {}) {
           _options: { dialogOptions: "dontDisplay" }
         }
       ],
-      { synchronousExecution: false, modalBehavior: "execute" }
+      { synchronousExecution: true, modalBehavior: "execute" }
     );
   };
 
@@ -4096,7 +4098,7 @@ async function replaceSmartObjectLayer(layer, file) {
 async function getAssetEntry(filename, options = {}) {
   if (!filename) return null;
 
-  const normalized = normalizeImagePathForTemplate(String(filename).replace(/\\/g, "/"));
+  const normalized = normalizeImagePathForTemplate(stripBlobPathPrefix(String(filename).replace(/\\/g, "/")));
   const productViewFallbacks = getProductImageViewFallbacks(normalized);
   for (const fallback of productViewFallbacks) {
     try {
@@ -4114,7 +4116,7 @@ async function getAssetEntry(filename, options = {}) {
 }
 
 function getProductImageViewFallbacks(filename) {
-  const normalized = normalizeImagePathForTemplate(String(filename || "").replace(/\\/g, "/"));
+  const normalized = normalizeImagePathForTemplate(stripBlobPathPrefix(String(filename || "").replace(/\\/g, "/")));
   const match = normalized.match(/^(.*?)-(angle|front)(\.[^.]+)$/i);
   if (!match) {
     const baseMatch = normalized.match(/^(.*?)(\.[^.]+)$/);
@@ -4156,7 +4158,7 @@ function getProductImageViewFallbacks(filename) {
 }
 
 async function getAssetEntryWithoutProductViewFallback(normalized, options = {}) {
-  normalized = normalizeImagePathForTemplate(normalized);
+  normalized = normalizeImagePathForTemplate(stripBlobPathPrefix(normalized));
   if (options.normalizeGiftRight && !normalized.startsWith("__giftRight/")) {
     try {
       const normalizedGiftRight = await assetsFolder.getEntry(`__giftRight/${normalized}`);
@@ -4292,6 +4294,8 @@ function resolveProductNameToImage(name, options = {}) {
   const raw = String(name || "").trim();
   if (!raw) return "";
   if (/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(raw)) return raw;
+  const knownAlias = resolveKnownProductAliasImage(raw);
+  if (knownAlias) return normalizeImagePathForTemplate(knownAlias);
   if (!state.productNameMap) return "";
   const normalized = normalizeProductNameKey(raw);
   const compact = compactSpecHyphenKey(normalized);
@@ -4302,6 +4306,56 @@ function resolveProductNameToImage(name, options = {}) {
   if (mapped) return normalizeImagePathForTemplate(mapped);
   if (options.allowRows === false) return "";
   return normalizeImagePathForTemplate(resolveProductNameByRows(raw));
+}
+
+function resolveKnownProductAliasImage(name) {
+  const normalized = normalizeProductNameKey(name);
+  const hasRepeat2 = /(?:\*|x)2$/i.test(normalized);
+
+  if (/润肤油/.test(normalized) && /(?:1\.8ml|2ml).*(?:\*|x)5\s*(?:\*|x)\s*2/i.test(normalized)) {
+    return "front/baby-massage-oil-ampoule-set-10x-front.png";
+  }
+  if (/润肤油/.test(normalized) && /(?:1\.8ml|2ml).*(?:\*|x)5/i.test(normalized)) {
+    return "front/baby-massage-oil-ampoule-set-5x-front.png";
+  }
+  if (/润肤油/.test(normalized) && /120ml/i.test(normalized) && !hasRepeat2) {
+    return "front/baby-massage-oil-bottle-120ml-front.png";
+  }
+  if (/润肤油/.test(normalized) && /60ml/i.test(normalized) && !hasRepeat2) {
+    return "front/baby-massage-oil-bottle-60ml-front.png";
+  }
+  if (/身体乳/.test(normalized) && /100g/i.test(normalized) && !hasRepeat2) {
+    return "front/baby-moisturing-body-lotion-tube-100g-front.png";
+  }
+  if (/身体乳/.test(normalized) && /400ml/i.test(normalized)) {
+    return "front/baby-moisturing-body-lotion-bottle-400ml-front.png";
+  }
+  if (/泡泡洗沐|泡泡沐浴露|泡泡洗发沐浴/.test(normalized) && /500ml/i.test(normalized)) {
+    return "front/baby-foaming-wash-shampoo-unscented-bottle-500ml-front.png";
+  }
+  if (/泡泡洗沐|泡泡沐浴露|泡泡洗发沐浴/.test(normalized) && /300ml/i.test(normalized)) {
+    return "front/baby-foaming-wash-shampoo-unscented-bottle-300ml-front.png";
+  }
+  if (/护臀膏/.test(normalized) && /50g/i.test(normalized) && !hasRepeat2) {
+    return "front/baby-diaper-cream-tube-50g-front.png";
+  }
+  if (/唇周霜/.test(normalized) && /15g/i.test(normalized)) {
+    return "front/baby-lip-care-cream-tube-15g-front.png";
+  }
+  if (/安心霜/.test(normalized) && /10g/i.test(normalized)) {
+    return "front/baby-soothing-cream-tube-10g-front.png";
+  }
+  if (/安心霜/.test(normalized) && /30g/i.test(normalized)) {
+    return "front/baby-soothing-cream-jar-30g-front.png";
+  }
+  if (/安心霜/.test(normalized) && /50g/i.test(normalized)) {
+    return "front/baby-soothing-cream-jar-50g-front.png";
+  }
+  if (/安心霜/.test(normalized) && /65g/i.test(normalized)) {
+    return "front/baby-soothing-cream-jar-65g-front.png";
+  }
+
+  return "";
 }
 
 function normalizeImagePathForTemplate(filename) {
@@ -4584,7 +4638,8 @@ function expandLabelToImageSet(row, prefix, labelColumns, targetNameColumn) {
 
 function applySkuGiftLabelSources(row) {
   let expanded = { ...row };
-  if (getCurrentTemplateConfig().id === "pddSkuGift" && !hasValue(expanded, "product.view")) {
+  const templateId = getCurrentTemplateConfig().id;
+  if (templateId === "pddSkuGift" && !hasValue(expanded, "product.view")) {
     expanded["product.view"] = "front";
   }
 
@@ -4592,6 +4647,19 @@ function applySkuGiftLabelSources(row) {
     const mainNames = extractProductNamesFromLabel(expanded["txt.mainProductLabel"]);
     if (mainNames) {
       expanded["product.name.cn"] = mainNames;
+    }
+  }
+
+  if (
+    (templateId === "pddSku" || templateId === "pddSkuGift") &&
+    !hasValue(expanded, "product.name.cn") &&
+    !hasValue(expanded, "img.productSet") &&
+    !hasValue(expanded, "img.product")
+  ) {
+    const subtitleNames = String(expanded["txt.subtitle"] || "").trim();
+    if (subtitleNames) {
+      expanded["product.name.cn"] = subtitleNames;
+      log("  Product CN fallback sourced from txt.subtitle.");
     }
   }
 
@@ -4895,8 +4963,12 @@ function getTextAreaLayerNames(textLayerName) {
 }
 
 function shouldKeepTemplateTextBox(layerName) {
-  return getCurrentTemplateConfig().id === "pddSkuGift" && [
-    "txt.bottomText",
+  const templateId = getCurrentTemplateConfig().id;
+  if (layerName === "txt.bottomText" && (templateId === "pddSku" || templateId === "pddSkuGift")) {
+    return true;
+  }
+
+  return templateId === "pddSkuGift" && [
     "txt.mainProductLabel",
     "txt.giftProductLabel"
   ].includes(layerName);
@@ -5253,7 +5325,8 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   const config = getCurrentTemplateConfig().subtitleRectangle;
   if (!config || !textLayer) return;
 
-  const rectangleLayer = findLayerByName(doc, config.layerName || "txt.subtitle.rectangle");
+  const variant = getSubtitleLayerVariant(textValue);
+  const rectangleLayer = findSubtitleRectangleLayer(doc, variant, config);
   if (!rectangleLayer) {
     log("  Subtitle rectangle not found.");
     return;
@@ -5271,10 +5344,19 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   const subtitleStyle = getCurrentTemplateConfig().subtitleTextStyle || {};
   const fontSize = readNumber(state.currentRow || {}, "subtitle.fontSize", Number(subtitleStyle.fontSize) || 30);
   const estimatedTextWidth = estimateMultilineTextWidth(textValue || textLayer.textItem && textLayer.textItem.contents || "", fontSize);
-  const measuredTextWidth = estimatedTextWidth > 0 ? estimatedTextWidth : textBox.width;
-  const maxWidth = readNumber(state.currentRow || {}, "subtitle.rectangleMaxWidth", Number(config.maxWidth) || 680);
+  const measuredTextWidth = getSubtitleRectangleTextWidth(textValue, fontSize, variant);
+  const maxWidth = readNumber(
+    state.currentRow || {},
+    `subtitle.rectangleMaxWidth.${variant}`,
+    readNumber(state.currentRow || {}, "subtitle.rectangleMaxWidth", getDefaultSubtitleRectangleMaxWidth(variant, textValue))
+  );
+  const widthScale = readNumber(
+    state.currentRow || {},
+    `subtitle.rectangleWidthScale.${variant}`,
+    readNumber(state.currentRow || {}, "subtitle.rectangleWidthScale", Number(config.widthScale) || 1)
+  );
   const targetWidth = Math.min(
-    Math.max(measuredTextWidth + paddingX * 2, Number(config.minWidth) || 0),
+    Math.max(measuredTextWidth * widthScale + paddingX * 2, Number(config.minWidth) || 0),
     maxWidth
   );
   const currentBox = getBoundsBox(rectangleLayer.boundsNoEffects || rectangleLayer.bounds);
@@ -5289,24 +5371,97 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   );
 
   try {
-    rectangleLayer.visible = false;
-    const newRectangle = await duplicateLayerToBox(
-      rectangleLayer,
-      config.layerName || "txt.subtitle.rectangle",
-      targetBox,
-      { preserveHeight: true }
-    );
-    if (newRectangle) {
-      try {
-        await newRectangle.move(textLayer, photoshop.constants.ElementPlacement.PLACEAFTER);
-      } catch (error) {
-        log(`  Subtitle rectangle z-order skipped: ${formatError(error)}`);
-      }
+    rectangleLayer.visible = true;
+    await resizeLayerToBox(rectangleLayer, targetBox, { preserveHeight: true });
+    try {
+      await rectangleLayer.move(textLayer, photoshop.constants.ElementPlacement.PLACEAFTER);
+    } catch (error) {
+      log(`  Subtitle rectangle z-order skipped: ${formatError(error)}`);
     }
-    log(`  Subtitle rectangle duplicated: textW=${Math.round(measuredTextWidth)}, w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
+    log(`  Subtitle rectangle resized: variant=${variant}, boundsW=${Math.round(textBox.width)}, estimateW=${Math.round(estimatedTextWidth)}, textW=${Math.round(measuredTextWidth)}, maxW=${Math.round(maxWidth)}, w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
   } catch (error) {
-    log(`  Subtitle rectangle duplicate skipped: ${formatError(error)}`);
+    log(`  Subtitle rectangle resize skipped: ${formatError(error)}`);
   }
+}
+
+function getSubtitleRectangleTextWidth(textValue, fontSize, variant) {
+  const text = String(textValue || "").replace(/\r\n|\r|\n/g, "");
+  const charCount = getSubtitleCharCount(textValue);
+  const scale = getSubtitleRectangleWidthScaleByLength(variant, charCount);
+  return estimateTextLineWidth(text, fontSize) * scale;
+}
+
+function getSubtitleRectangleWidthScaleByLength(variant, charCount) {
+  if (variant <= 1) return 1.28;
+  if (charCount >= 39) return 1.08;
+  if (charCount >= 36) return 0.98;
+  return 0.88;
+}
+
+function getDefaultSubtitleRectangleMaxWidth(variant, textValue = "") {
+  const charCount = getSubtitleCharCount(textValue);
+  if (variant <= 1) return 760;
+  if (charCount >= 39) return 760;
+  if (charCount >= 36) return 720;
+  return 660;
+}
+
+function getSubtitleLayerVariant(textValue) {
+  const charCount = getSubtitleCharCount(textValue);
+  return charCount > 30 ? 2 : 1;
+}
+
+function getSubtitleCharCount(textValue) {
+  return Array.from(String(textValue || "").replace(/\r\n|\r|\n/g, "")).length;
+}
+
+function isSubtitleTextLayer(layer) {
+  return !!(layer && /^txt\.subtitle(?:\.\d+)?$/.test(String(layer.name || "")));
+}
+
+function findSubtitleTextLayer(doc, finalText) {
+  const variant = getSubtitleLayerVariant(finalText);
+  const preferred = findLayerByName(doc, `txt.subtitle.${variant}`);
+  const fallback = findLayerByName(doc, "txt.subtitle");
+  const layer = preferred || fallback;
+  hideAlternateSubtitleLayers(doc, layer);
+  if (preferred) {
+    log(`  Subtitle layer selected: txt.subtitle.${variant}, chars=${Array.from(String(finalText || "").replace(/\r\n|\r|\n/g, "")).length}.`);
+  }
+  return layer;
+}
+
+function hideAlternateSubtitleLayers(doc, activeLayer) {
+  ["txt.subtitle", "txt.subtitle.1", "txt.subtitle.2"].forEach((name) => {
+    const layer = findLayerByName(doc, name);
+    if (layer && layer !== activeLayer) {
+      layer.visible = false;
+    }
+  });
+}
+
+function findSubtitleRectangleLayer(doc, variant, config) {
+  const names = [
+    `txt.subtitle.rectangle.${variant}`,
+    config.layerName || "txt.subtitle.rectangle"
+  ];
+  const layer = names.map((name) => findLayerByName(doc, name)).find(Boolean);
+  if (layer) {
+    hideAlternateSubtitleRectangleLayers(doc, layer);
+    if (layer.name !== (config.layerName || "txt.subtitle.rectangle")) {
+      log(`  Subtitle rectangle layer selected: ${layer.name}.`);
+    }
+  }
+  return layer;
+}
+
+function hideAlternateSubtitleRectangleLayers(doc, activeLayer) {
+  ["txt.subtitle.rectangle", "txt.subtitle.rectangle.1", "txt.subtitle.rectangle.2"].forEach((name) => {
+    const layer = findLayerByName(doc, name);
+    if (layer && layer !== activeLayer) {
+      layer.visible = false;
+    }
+  });
 }
 
 async function applyTitleAndProductNote(doc, row) {
@@ -5348,8 +5503,11 @@ async function applyTitleAndProductNote(doc, row) {
     : titleLineCount > 1 && productNoteLayer2
       ? productNoteLayer2
       : productNoteLayer1 || findLayerByName(doc, "txt.productNote");
-  const subtitleLayer = findLayerByName(doc, "txt.subtitle");
   const forceSubtitleLayer = getCurrentTemplateConfig().productNameToSubtitle && hasValue(row, "txt.subtitle");
+  const subtitlePreviewText = forceSubtitleLayer ? formatPddSubtitleText(noteText) : noteText;
+  const subtitleLayer = forceSubtitleLayer
+    ? findSubtitleTextLayer(doc, subtitlePreviewText)
+    : findLayerByName(doc, "txt.subtitle");
   const fallbackNoteLayer = forceSubtitleLayer
     ? subtitleLayer || productNoteLayer
     : productNoteLayer || subtitleLayer;
@@ -5361,26 +5519,27 @@ async function applyTitleAndProductNote(doc, row) {
     fallbackNoteLayer.visible = true;
     const noteOriginalBox = getBoundsBox(fallbackNoteLayer.boundsNoEffects || fallbackNoteLayer.bounds);
     const subtitleConfig = getCurrentTemplateConfig().subtitleRectangle;
-    const maxSubtitleWidth = fallbackNoteLayer.name === "txt.subtitle" && subtitleConfig
+    const isSubtitleLayer = isSubtitleTextLayer(fallbackNoteLayer);
+    const maxSubtitleWidth = isSubtitleLayer && subtitleConfig
       ? readNumber(row, "subtitle.maxTextWidth", Number(subtitleConfig.maxTextWidth) || null)
       : null;
-    const pddSubtitle = fallbackNoteLayer.name === "txt.subtitle" && getCurrentTemplateConfig().productNameToSubtitle;
+    const pddSubtitle = isSubtitleLayer && getCurrentTemplateConfig().productNameToSubtitle;
     let finalNoteText = pddSubtitle ? formatPddSubtitleText(noteText) : noteText;
     if (pddSubtitle) {
       await replaceTextLayerPddSkuGiftSubtitleStyle(fallbackNoteLayer, finalNoteText, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
-      log(`  Subtitle plus-wrap rule applied: plusCount=${(String(noteText).match(/\+/g) || []).length}.`);
-    } else if (fallbackNoteLayer.name === "txt.subtitle" && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
+      log(`  Subtitle text applied without auto-wrap: chars=${Array.from(String(finalNoteText || "").replace(/\r\n|\r|\n/g, "")).length}.`);
+    } else if (isSubtitleLayer && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
       finalNoteText = await wrapTitleToMeasuredWidth(fallbackNoteLayer, noteText, maxSubtitleWidth, { forceMaxWidth: true });
     } else {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
     }
     const noteAfterBox = getBoundsBox(fallbackNoteLayer.boundsNoEffects || fallbackNoteLayer.bounds);
-    if (fallbackNoteLayer.name === "txt.subtitle" && noteOriginalBox && noteAfterBox) {
+    if (isSubtitleLayer && noteOriginalBox && noteAfterBox) {
       await fallbackNoteLayer.translate(noteOriginalBox.centerX - noteAfterBox.centerX, noteOriginalBox.top - noteAfterBox.top);
       log("  Subtitle anchor restored.");
     }
-    if (fallbackNoteLayer.name === "txt.subtitle") {
+    if (isSubtitleLayer) {
       await resizeSubtitleRectangle(doc, fallbackNoteLayer, finalNoteText);
     }
     handled["txt.productNote"] = true;
@@ -5404,7 +5563,7 @@ function isGiftControlColumn(column) {
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
     /^bottomText\.maxWidth$/.test(column) ||
-    /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleRadius|maxTextWidth|fontSize)$/.test(column) ||
+    /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleWidthScale|rectangleRadius|maxTextWidth|fontSize)(\.\d+)?$/.test(column) ||
     /^productNote\.(gap|offsetY)$/.test(column) ||
     /^(note|remark|remarks|备注|产品视角)$/.test(column);
 }
