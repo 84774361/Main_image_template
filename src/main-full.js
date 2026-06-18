@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260618-pdd-sku-subtitle-rect-length-bands";
+const SCRIPT_VERSION = "20260618-pdd-sku-auto-mixed-layout";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -983,14 +983,30 @@ function getProductHeightMode(row, count) {
 }
 
 function getAutoProductLayout(row, count) {
-  const categories = Array.from({ length: count }, (_, index) => getProductCategory(row, index + 1));
-  const unique = Array.from(new Set(categories));
+  const productKeys = Array.from({ length: count }, (_, index) => getProductAutoGroupKey(row, index + 1));
+  const uniqueProducts = Array.from(new Set(productKeys));
 
   if (count <= 1) return "overlap";
-  if (unique.length > 1) return "line";
-  if (unique[0] === "jar" && count === 2) return "overlap";
-  if (count >= 3) return "line";
-  return "line";
+  if (uniqueProducts.length > 1) return "auto";
+  return "overlap";
+}
+
+function getProductAutoGroupKey(row, index) {
+  const source = getImageSourceForIndex(row, "product", index);
+  const normalizedSource = String(source || "")
+    .toLowerCase()
+    .replace(/^blob:\/\/blob-\d+\//, "")
+    .replace(/^products\//, "")
+    .replace(/^front\//, "")
+    .replace(/^angle\//, "")
+    .replace(/\.(png|jpe?g|webp|tiff?|psd)$/i, "")
+    .trim();
+  if (normalizedSource) return normalizedSource;
+  return `${normalizeProductCategory(getProductCategory(row, index))}:${getProductSpecGapKey(row, index)}`;
+}
+
+function isSameAutoProductGroup(row, leftIndex, rightIndex) {
+  return getProductAutoGroupKey(row, leftIndex) === getProductAutoGroupKey(row, rightIndex);
 }
 
 function resolveImageGroupLayout(row, prefix, count) {
@@ -1823,7 +1839,37 @@ function estimateMultilineTextWidth(text, fontSize) {
 }
 
 function formatPddSubtitleText(value) {
-  return String(value || "").trim();
+  const text = String(value || "").trim();
+  if (getSubtitleCharCount(text) <= 30) return text;
+  return splitSubtitleByPlusBalanced(text);
+}
+
+function splitSubtitleByPlusBalanced(text) {
+  const source = String(text || "").trim();
+  if (!source.includes("+")) return source;
+
+  const parts = source.split("+").map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return source;
+
+  let best = null;
+  let bestFirstNotShorter = null;
+  for (let splitIndex = 1; splitIndex < parts.length; splitIndex += 1) {
+    const firstLine = parts.slice(0, splitIndex).join("+");
+    const secondLine = `+${parts.slice(splitIndex).join("+")}`;
+    const firstLen = getDisplayLength(firstLine);
+    const secondLen = getDisplayLength(secondLine);
+    const maxLen = Math.max(firstLen, secondLen);
+    const score = Math.abs(firstLen - secondLen);
+    if (!best || score < best.score || (score === best.score && maxLen < best.maxLen)) {
+      best = { firstLine, secondLine, score, maxLen };
+    }
+    if (firstLen >= secondLen && (!bestFirstNotShorter || score < bestFirstNotShorter.score || (score === bestFirstNotShorter.score && maxLen < bestFirstNotShorter.maxLen))) {
+      bestFirstNotShorter = { firstLine, secondLine, score, maxLen };
+    }
+  }
+
+  const result = bestFirstNotShorter || best;
+  return result ? `${result.firstLine}\n${result.secondLine}` : source;
 }
 
 async function applyTextLayerUniformStyle(layer, styleConfig, label) {
@@ -2418,6 +2464,28 @@ function getProductCategoryPairGaps(row, itemBoxes, fallbackGap, layout = "overl
   return gaps;
 }
 
+function getProductAutoMixedPairGaps(row, itemBoxes, fallbackGap) {
+  const gaps = [];
+  const modes = [];
+  for (let i = 0; i < Math.max(0, itemBoxes.length - 1); i += 1) {
+    const sameProduct = isSameAutoProductGroup(row, i + 1, i + 2);
+    const pairLayout = sameProduct ? "overlap" : "line";
+    const basisWidth = Math.min(itemBoxes[i].width, itemBoxes[i + 1].width);
+    const pairFallback = sameProduct ? -basisWidth * 0.18 : fallbackGap;
+    gaps.push(getProductCategoryPairGap(
+      row,
+      i + 1,
+      i + 2,
+      itemBoxes[i].width,
+      itemBoxes[i + 1].width,
+      pairFallback,
+      pairLayout
+    ));
+    modes.push(pairLayout);
+  }
+  return { gaps, modes };
+}
+
 function shouldUseProductCategoryPairGaps(row) {
   return !hasValue(row, "product.gap") &&
     !hasValue(row, "product.spacing") &&
@@ -2479,7 +2547,7 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
   if (
     prefix === "product" &&
     count > 1 &&
-    (layout === "overlap" || layout === "stack" || layout === "line") &&
+    (layout === "overlap" || layout === "stack" || layout === "line" || layout === "auto") &&
     !hasItemHeight &&
     !hasItemWidth &&
     shouldUseProductCategoryPairGaps(row)
@@ -2494,16 +2562,19 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
       itemBoxes.push({ width, height });
     }
 
-    let gaps = getProductCategoryPairGaps(row, itemBoxes, -itemWidth * 0.42, layout);
+    const autoGapInfo = layout === "auto" ? getProductAutoMixedPairGaps(row, itemBoxes, 0) : null;
+    let gaps = autoGapInfo
+      ? autoGapInfo.gaps
+      : getProductCategoryPairGaps(row, itemBoxes, -itemWidth * 0.42, layout);
     gaps = fitProductGapsToArea(itemBoxes.map((box) => box.width), gaps, areaBox.width);
     let totalWidth = itemBoxes.reduce((sum, box) => sum + box.width, 0) + gaps.reduce((sum, value) => sum + value, 0);
-    if (layout === "line" && totalWidth > areaBox.width) {
+    if ((layout === "line" || layout === "auto") && totalWidth > areaBox.width) {
       const shrink = areaBox.width / totalWidth;
       itemBoxes.forEach((box) => {
         box.width *= shrink;
         box.height *= shrink;
       });
-      gaps = gaps.map((gap) => Math.max(0, gap * shrink));
+      gaps = gaps.map((gap) => layout === "line" ? Math.max(0, gap * shrink) : gap * shrink);
       totalWidth = itemBoxes.reduce((sum, box) => sum + box.width, 0) + gaps.reduce((sum, value) => sum + value, 0);
     }
     let left = areaBox.centerX - totalWidth / 2;
@@ -2530,7 +2601,8 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
     const categories = Array.from({ length: count }, (_, index) => normalizeProductCategory(getProductCategory(row, index + 1)));
     const specKeys = Array.from({ length: count }, (_, index) => getProductSpecGapKey(row, index + 1));
     const slotSpans = Array.from({ length: count }, (_, index) => getProductLayoutSlotSpan(row, index + 1));
-    log(`  Product category gap preset: layout=${layout}, categories=${categories.join("+")}, specKeys=${specKeys.join("+")}, slotSpans=${slotSpans.join("+")}, gaps=${gaps.join("|")}, totalWidth=${Math.round(totalWidth)}.`);
+    const autoModes = autoGapInfo ? `, autoModes=${autoGapInfo.modes.join("|")}` : "";
+    log(`  Product category gap preset: layout=${layout}${autoModes}, categories=${categories.join("+")}, specKeys=${specKeys.join("+")}, slotSpans=${slotSpans.join("+")}, gaps=${gaps.join("|")}, totalWidth=${Math.round(totalWidth)}.`);
     return boxes;
   }
 
@@ -3154,6 +3226,12 @@ async function arrangeProductLineAfterReplace(doc, row) {
     return;
   }
   if (layout !== "line") {
+    if (layout === "auto") {
+      const preparedLayers = collectProductItems(doc, count);
+      await arrangeProductLayerStacking(preparedLayers, getImageGroupZOrder(row, "product"));
+      log("  Product arrange skipped: using prepared auto mixed layout.");
+      return;
+    }
     log("  Product arrange skipped: using prepared gift-style overlap layout.");
     return;
   }
@@ -3194,14 +3272,7 @@ async function arrangeImageGroupLayerStacking(items, zOrder, label = "product") 
   if (!items.length) return;
 
   const leftToRight = [...items].sort((a, b) => a.box.centerX - b.box.centerX);
-  let frontToBack = zOrder === "rightFront" ? [...leftToRight].reverse() : leftToRight;
-  const hasAmpoule = frontToBack.some((item) => isAmpouleCategorySource(item.source));
-  if (hasAmpoule) {
-    frontToBack = [
-      ...frontToBack.filter((item) => !isAmpouleCategorySource(item.source)),
-      ...frontToBack.filter((item) => isAmpouleCategorySource(item.source))
-    ];
-  }
+  const frontToBack = zOrder === "rightFront" ? [...leftToRight].reverse() : leftToRight;
 
   for (let i = frontToBack.length - 2; i >= 0; i -= 1) {
     const frontLayer = frontToBack[i].layer;
@@ -3215,9 +3286,6 @@ async function arrangeImageGroupLayerStacking(items, zOrder, label = "product") 
     }
   }
 
-  if (hasAmpoule) {
-    log(`  ${label} z-order rule: non-ampoule layers placed above ampoule layers.`);
-  }
 }
 
 async function arrangeProductLayerStacking(items, zOrder) {
@@ -5385,10 +5453,14 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
 }
 
 function getSubtitleRectangleTextWidth(textValue, fontSize, variant) {
-  const text = String(textValue || "").replace(/\r\n|\r|\n/g, "");
+  const lines = String(textValue || "")
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const textWidth = Math.max(...(lines.length ? lines : [""]).map((line) => estimateTextLineWidth(line, fontSize)), 0);
   const charCount = getSubtitleCharCount(textValue);
   const scale = getSubtitleRectangleWidthScaleByLength(variant, charCount);
-  return estimateTextLineWidth(text, fontSize) * scale;
+  return textWidth * scale;
 }
 
 function getSubtitleRectangleWidthScaleByLength(variant, charCount) {
@@ -5527,7 +5599,7 @@ async function applyTitleAndProductNote(doc, row) {
     let finalNoteText = pddSubtitle ? formatPddSubtitleText(noteText) : noteText;
     if (pddSubtitle) {
       await replaceTextLayerPddSkuGiftSubtitleStyle(fallbackNoteLayer, finalNoteText, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
-      log(`  Subtitle text applied without auto-wrap: chars=${Array.from(String(finalNoteText || "").replace(/\r\n|\r|\n/g, "")).length}.`);
+      log(`  Subtitle text applied: chars=${getSubtitleCharCount(finalNoteText)}, lines=${String(finalNoteText || "").split(/\r\n|\r|\n/).filter(Boolean).length}.`);
     } else if (isSubtitleLayer && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
       finalNoteText = await wrapTitleToMeasuredWidth(fallbackNoteLayer, noteText, maxSubtitleWidth, { forceMaxWidth: true });
