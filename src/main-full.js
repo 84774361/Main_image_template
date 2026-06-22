@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260622-pdd-sku-shared-subtitle-variant";
+const SCRIPT_VERSION = "20260622-pdd-sku-global-promo-template-style";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -2818,6 +2818,41 @@ function hideGeneratedGiftRightLayers(doc) {
   }
 }
 
+function hideUnusedTemplateImageLayers(doc, row) {
+  const placedNames = state.placedImageLayers || {};
+  let hiddenCount = 0;
+
+  ["product", "gift", "giftLeft"].forEach((prefix) => {
+    const count = getGiftCount(row, prefix);
+    const baseLayer = findLayerByName(doc, `img.${prefix}`);
+    if (count > 1 && baseLayer && !placedNames[baseLayer.name]) {
+      baseLayer.visible = false;
+      hiddenCount += 1;
+      log(`  Hidden template base image: img.${prefix}.`);
+    }
+
+    for (let i = Math.max(count, 1) + 1; i <= 6; i += 1) {
+      const extraLayer = findLayerByName(doc, `img.${prefix}.${i}`);
+      if (extraLayer && !placedNames[extraLayer.name]) {
+        extraLayer.visible = false;
+        hiddenCount += 1;
+      }
+    }
+  });
+
+  getAllLayers(doc.layers).forEach((layer) => {
+    const name = String(layer.name || "");
+    if (/^__ignored\.img\.(product|gift|giftLeft)(?:\.\d+)?$/.test(name)) {
+      layer.visible = false;
+      hiddenCount += 1;
+    }
+  });
+
+  if (hiddenCount) {
+    log(`  Hidden unused template image layers: ${hiddenCount}.`);
+  }
+}
+
 async function placeAssetAsLayer(file) {
   ensureModules();
   const token = fs.createSessionToken(file);
@@ -4934,20 +4969,114 @@ function getTextAreaLayerNames(textLayerName) {
 }
 
 function isPromoTitleName(name) {
-  return name === "txt.promoTitle" || name === "txt.bottomText";
+  return /^txt\.(promoTitle|bottomText)(?:\.\d+)?$/.test(String(name || ""));
 }
 
 function findTextLayerForColumn(doc, column) {
   if (isPromoTitleName(column)) {
-    return findLayerByAnyName(doc, ["txt.promoTitle", "txt.bottomText"]);
+    return findLayerByAnyName(doc, getPromoTitleLayerNames());
   }
   return findLayerByName(doc, column);
 }
 
-function shouldKeepTemplateTextBox(layerName) {
-  return getCurrentTemplateConfig().id === "pddSkuGift" && [
+function getPromoTitleLayerNames(variant = null) {
+  const suffix = variant ? `.${variant}` : "";
+  if (variant) return [`txt.promoTitle${suffix}`, `txt.bottomText${suffix}`];
+  return [
+    "txt.promoTitle.1",
+    "txt.bottomText.1",
     "txt.promoTitle",
     "txt.bottomText",
+    "txt.promoTitle.2",
+    "txt.bottomText.2"
+  ];
+}
+
+function getPromoTitleAreaBox(doc) {
+  const areaLayer = findPromoTitleAreaLayer(doc);
+  return getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
+}
+
+function findPromoTitleAreaLayer(doc) {
+  const names = [
+    "TEXT.promoTitle.area",
+    "txt.promoTitle.area",
+    "TEXT.bottomText.area",
+    "txt.bottomText.area"
+  ];
+  return names.map((name) => findLayerByName(doc, name)).find(Boolean);
+}
+
+function hideAlternatePromoTitleLayers(doc, activeLayer) {
+  const activeName = activeLayer && activeLayer.name;
+  getPromoTitleLayerNames().forEach((name) => {
+    const layer = findLayerByName(doc, name);
+    if (layer && layer.name !== activeName) {
+      layer.visible = false;
+    }
+  });
+}
+
+async function selectPromoTitleLayerForValue(doc, value, fallbackLayer = null) {
+  const primaryLayer =
+    findLayerByAnyName(doc, getPromoTitleLayerNames(1)) ||
+    findLayerByAnyName(doc, ["txt.promoTitle", "txt.bottomText"]) ||
+    fallbackLayer;
+  const compactLayer = findLayerByAnyName(doc, getPromoTitleLayerNames(2));
+  const areaBox = getPromoTitleAreaBox(doc);
+
+  if (!primaryLayer) return compactLayer || fallbackLayer;
+  if (!areaBox || !compactLayer) {
+    hideAlternatePromoTitleLayers(doc, primaryLayer);
+    if (!areaBox) log("  Promo title area not found; using primary title layer.");
+    if (!compactLayer) log("  Promo title compact layer not found; using primary title layer.");
+    return primaryLayer;
+  }
+
+  try {
+    primaryLayer.visible = true;
+    const primaryBox = getBoundsBox(primaryLayer.boundsNoEffects || primaryLayer.bounds);
+    const fontSize = await getTextLayerFontSize(primaryLayer, primaryBox ? primaryBox.height : 48);
+    const estimatedWidth = estimateMultilineTextWidth(value, fontSize);
+    const measuredWidth = estimatedWidth;
+    const exceeds = measuredWidth > areaBox.width + 1;
+    const selected = exceeds ? compactLayer : primaryLayer;
+    selected.visible = true;
+    try {
+      selected.opacity = 100;
+    } catch (error) {
+      log(`  Promo title opacity skipped: ${formatError(error)}`);
+    }
+    hideAlternatePromoTitleLayers(doc, selected);
+    log(`  Promo title layer selected: ${selected.name}, textW=${Math.round(measuredWidth)}, areaW=${Math.round(areaBox.width)}.`);
+    return selected;
+  } catch (error) {
+    log(`  Promo title variant check skipped: ${formatError(error)}`);
+    hideAlternatePromoTitleLayers(doc, primaryLayer);
+    return primaryLayer;
+  }
+}
+
+async function alignPromoTitleLayerToArea(doc, layer) {
+  if (!doc || !layer || !layer.textItem) return;
+  const areaLayer = findPromoTitleAreaLayer(doc);
+  const areaBox = getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
+  const textBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!areaBox || !textBox) return;
+
+  try {
+    await layer.translate(areaBox.centerX - textBox.centerX, areaBox.top - textBox.top);
+    if (areaLayer) areaLayer.visible = false;
+    log(`  Promo title aligned to area: ${layer.name} -> ${areaLayer ? areaLayer.name : "promoTitle.area"}.`);
+  } catch (error) {
+    log(`  Promo title align skipped: ${formatError(error)}`);
+  }
+}
+
+function shouldKeepTemplateTextBox(layerName) {
+  if (isPromoTitleName(layerName)) return true;
+  if (getCurrentTemplateConfig().id !== "pddSkuGift") return false;
+  return isPromoTitleName(layerName) || [
     "txt.mainProductLabel",
     "txt.giftProductLabel"
   ].includes(layerName);
@@ -4997,6 +5126,31 @@ function getTextStyleFontSize(textKey, fallback) {
   const size = style && (style.size && style.size._value || style.impliedFontSize && style.impliedFontSize._value);
   const numeric = Number(size);
   return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+}
+
+async function getTextLayerFontSize(layer, fallback) {
+  if (!layer || !layer.textItem) return fallback;
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+
+  try {
+    const result = await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "get",
+          _target: [
+            { _property: "textKey" },
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    return getTextStyleFontSize(result && result[0] && result[0].textKey, fallback);
+  } catch (error) {
+    return fallback;
+  }
 }
 
 function getTextAreaBoxForLayer(doc, layerName) {
@@ -5691,7 +5845,7 @@ async function applyRowToDocument(doc, row) {
       continue;
     }
 
-    const layer = column.startsWith("txt.") ? findTextLayerForColumn(doc, column) : findLayerByName(doc, column);
+    let layer = column.startsWith("txt.") ? findTextLayerForColumn(doc, column) : findLayerByName(doc, column);
     if (!layer) {
       if (column === "txt.productNote" || column === "txt.note" || column === "txt.description" || column === "txt.subtitle") {
         continue;
@@ -5701,8 +5855,15 @@ async function applyRowToDocument(doc, row) {
     }
 
     if (column.startsWith("txt.")) {
-      if (shouldKeepTemplateTextBox(column)) {
+      if (isPromoTitleName(column)) {
+        const promoLayer = await selectPromoTitleLayerForValue(doc, value, layer);
+        if (promoLayer) layer = promoLayer;
+      }
+      if (shouldKeepTemplateTextBox(layer.name) || shouldKeepTemplateTextBox(column)) {
         await replaceTextLayerPreserveTemplateParagraph(layer, value, doc);
+        if (isPromoTitleName(layer.name) || isPromoTitleName(column)) {
+          await alignPromoTitleLayerToArea(doc, layer);
+        }
         log(`  Text content replaced; PSD paragraph kept: ${column}.`);
         continue;
       }
@@ -5727,6 +5888,7 @@ async function applyRowToDocument(doc, row) {
     log(`  Skip: column needs txt. or img. prefix: ${column}`);
   }
 
+  hideUnusedTemplateImageLayers(doc, expandedRow);
   log("  Before product arrange.");
   await arrangeProductLineAfterReplace(doc, expandedRow);
   log("  After product arrange.");

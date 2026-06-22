@@ -1,6 +1,6 @@
 # PDD_SKU_GIFT 稳定版记录
 
-稳定版本：`20260622-pdd-sku-shared-subtitle-variant`
+稳定版本：`20260622-pdd-sku-global-promo-template-style`
 
 这个 profile 是 `PDD SKU` 的独立赠品区变体，面板里显示为 `PDD SKU GIFT`，不会覆盖原 `PDD SKU` 模板逻辑。
 
