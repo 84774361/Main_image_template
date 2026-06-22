@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260622-pdd-sku-promo-title-rename";
+const SCRIPT_VERSION = "20260622-pdd-sku-shared-subtitle-variant";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -1814,14 +1814,36 @@ function estimateMultilineTextWidth(text, fontSize) {
 
 function formatPddSubtitleText(value) {
   const text = String(value || "").trim();
-  const plusCount = (text.match(/\+/g) || []).length;
-  if (plusCount < 3 || text.includes("\n") || text.includes("\r")) return text;
+  if (getSubtitleCharCount(text) <= 30) return text;
+  return splitSubtitleByPlusBalanced(text);
+}
 
-  const parts = text.split("+").map((part) => part.trim()).filter(Boolean);
-  if (parts.length < 4) return text;
+function splitSubtitleByPlusBalanced(text) {
+  const source = String(text || "").trim();
+  if (!source.includes("+")) return source;
 
-  const splitIndex = Math.ceil(parts.length / 2);
-  return `${parts.slice(0, splitIndex).join("+")}+\n${parts.slice(splitIndex).join("+")}`;
+  const parts = source.split("+").map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return source;
+
+  let best = null;
+  let bestFirstNotShorter = null;
+  for (let splitIndex = 1; splitIndex < parts.length; splitIndex += 1) {
+    const firstLine = parts.slice(0, splitIndex).join("+");
+    const secondLine = `+${parts.slice(splitIndex).join("+")}`;
+    const firstLen = getDisplayLength(firstLine);
+    const secondLen = getDisplayLength(secondLine);
+    const maxLen = Math.max(firstLen, secondLen);
+    const score = Math.abs(firstLen - secondLen);
+    if (!best || score < best.score || (score === best.score && maxLen < best.maxLen)) {
+      best = { firstLine, secondLine, score, maxLen };
+    }
+    if (firstLen >= secondLen && (!bestFirstNotShorter || score < bestFirstNotShorter.score || (score === bestFirstNotShorter.score && maxLen < bestFirstNotShorter.maxLen))) {
+      bestFirstNotShorter = { firstLine, secondLine, score, maxLen };
+    }
+  }
+
+  const result = bestFirstNotShorter || best;
+  return result ? `${result.firstLine}\n${result.secondLine}` : source;
 }
 
 async function applyTextLayerUniformStyle(layer, styleConfig, label) {
@@ -5282,7 +5304,8 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   const config = getCurrentTemplateConfig().subtitleRectangle;
   if (!config || !textLayer) return;
 
-  const rectangleLayer = findLayerByName(doc, config.layerName || "txt.subtitle.rectangle");
+  const variant = getSubtitleLayerVariant(textValue);
+  const rectangleLayer = findSubtitleRectangleLayer(doc, variant, config);
   if (!rectangleLayer) {
     log("  Subtitle rectangle not found.");
     return;
@@ -5300,10 +5323,19 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   const subtitleStyle = getCurrentTemplateConfig().subtitleTextStyle || {};
   const fontSize = readNumber(state.currentRow || {}, "subtitle.fontSize", Number(subtitleStyle.fontSize) || 30);
   const estimatedTextWidth = estimateMultilineTextWidth(textValue || textLayer.textItem && textLayer.textItem.contents || "", fontSize);
-  const measuredTextWidth = estimatedTextWidth > 0 ? estimatedTextWidth : textBox.width;
-  const maxWidth = readNumber(state.currentRow || {}, "subtitle.rectangleMaxWidth", Number(config.maxWidth) || 680);
+  const measuredTextWidth = getSubtitleRectangleTextWidth(textValue, fontSize, variant);
+  const maxWidth = readNumber(
+    state.currentRow || {},
+    `subtitle.rectangleMaxWidth.${variant}`,
+    readNumber(state.currentRow || {}, "subtitle.rectangleMaxWidth", getDefaultSubtitleRectangleMaxWidth(variant, textValue))
+  );
+  const widthScale = readNumber(
+    state.currentRow || {},
+    `subtitle.rectangleWidthScale.${variant}`,
+    readNumber(state.currentRow || {}, "subtitle.rectangleWidthScale", Number(config.widthScale) || 1)
+  );
   const targetWidth = Math.min(
-    Math.max(measuredTextWidth + paddingX * 2, Number(config.minWidth) || 0),
+    Math.max(measuredTextWidth * widthScale + paddingX * 2, Number(config.minWidth) || 0),
     maxWidth
   );
   const currentBox = getBoundsBox(rectangleLayer.boundsNoEffects || rectangleLayer.bounds);
@@ -5318,24 +5350,101 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   );
 
   try {
-    rectangleLayer.visible = false;
-    const newRectangle = await duplicateLayerToBox(
-      rectangleLayer,
-      config.layerName || "txt.subtitle.rectangle",
-      targetBox,
-      { preserveHeight: true }
-    );
-    if (newRectangle) {
-      try {
-        await newRectangle.move(textLayer, photoshop.constants.ElementPlacement.PLACEAFTER);
-      } catch (error) {
-        log(`  Subtitle rectangle z-order skipped: ${formatError(error)}`);
-      }
+    rectangleLayer.visible = true;
+    await resizeLayerToBox(rectangleLayer, targetBox, { preserveHeight: true });
+    try {
+      await rectangleLayer.move(textLayer, photoshop.constants.ElementPlacement.PLACEAFTER);
+    } catch (error) {
+      log(`  Subtitle rectangle z-order skipped: ${formatError(error)}`);
     }
-    log(`  Subtitle rectangle duplicated: textW=${Math.round(measuredTextWidth)}, w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
+    log(`  Subtitle rectangle resized: variant=${variant}, boundsW=${Math.round(textBox.width)}, estimateW=${Math.round(estimatedTextWidth)}, textW=${Math.round(measuredTextWidth)}, maxW=${Math.round(maxWidth)}, w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
   } catch (error) {
-    log(`  Subtitle rectangle duplicate skipped: ${formatError(error)}`);
+    log(`  Subtitle rectangle resize skipped: ${formatError(error)}`);
   }
+}
+
+function getSubtitleRectangleTextWidth(textValue, fontSize, variant) {
+  const lines = String(textValue || "")
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const textWidth = Math.max(...(lines.length ? lines : [""]).map((line) => estimateTextLineWidth(line, fontSize)), 0);
+  const charCount = getSubtitleCharCount(textValue);
+  const scale = getSubtitleRectangleWidthScaleByLength(variant, charCount);
+  return textWidth * scale;
+}
+
+function getSubtitleRectangleWidthScaleByLength(variant, charCount) {
+  if (variant <= 1) return 1.28;
+  if (charCount >= 39) return 1.08;
+  if (charCount >= 36) return 0.98;
+  return 0.88;
+}
+
+function getDefaultSubtitleRectangleMaxWidth(variant, textValue = "") {
+  const charCount = getSubtitleCharCount(textValue);
+  if (variant <= 1) return 760;
+  if (charCount >= 39) return 760;
+  if (charCount >= 36) return 720;
+  return 660;
+}
+
+function getSubtitleLayerVariant(textValue) {
+  const charCount = getSubtitleCharCount(textValue);
+  return charCount > 30 ? 2 : 1;
+}
+
+function getSubtitleCharCount(textValue) {
+  return Array.from(String(textValue || "").replace(/\r\n|\r|\n/g, "")).length;
+}
+
+function isSubtitleTextLayer(layer) {
+  return !!(layer && /^txt\.subtitle(?:\.\d+)?$/.test(String(layer.name || "")));
+}
+
+function findSubtitleTextLayer(doc, finalText) {
+  const variant = getSubtitleLayerVariant(finalText);
+  const preferred = findLayerByName(doc, `txt.subtitle.${variant}`);
+  const fallback = findLayerByName(doc, "txt.subtitle");
+  const layer = preferred || fallback;
+  hideAlternateSubtitleLayers(doc, layer);
+  if (preferred) {
+    log(`  Subtitle layer selected: txt.subtitle.${variant}, chars=${getSubtitleCharCount(finalText)}.`);
+  }
+  return layer;
+}
+
+function hideAlternateSubtitleLayers(doc, activeLayer) {
+  ["txt.subtitle", "txt.subtitle.1", "txt.subtitle.2"].forEach((name) => {
+    const layer = findLayerByName(doc, name);
+    if (layer && layer !== activeLayer) {
+      layer.visible = false;
+    }
+  });
+}
+
+function findSubtitleRectangleLayer(doc, variant, config) {
+  const names = [
+    `txt.subtitle.rectangle.${variant}`,
+    config.layerName || "txt.subtitle.rectangle"
+  ];
+  const layer = names.map((name) => findLayerByName(doc, name)).find(Boolean);
+  if (layer) {
+    hideAlternateSubtitleRectangleLayers(doc, layer);
+    if (layer.name !== (config.layerName || "txt.subtitle.rectangle")) {
+      log(`  Subtitle rectangle layer selected: ${layer.name}.`);
+    }
+  }
+  return layer;
+}
+
+function hideAlternateSubtitleRectangleLayers(doc, activeLayer) {
+  ["txt.subtitle.rectangle", "txt.subtitle.rectangle.1", "txt.subtitle.rectangle.2"].forEach((name) => {
+    const layer = findLayerByName(doc, name);
+    if (layer && layer !== activeLayer) {
+      layer.visible = false;
+    }
+  });
 }
 
 async function applyTitleAndProductNote(doc, row) {
@@ -5377,8 +5486,11 @@ async function applyTitleAndProductNote(doc, row) {
     : titleLineCount > 1 && productNoteLayer2
       ? productNoteLayer2
       : productNoteLayer1 || findLayerByName(doc, "txt.productNote");
-  const subtitleLayer = findLayerByName(doc, "txt.subtitle");
   const forceSubtitleLayer = getCurrentTemplateConfig().productNameToSubtitle && hasValue(row, "txt.subtitle");
+  const subtitlePreviewText = forceSubtitleLayer ? formatPddSubtitleText(noteText) : noteText;
+  const subtitleLayer = forceSubtitleLayer
+    ? findSubtitleTextLayer(doc, subtitlePreviewText)
+    : findLayerByName(doc, "txt.subtitle");
   const fallbackNoteLayer = forceSubtitleLayer
     ? subtitleLayer || productNoteLayer
     : productNoteLayer || subtitleLayer;
@@ -5390,26 +5502,27 @@ async function applyTitleAndProductNote(doc, row) {
     fallbackNoteLayer.visible = true;
     const noteOriginalBox = getBoundsBox(fallbackNoteLayer.boundsNoEffects || fallbackNoteLayer.bounds);
     const subtitleConfig = getCurrentTemplateConfig().subtitleRectangle;
-    const maxSubtitleWidth = fallbackNoteLayer.name === "txt.subtitle" && subtitleConfig
+    const isSubtitleLayer = isSubtitleTextLayer(fallbackNoteLayer);
+    const maxSubtitleWidth = isSubtitleLayer && subtitleConfig
       ? readNumber(row, "subtitle.maxTextWidth", Number(subtitleConfig.maxTextWidth) || null)
       : null;
-    const pddSubtitle = fallbackNoteLayer.name === "txt.subtitle" && getCurrentTemplateConfig().productNameToSubtitle;
+    const pddSubtitle = isSubtitleLayer && getCurrentTemplateConfig().productNameToSubtitle;
     let finalNoteText = pddSubtitle ? formatPddSubtitleText(noteText) : noteText;
     if (pddSubtitle) {
       await replaceTextLayerPddSkuGiftSubtitleStyle(fallbackNoteLayer, finalNoteText, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
-      log(`  Subtitle plus-wrap rule applied: plusCount=${(String(noteText).match(/\+/g) || []).length}.`);
-    } else if (fallbackNoteLayer.name === "txt.subtitle" && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
+      log(`  Subtitle text applied: chars=${getSubtitleCharCount(finalNoteText)}, lines=${String(finalNoteText || "").split(/\r\n|\r|\n/).filter(Boolean).length}.`);
+    } else if (isSubtitleLayer && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
       finalNoteText = await wrapTitleToMeasuredWidth(fallbackNoteLayer, noteText, maxSubtitleWidth, { forceMaxWidth: true });
     } else {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
     }
     const noteAfterBox = getBoundsBox(fallbackNoteLayer.boundsNoEffects || fallbackNoteLayer.bounds);
-    if (fallbackNoteLayer.name === "txt.subtitle" && noteOriginalBox && noteAfterBox) {
+    if (isSubtitleLayer && noteOriginalBox && noteAfterBox) {
       await fallbackNoteLayer.translate(noteOriginalBox.centerX - noteAfterBox.centerX, noteOriginalBox.top - noteAfterBox.top);
       log("  Subtitle anchor restored.");
     }
-    if (fallbackNoteLayer.name === "txt.subtitle") {
+    if (isSubtitleLayer) {
       await resizeSubtitleRectangle(doc, fallbackNoteLayer, finalNoteText);
     }
     handled["txt.productNote"] = true;
@@ -5433,7 +5546,7 @@ function isGiftControlColumn(column) {
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale|promoTitleScale)$/.test(column) ||
     /^(bottomText|promoTitle)\.maxWidth$/.test(column) ||
-    /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleRadius|maxTextWidth|fontSize)$/.test(column) ||
+    /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleWidthScale|rectangleRadius|maxTextWidth|fontSize)(\.\d+)?$/.test(column) ||
     /^productNote\.(gap|offsetY)$/.test(column) ||
     /^(note|remark|remarks|备注|产品视角)$/.test(column);
 }
