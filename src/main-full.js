@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260618-pdd-sku-auto-mixed-layout";
+const SCRIPT_VERSION = "20260618-pdd-sku3-bottomtext-visual-bounds";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -90,10 +90,10 @@ const TEMPLATE_CONFIGS = {
     label: "PDD SKU",
     filePrefixPlaceholder: "pdd_sku_",
     paths: {
-      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\PDD_SKU_Template.psd",
-      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\sample-data-pdd-sku.csv",
+      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\01\\PDD_SKU_Template.psd",
+      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\01\\sample-data-pdd-sku3.csv",
       assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\assets",
-      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\export"
+      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\01\\export"
     },
     exportNameColumns: ["exportName", "PDD_SKU", "pddSku", "pdd_sku", "sku", "id", "goodsId"],
     ignoredDataColumns: ["template.profile", "templateProfile"],
@@ -820,15 +820,22 @@ function setLayerVisibleByAnyName(doc, names, visible, label) {
   return layer;
 }
 
+function getNumericValue(value) {
+  if (value && typeof value === "object" && value._value !== undefined) {
+    return Number(value._value);
+  }
+  return Number(value);
+}
+
 function getBoundsBox(bounds) {
   if (!bounds) return null;
 
-  const left = Number(bounds.left);
-  const top = Number(bounds.top);
-  const right = Number(bounds.right);
-  const bottom = Number(bounds.bottom);
-  const width = Number(bounds.width || right - left);
-  const height = Number(bounds.height || bottom - top);
+  const left = getNumericValue(bounds.left);
+  const top = getNumericValue(bounds.top);
+  const right = getNumericValue(bounds.right);
+  const bottom = getNumericValue(bounds.bottom);
+  const width = getNumericValue(bounds.width) || right - left;
+  const height = getNumericValue(bounds.height) || bottom - top;
 
   if (![left, top, right, bottom, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
     return null;
@@ -844,6 +851,43 @@ function getBoundsBox(bounds) {
     centerX: left + width / 2,
     centerY: top + height / 2
   };
+}
+
+function waitForUiFrame(ms = 30) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getFreshLayerBoundsBox(layer, property = "bounds") {
+  if (!layer) return null;
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+  await waitForUiFrame();
+
+  try {
+    const result = await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "get",
+          _target: [
+            { _property: property },
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    const box = getBoundsBox(result && result[0] && result[0][property]);
+    if (box) return box;
+  } catch (error) {
+    log(`  Fresh layer ${property} skipped for ${layer.name}: ${formatError(error)}`);
+  }
+
+  return getBoundsBox(layer.boundsNoEffects || layer.bounds);
+}
+
+async function getFreshLayerVisualBoundsBox(layer) {
+  return await getFreshLayerBoundsBox(layer, "boundsNoEffects") || await getFreshLayerBoundsBox(layer, "bounds");
 }
 
 function makeBox(left, top, width, height) {
@@ -1210,6 +1254,9 @@ function getProductHeightRatio(row, index, count = 1) {
   const mode = getProductHeightMode(row, count);
   const category = getProductCategory(row, index);
   const source = getImageSourceForIndex(row, "product", index);
+  if (/essential-oil-stickers(?:-front)?\.png/i.test(source)) {
+    return getBottleHeightRatioBySpec(row, 100, mode, "bottle");
+  }
   const specs = getProductSpecFromSource(source);
   return getChartProductHeightRatio(row, category, specs, mode, source);
 }
@@ -1622,6 +1669,9 @@ function buildTitleFontRanges(text, superscripts, scaledRanges) {
 }
 
 function getTextStylePointSize(style) {
+  const implied = style && style.impliedFontSize;
+  if (implied && typeof implied._value === "number") return implied._value;
+  if (typeof implied === "number") return implied;
   const size = style && style.size;
   if (size && typeof size._value === "number") return size._value;
   if (typeof size === "number") return size;
@@ -1630,6 +1680,10 @@ function getTextStylePointSize(style) {
 
 function makePointValue(value) {
   return { _unit: "pointsUnit", _value: value };
+}
+
+function makePixelValue(value) {
+  return { _unit: "pixelsUnit", _value: value };
 }
 
 function makeRgbColor(color) {
@@ -2464,24 +2518,63 @@ function getProductCategoryPairGaps(row, itemBoxes, fallbackGap, layout = "overl
   return gaps;
 }
 
+function getExplicitProductPairGap(row, leftIndex, rightIndex) {
+  const leftKeys = getProductGapKeyCandidates(row, leftIndex);
+  const rightKeys = getProductGapKeyCandidates(row, rightIndex);
+  for (const leftKey of leftKeys) {
+    for (const rightKey of rightKeys) {
+      const direct = readNumber(row, `product.gap.${leftKey}.${rightKey}`, null);
+      const reverse = readNumber(row, `product.gap.${rightKey}.${leftKey}`, null);
+      if (Number.isFinite(direct)) return direct;
+      if (Number.isFinite(reverse)) return reverse;
+    }
+  }
+  return null;
+}
+
+function getProductAutoUniformLineGap(row, leftIndex, rightIndex, leftWidth, rightWidth, fallbackGap) {
+  const explicitPair = getExplicitProductPairGap(row, leftIndex, rightIndex);
+  if (Number.isFinite(explicitPair)) return Math.max(0, explicitPair);
+
+  const manualRank = getProductGapAt(row, leftIndex, "line", Math.min(leftWidth, rightWidth), null);
+  if (Number.isFinite(manualRank)) return Math.max(0, manualRank);
+
+  const explicitAuto = readNumber(row, "product.autoLineGap", readNumber(row, "product.autoGap", null));
+  if (Number.isFinite(explicitAuto)) return Math.max(0, explicitAuto);
+
+  const basisWidth = Math.min(leftWidth, rightWidth);
+  if (!Number.isFinite(basisWidth) || basisWidth <= 0) return fallbackGap;
+  return Math.max(0, Math.round(basisWidth * 0.12));
+}
+
 function getProductAutoMixedPairGaps(row, itemBoxes, fallbackGap) {
   const gaps = [];
   const modes = [];
   for (let i = 0; i < Math.max(0, itemBoxes.length - 1); i += 1) {
     const sameProduct = isSameAutoProductGroup(row, i + 1, i + 2);
-    const pairLayout = sameProduct ? "overlap" : "line";
     const basisWidth = Math.min(itemBoxes[i].width, itemBoxes[i + 1].width);
-    const pairFallback = sameProduct ? -basisWidth * 0.18 : fallbackGap;
-    gaps.push(getProductCategoryPairGap(
-      row,
-      i + 1,
-      i + 2,
-      itemBoxes[i].width,
-      itemBoxes[i + 1].width,
-      pairFallback,
-      pairLayout
-    ));
-    modes.push(pairLayout);
+    if (sameProduct) {
+      gaps.push(getProductCategoryPairGap(
+        row,
+        i + 1,
+        i + 2,
+        itemBoxes[i].width,
+        itemBoxes[i + 1].width,
+        -basisWidth * 0.18,
+        "overlap"
+      ));
+      modes.push("overlap");
+    } else {
+      gaps.push(getProductAutoUniformLineGap(
+        row,
+        i + 1,
+        i + 2,
+        itemBoxes[i].width,
+        itemBoxes[i + 1].width,
+        fallbackGap
+      ));
+      modes.push("line");
+    }
   }
   return { gaps, modes };
 }
@@ -2566,7 +2659,9 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
     let gaps = autoGapInfo
       ? autoGapInfo.gaps
       : getProductCategoryPairGaps(row, itemBoxes, -itemWidth * 0.42, layout);
-    gaps = fitProductGapsToArea(itemBoxes.map((box) => box.width), gaps, areaBox.width);
+    if (layout !== "line" && layout !== "auto") {
+      gaps = fitProductGapsToArea(itemBoxes.map((box) => box.width), gaps, areaBox.width);
+    }
     let totalWidth = itemBoxes.reduce((sum, box) => sum + box.width, 0) + gaps.reduce((sum, value) => sum + value, 0);
     if ((layout === "line" || layout === "auto") && totalWidth > areaBox.width) {
       const shrink = areaBox.width / totalWidth;
@@ -2574,7 +2669,10 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
         box.width *= shrink;
         box.height *= shrink;
       });
-      gaps = gaps.map((gap) => layout === "line" ? Math.max(0, gap * shrink) : gap * shrink);
+      gaps = gaps.map((gap, index) => {
+        const mode = autoGapInfo && autoGapInfo.modes[index] || layout;
+        return mode === "overlap" ? gap * shrink : Math.max(0, gap * shrink);
+      });
       totalWidth = itemBoxes.reduce((sum, box) => sum + box.width, 0) + gaps.reduce((sum, value) => sum + value, 0);
     }
     let left = areaBox.centerX - totalWidth / 2;
@@ -3073,6 +3171,30 @@ async function applyProductGroupScale(doc, row) {
   log(`  Product group scale applied: factor=${factor}, anchor=(${Math.round(anchorPoint.x)},${Math.round(anchorPoint.y)}), groupW=${groupBox ? Math.round(groupBox.width) : "?"}, groupH=${groupBox ? Math.round(groupBox.height) : "?"}, items=${scaledItems.length}.`);
 }
 
+async function constrainProductGroupToAreaAfterScale(doc, row) {
+  const areaBox = state.groupAreaBoxes.product;
+  if (!areaBox) return;
+
+  let items = collectProductGroupItems(doc, row);
+  let groupBox = getItemsGroupBox(items);
+  if (!groupBox) return;
+
+  const fitFactor = Math.min(areaBox.width / groupBox.width, areaBox.height / groupBox.height, 1);
+  if (Number.isFinite(fitFactor) && fitFactor > 0 && fitFactor < 1) {
+    const anchorPoint = { x: areaBox.centerX, y: areaBox.bottom };
+    for (const item of items) {
+      await scaleLayerAroundPoint(item.layer, fitFactor, anchorPoint);
+    }
+    items = collectProductGroupItems(doc, row);
+    groupBox = getItemsGroupBox(items);
+    log(`  Product group constrained to area after scale: factor=${fitFactor.toFixed(3)}, groupW=${groupBox ? Math.round(groupBox.width) : "?"}, groupH=${groupBox ? Math.round(groupBox.height) : "?"}, areaW=${Math.round(areaBox.width)}, areaH=${Math.round(areaBox.height)}.`);
+  }
+
+  if (groupBox) {
+    await translateProductItems(items, areaBox.centerX - groupBox.centerX, areaBox.bottom - groupBox.bottom);
+  }
+}
+
 function getItemsTotalWidth(items, gapsOrGap) {
   const width = items.reduce((sum, item) => sum + item.box.width, 0);
   if (Array.isArray(gapsOrGap)) {
@@ -3156,6 +3278,108 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
   log(`  Arranged product line after replace. touchEdges=${touchEdges}, gapMode=${useCategoryGaps ? "category" : "manual"}, gap=${gaps.join("|") || gap}, groupW=${finalGroupBox ? Math.round(finalGroupBox.width) : "?"}, groupH=${finalGroupBox ? Math.round(finalGroupBox.height) : "?"}, items=${freshItems.length}`);
 }
 
+function makeProductActualBoundsGroups(items, row, layout) {
+  const indexedItems = refreshProductItems(items).map((item, index) => ({
+    ...item,
+    index: index + 1,
+    key: layout === "auto" ? getProductAutoGroupKey(row, index + 1) : `item-${index + 1}`
+  }));
+  const groups = [];
+
+  for (const item of indexedItems) {
+    const previous = groups[groups.length - 1];
+    if (layout === "auto" && previous && previous.key === item.key) {
+      previous.items.push(item);
+      previous.lastIndex = item.index;
+    } else {
+      groups.push({
+        key: item.key,
+        firstIndex: item.index,
+        lastIndex: item.index,
+        items: [item]
+      });
+    }
+  }
+
+  groups.forEach((group) => {
+    group.box = getItemsGroupBox(group.items);
+  });
+  return groups.filter((group) => group.box);
+}
+
+function getProductActualBoundsGap(row, leftGroup, rightGroup, layout) {
+  const leftItem = leftGroup.items[leftGroup.items.length - 1];
+  const rightItem = rightGroup.items[0];
+  if (layout === "auto") {
+    return getProductAutoUniformLineGap(
+      row,
+      leftItem.index,
+      rightItem.index,
+      leftGroup.box.width,
+      rightGroup.box.width,
+      0
+    );
+  }
+  return getProductCategoryPairGap(
+    row,
+    leftItem.index,
+    rightItem.index,
+    leftGroup.box.width,
+    rightGroup.box.width,
+    0,
+    "line"
+  );
+}
+
+async function resolveProductActualBoundsHorizontalSpacing(items, row, areaBox, layout) {
+  if (!areaBox || !items.length || !["auto", "line"].includes(layout)) return;
+
+  let groups = makeProductActualBoundsGroups(items, row, layout);
+  if (groups.length <= 1) {
+    await arrangeProductLayerStacking(refreshProductItems(items), getImageGroupZOrder(row, "product"));
+    return;
+  }
+
+  const gaps = [];
+  for (let i = 1; i < groups.length; i += 1) {
+    const previous = groups[i - 1];
+    const current = groups[i];
+    const gap = Math.max(0, getProductActualBoundsGap(row, previous, current, layout));
+    gaps.push(gap);
+    const requiredLeft = previous.box.right + gap;
+    if (current.box.left < requiredLeft) {
+      const dx = requiredLeft - current.box.left;
+      for (const item of current.items) {
+        await item.layer.translate(dx, 0);
+      }
+      groups = makeProductActualBoundsGroups(items, row, layout);
+    }
+  }
+
+  let freshItems = refreshProductItems(items);
+  let groupBox = getItemsGroupBox(freshItems);
+  if (groupBox && groupBox.width > areaBox.width) {
+    const factor = areaBox.width / groupBox.width;
+    if (Number.isFinite(factor) && factor > 0 && factor < 1) {
+      const anchorPoint = { x: areaBox.centerX, y: areaBox.bottom };
+      for (const item of freshItems) {
+        await scaleLayerAroundPoint(item.layer, factor, anchorPoint);
+      }
+      freshItems = refreshProductItems(items);
+      groupBox = getItemsGroupBox(freshItems);
+      log(`  Product actual bounds scaled to area: factor=${factor.toFixed(3)}, groupW=${groupBox ? Math.round(groupBox.width) : "?"}, areaW=${Math.round(areaBox.width)}.`);
+    }
+  }
+  if (groupBox) {
+    await translateProductItems(freshItems, areaBox.centerX - groupBox.centerX, 0);
+  }
+
+  freshItems = refreshProductItems(items);
+  groupBox = getItemsGroupBox(freshItems);
+  await arrangeProductLayerStacking(freshItems, getImageGroupZOrder(row, "product"));
+  log(`  Product actual bounds horizontal fix: layout=${layout}, groups=${groups.map((group) => `${group.firstIndex}-${group.lastIndex}`).join("|")}, gaps=${gaps.map((gap) => Math.round(gap)).join("|")}, groupW=${groupBox ? Math.round(groupBox.width) : "?"}, areaW=${Math.round(areaBox.width)}.`);
+}
+
 async function arrangeProductOverlapItems(items, row, areaBox, layout) {
   const minWidth = Math.min(...items.map((item) => item.box.width));
   const hasManualOverlapRatio = row["product.overlapRatio"] !== undefined && row["product.overlapRatio"] !== "";
@@ -3225,11 +3449,16 @@ async function arrangeProductLineAfterReplace(doc, row) {
     log("  Product arrange skipped: count <= 1.");
     return;
   }
+  const areaBox = state.groupAreaBoxes.product;
+  if (!areaBox) {
+    log("  Product arrange skipped: product.area not found.");
+    return;
+  }
+
   if (layout !== "line") {
     if (layout === "auto") {
       const preparedLayers = collectProductItems(doc, count);
-      await arrangeProductLayerStacking(preparedLayers, getImageGroupZOrder(row, "product"));
-      log("  Product arrange skipped: using prepared auto mixed layout.");
+      await resolveProductActualBoundsHorizontalSpacing(preparedLayers, row, areaBox, "auto");
       return;
     }
     log("  Product arrange skipped: using prepared gift-style overlap layout.");
@@ -3237,14 +3466,7 @@ async function arrangeProductLineAfterReplace(doc, row) {
   }
   if (!shouldTouchProductEdges(row) && shouldUseProductCategoryPairGaps(row)) {
     const preparedLayers = collectProductItems(doc, count);
-    await arrangeProductLayerStacking(preparedLayers, getImageGroupZOrder(row, "product"));
-    log("  Product arrange skipped: using prepared category-gap line layout.");
-    return;
-  }
-
-  const areaBox = state.groupAreaBoxes.product;
-  if (!areaBox) {
-    log("  Product arrange skipped: product.area not found.");
+    await resolveProductActualBoundsHorizontalSpacing(preparedLayers, row, areaBox, "line");
     return;
   }
 
@@ -4010,6 +4232,7 @@ async function scaleTextLayerFontSize(layer, scale) {
       const textStyle = { ...(range.textStyle || {}) };
       const baseSize = getTextStylePointSize(textStyle);
       const scaledSize = baseSize * scale;
+      textStyle.fontSize = makePointValue(scaledSize);
       textStyle.size = makePointValue(scaledSize);
       textStyle.impliedFontSize = makePointValue(scaledSize);
       return {
@@ -4053,6 +4276,170 @@ async function applyBottomTextRules(layer, value) {
       log(`  Bottom text scaled by CSV: scale=${explicitScale}.`);
     }
   }
+}
+
+async function fitBottomTextFontToMaxWidth(layer) {
+  if (!layer || layer.name !== "txt.bottomText") return;
+  const maxWidth = readNumber(state.currentRow || {}, "bottomText.maxWidth", 680);
+  if (!Number.isFinite(maxWidth) || maxWidth <= 0) return;
+
+  const box = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!box || !Number.isFinite(box.width) || box.width <= maxWidth) return;
+
+  const scale = Math.max(0.25, Math.min(1, maxWidth / box.width));
+  if (scale >= 0.999) return;
+  await scaleTextLayerFontSize(layer, scale);
+  log(`  Bottom text font fit: width=${Math.round(box.width)}, max=${Math.round(maxWidth)}, scale=${scale.toFixed(3)}.`);
+}
+
+function isParagraphTextKey(textKey) {
+  return !!(textKey && Array.isArray(textKey.textShape) && textKey.textShape.length);
+}
+
+function getBottomTextFittedFontSize(textValue, templateFontSize, originalBox) {
+  if (!Number.isFinite(templateFontSize) || templateFontSize <= 0) return templateFontSize;
+
+  const row = state.currentRow || {};
+  const maxWidth = readNumber(row, "txt.bottomText.maxWidth", readNumber(row, "bottomText.maxWidth", 680));
+  const measuredWidth = estimateMultilineTextWidth(textValue, templateFontSize);
+  const limitWidth = Number.isFinite(maxWidth) && maxWidth > 0
+    ? maxWidth
+    : originalBox && originalBox.width;
+  if (!Number.isFinite(limitWidth) || limitWidth <= 0 || measuredWidth <= limitWidth) {
+    return templateFontSize;
+  }
+
+  const minScale = readNumber(row, "txt.bottomText.minScale", readNumber(row, "bottomText.minScale", 0.48));
+  const scale = Math.max(minScale, Math.min(1, limitWidth / measuredWidth));
+  const fitted = templateFontSize * scale;
+  log(`  txt.bottomText estimated font fit: textW=${Math.round(measuredWidth)}, max=${Math.round(limitWidth)}, font=${templateFontSize.toFixed(1)}->${fitted.toFixed(1)}.`);
+  return fitted;
+}
+
+async function restoreTemplateTextCenter(layer, originalBox, label) {
+  if (!layer || !originalBox) return;
+  const currentBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!currentBox) return;
+
+  await layer.translate(originalBox.centerX - currentBox.centerX, originalBox.centerY - currentBox.centerY);
+  log(`  ${label || layer.name} template center restored: x=${Math.round(originalBox.centerX)}, y=${Math.round(originalBox.centerY)}.`);
+}
+
+async function restoreBottomTextVisualCenter(layer, originalBox) {
+  if (!layer || layer.name !== "txt.bottomText" || !originalBox) return;
+  const currentBox = await getFreshLayerVisualBoundsBox(layer);
+  if (!currentBox) return;
+
+  const row = state.currentRow || {};
+  const anchor = getCurrentTemplateConfig().bottomTextAnchor || {};
+  const targetCenterX = readNumber(row, "txt.bottomText.x", readNumber(row, "bottomText.x", originalBox.centerX || anchor.centerX));
+  const targetCenterY = readNumber(row, "txt.bottomText.y", readNumber(row, "bottomText.y", originalBox.centerY || anchor.centerY));
+
+  await layer.translate(targetCenterX - currentBox.centerX, targetCenterY - currentBox.centerY);
+  await waitForUiFrame();
+
+  const verifyBox = await getFreshLayerBoundsBox(layer);
+  if (verifyBox) {
+    const dx = targetCenterX - verifyBox.centerX;
+    const dy = targetCenterY - verifyBox.centerY;
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+      await layer.translate(dx, dy);
+      log(`  txt.bottomText visual center corrected twice: dx=${dx.toFixed(2)}, dy=${dy.toFixed(2)}.`);
+    }
+  }
+  log(`  txt.bottomText visual center restored: x=${Math.round(targetCenterX)}, y=${Math.round(targetCenterY)}, measuredX=${Math.round((verifyBox || currentBox).centerX)}.`);
+}
+
+async function moveActiveLayerByPixels(dx, dy, label) {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy) || (Math.abs(dx) <= 0.01 && Math.abs(dy) <= 0.01)) return;
+  ensureModules();
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "move",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          to: {
+            _obj: "offset",
+            horizontal: makePixelValue(dx),
+            vertical: makePixelValue(dy)
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+  } catch (error) {
+    log(`  ${label || "Layer"} batch move skipped: ${formatError(error)}`);
+    throw error;
+  }
+}
+
+async function alignBottomTextParagraphBox(layer, originalBox) {
+  if (!layer || layer.name !== "txt.bottomText" || !originalBox) return;
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
+  const currentBox = await getFreshLayerBoundsBox(layer);
+  if (!currentBox) return;
+
+  const row = state.currentRow || {};
+  const targetCenterX = readNumber(row, "txt.bottomText.x", readNumber(row, "bottomText.x", originalBox.centerX));
+  const targetCenterY = readNumber(row, "txt.bottomText.y", readNumber(row, "bottomText.y", originalBox.centerY));
+  const dx = targetCenterX - currentBox.centerX;
+  const dy = targetCenterY - currentBox.centerY;
+  try {
+    await moveActiveLayerByPixels(dx, dy, "txt.bottomText");
+  } catch (error) {
+    await layer.translate(dx, dy);
+  }
+
+  await waitForUiFrame();
+
+  const verifyBox = await getFreshLayerVisualBoundsBox(layer);
+  log(`  txt.bottomText visual bounds centered: x=${Math.round(targetCenterX)}, y=${Math.round(targetCenterY)}, beforeX=${Math.round(currentBox.centerX)}, afterX=${verifyBox ? Math.round(verifyBox.centerX) : "?"}, boxW=${Math.round(currentBox.width)}.`);
+}
+
+function applyBottomTextTextKeyAnchor(layer, textKey, originalBox) {
+  if (!layer || layer.name !== "txt.bottomText" || !textKey) return textKey;
+  if (isParagraphTextKey(textKey)) {
+    log("  txt.bottomText paragraph box preserved; clickPoint anchor skipped.");
+    return textKey;
+  }
+
+  const row = state.currentRow || {};
+  const anchor = getCurrentTemplateConfig().bottomTextAnchor || {};
+  const targetX = readNumber(row, "txt.bottomText.x", readNumber(row, "bottomText.x", originalBox && originalBox.centerX || anchor.centerX || 400));
+  const nextTextKey = { ...textKey };
+  const clickPoint = textKey.textClickPoint ? { ...textKey.textClickPoint } : null;
+
+  if (!clickPoint) {
+    log("  txt.bottomText textClickPoint not found; using bounds center fallback.");
+    return nextTextKey;
+  }
+
+  if (clickPoint.horizontal && typeof clickPoint.horizontal === "object") {
+    clickPoint.horizontal = { ...clickPoint.horizontal, _value: targetX };
+  } else {
+    clickPoint.horizontal = makePixelValue(targetX);
+  }
+  nextTextKey.textClickPoint = clickPoint;
+  log(`  txt.bottomText textClickPoint anchored: x=${Math.round(targetX)}.`);
+  return nextTextKey;
+}
+
+function buildBottomTextParagraphStyle(baseParagraph) {
+  const zero = makePointValue(0);
+  return {
+    ...(baseParagraph || { _obj: "paragraphStyle" }),
+    justification: { _enum: "justification", _value: "center" },
+    firstLineIndent: zero,
+    leftIndent: zero,
+    rightIndent: zero,
+    startIndent: zero,
+    endIndent: zero
+  };
 }
 
 async function replaceSmartObjectLayer(layer, file) {
@@ -4403,6 +4790,18 @@ function resolveKnownProductAliasImage(name) {
   }
   if (/泡泡洗沐|泡泡沐浴露|泡泡洗发沐浴/.test(normalized) && /300ml/i.test(normalized)) {
     return "front/baby-foaming-wash-shampoo-unscented-bottle-300ml-front.png";
+  }
+  if (/叮叮.*喷雾|驱蚊喷雾/.test(normalized) && /100ml/i.test(normalized)) {
+    return "front/baby-floral-water-bottle-100ml-front.png";
+  }
+  if (/爽身露/.test(normalized) && /120ml/i.test(normalized) && !hasRepeat2) {
+    return "front/baby-refreshing-lotion-bottle-120ml-front.png";
+  }
+  if (/爽身露/.test(normalized) && /60ml/i.test(normalized) && !hasRepeat2) {
+    return "front/baby-refreshing-lotion-bottle-60ml-front.png";
+  }
+  if (/精油贴|精华贴片/.test(normalized)) {
+    return "front/essential-oil-stickers-front.png";
   }
   if (/护臀膏/.test(normalized) && /50g/i.test(normalized) && !hasRepeat2) {
     return "front/baby-diaper-cream-tube-50g-front.png";
@@ -5202,7 +5601,9 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
   if (!layer.textItem) {
     throw new Error(`Layer "${layer.name}" is not a text layer`);
   }
-
+  const bottomTextOriginalBox = layer.name === "txt.bottomText"
+    ? getTextAreaBoxForLayer(doc, layer.name) || getBoundsBox(layer.boundsNoEffects || layer.bounds)
+    : null;
   ensureModules();
   photoshop.app.activeDocument.activeLayers = [layer];
 
@@ -5233,6 +5634,19 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
     const textLength = Array.from(textValue).length;
     const symbolsAsLatin = shouldUseLineSeedForSymbols(layer.name);
     const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle, { symbolsAsLatin });
+    const templateFontSize = layer.name === "txt.bottomText" ? getTextStylePointSize(baseStyle) : NaN;
+    const outputFontSize = layer.name === "txt.bottomText"
+      ? getBottomTextFittedFontSize(textValue, templateFontSize, bottomTextOriginalBox)
+      : templateFontSize;
+    const textStyleRange = forceTextStyleRangesFontSize(
+      buildMixedTextTemplateStyleRanges(textValue, styleByKind, { symbolsAsLatin }),
+      outputFontSize
+    );
+    const isBottomTextParagraph = layer.name === "txt.bottomText" && isParagraphTextKey(textKey);
+    const anchoredTextKey = applyBottomTextTextKeyAnchor(layer, textKey, bottomTextOriginalBox);
+    const paragraphStyle = layer.name === "txt.bottomText"
+      ? buildBottomTextParagraphStyle(baseParagraph)
+      : baseParagraph || { _obj: "paragraphStyle" };
 
     await photoshop.action.batchPlay(
       [
@@ -5243,15 +5657,15 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
           ],
           to: {
             _obj: "textLayer",
-            ...textKey,
+            ...anchoredTextKey,
             textKey: textValue,
-            textStyleRange: buildMixedTextTemplateStyleRanges(textValue, styleByKind, { symbolsAsLatin }),
+            textStyleRange,
             paragraphStyleRange: [
               {
                 _obj: "paragraphStyleRange",
                 from: 0,
                 to: textLength,
-                paragraphStyle: baseParagraph || { _obj: "paragraphStyle" }
+                paragraphStyle
               }
             ]
           },
@@ -5260,9 +5674,20 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
       ],
       { synchronousExecution: true, modalBehavior: "execute" }
     );
+    if (layer.name === "txt.bottomText") {
+      if (isBottomTextParagraph) {
+        await alignBottomTextParagraphBox(layer, bottomTextOriginalBox);
+      } else {
+        await fitBottomTextFontToMaxWidth(layer);
+        await restoreBottomTextVisualCenter(layer, bottomTextOriginalBox);
+      }
+    }
   } catch (error) {
     log(`  Preserve template paragraph skipped for ${layer.name}: ${formatError(error)}`);
     await replaceTextLayerPreserveFirstStyle(layer, value);
+    if (layer.name === "txt.bottomText") {
+      await restoreBottomTextVisualCenter(layer, bottomTextOriginalBox);
+    }
   }
 }
 
@@ -5510,6 +5935,21 @@ function hideAlternateSubtitleLayers(doc, activeLayer) {
       layer.visible = false;
     }
   });
+}
+
+function forceTextStyleRangesFontSize(textStyleRange, fontSize) {
+  if (!Array.isArray(textStyleRange) || !Number.isFinite(fontSize) || fontSize <= 0) {
+    return textStyleRange;
+  }
+  return textStyleRange.map((range) => ({
+    ...range,
+    textStyle: {
+      ...(range.textStyle || {}),
+      fontSize: makePointValue(fontSize),
+      size: makePointValue(fontSize),
+      impliedFontSize: makePointValue(fontSize)
+    }
+  }));
 }
 
 function findSubtitleRectangleLayer(doc, variant, config) {
@@ -5820,6 +6260,7 @@ async function applyRowToDocument(doc, row) {
   await arrangeProductLineAfterReplace(doc, expandedRow);
   log("  After product arrange.");
   await applyProductGroupScale(doc, expandedRow);
+  await constrainProductGroupToAreaAfterScale(doc, expandedRow);
   await applyProductShadow(doc);
   if (getCurrentTemplateConfig().keepPersonOnTop) {
     await keepPersonOnTop(doc);
