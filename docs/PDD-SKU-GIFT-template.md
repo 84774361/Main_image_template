@@ -1,6 +1,6 @@
 # PDD_SKU_GIFT 稳定版记录
 
-稳定版本：`20260616-pdd-sku-gift-subtitle-template-cn-font`
+稳定版本：`20260622-pdd-sku-promo-title-rename`
 
 这个 profile 是 `PDD SKU` 的独立赠品区变体，面板里显示为 `PDD SKU GIFT`，不会覆盖原 `PDD SKU` 模板逻辑。
 
@@ -25,6 +25,7 @@
 - `txt.mainProductLabel` 解析主品区产品，放入 `product.area`。
 - `txt.giftProductLabel` 解析赠品区产品，放入 `gift.area`。
 - `product.count` 和 `gift.count` 不依赖 CSV 旧列，按 `txt.mainProductLabel` / `txt.giftProductLabel` 计算。
+- 促销机制标题使用 `txt.promoTitle`；旧名 `txt.bottomText` 继续兼容，便于旧 PSD / CSV 逐步迁移。
 - `txt.mainProductLabel` 和 `txt.giftProductLabel` 保持 PSD 原文本框、段落、字号、颜色；超过 22 字符时按 `+` 换行，`+` 保留在上一行末尾。
 - `txt.mainProductLabel` / `txt.giftProductLabel` 的符号、英文、数字按 LINE Seed Sans App Regular；中文沿用 PSD 模板原中文样式。
 - `txt.subtitle` 中文沿用 PSD 模板原中文字体，英文、数字、符号按 LINE Seed Sans App Regular。

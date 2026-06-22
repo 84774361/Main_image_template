@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260618-pdd-sku3-bottomtext-visual-bounds";
+const SCRIPT_VERSION = "20260622-pdd-sku-promo-title-rename";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -90,10 +90,10 @@ const TEMPLATE_CONFIGS = {
     label: "PDD SKU",
     filePrefixPlaceholder: "pdd_sku_",
     paths: {
-      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\01\\PDD_SKU_Template.psd",
-      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\01\\sample-data-pdd-sku3.csv",
+      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\PDD_SKU_Template.psd",
+      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\sample-data-pdd-sku.csv",
       assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\assets",
-      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\01\\export"
+      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\export"
     },
     exportNameColumns: ["exportName", "PDD_SKU", "pddSku", "pdd_sku", "sku", "id", "goodsId"],
     ignoredDataColumns: ["template.profile", "templateProfile"],
@@ -739,16 +739,6 @@ function getEnglishDerivedChineseProductAliases(row, fileName) {
     add("保湿乳");
     add("高保湿乳");
   }
-  if (/massage[-\s]*oil/.test(combined)) {
-    add("润肤油");
-    add("按摩油");
-  }
-  if (/diaper[-\s]*cream/.test(combined)) {
-    add("护臀膏");
-  }
-  if (/lip[-\s]*care[-\s]*cream/.test(combined)) {
-    add("唇周霜");
-  }
   if (/sunscreen[-\s]*lotion|sunscreen/.test(combined)) {
     add("防晒乳");
   }
@@ -820,22 +810,15 @@ function setLayerVisibleByAnyName(doc, names, visible, label) {
   return layer;
 }
 
-function getNumericValue(value) {
-  if (value && typeof value === "object" && value._value !== undefined) {
-    return Number(value._value);
-  }
-  return Number(value);
-}
-
 function getBoundsBox(bounds) {
   if (!bounds) return null;
 
-  const left = getNumericValue(bounds.left);
-  const top = getNumericValue(bounds.top);
-  const right = getNumericValue(bounds.right);
-  const bottom = getNumericValue(bounds.bottom);
-  const width = getNumericValue(bounds.width) || right - left;
-  const height = getNumericValue(bounds.height) || bottom - top;
+  const left = Number(bounds.left);
+  const top = Number(bounds.top);
+  const right = Number(bounds.right);
+  const bottom = Number(bounds.bottom);
+  const width = Number(bounds.width || right - left);
+  const height = Number(bounds.height || bottom - top);
 
   if (![left, top, right, bottom, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
     return null;
@@ -851,43 +834,6 @@ function getBoundsBox(bounds) {
     centerX: left + width / 2,
     centerY: top + height / 2
   };
-}
-
-function waitForUiFrame(ms = 30) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function getFreshLayerBoundsBox(layer, property = "bounds") {
-  if (!layer) return null;
-  ensureModules();
-  photoshop.app.activeDocument.activeLayers = [layer];
-  await waitForUiFrame();
-
-  try {
-    const result = await photoshop.action.batchPlay(
-      [
-        {
-          _obj: "get",
-          _target: [
-            { _property: property },
-            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
-          ],
-          _options: { dialogOptions: "dontDisplay" }
-        }
-      ],
-      { synchronousExecution: true, modalBehavior: "execute" }
-    );
-    const box = getBoundsBox(result && result[0] && result[0][property]);
-    if (box) return box;
-  } catch (error) {
-    log(`  Fresh layer ${property} skipped for ${layer.name}: ${formatError(error)}`);
-  }
-
-  return getBoundsBox(layer.boundsNoEffects || layer.bounds);
-}
-
-async function getFreshLayerVisualBoundsBox(layer) {
-  return await getFreshLayerBoundsBox(layer, "boundsNoEffects") || await getFreshLayerBoundsBox(layer, "bounds");
 }
 
 function makeBox(left, top, width, height) {
@@ -1027,30 +973,14 @@ function getProductHeightMode(row, count) {
 }
 
 function getAutoProductLayout(row, count) {
-  const productKeys = Array.from({ length: count }, (_, index) => getProductAutoGroupKey(row, index + 1));
-  const uniqueProducts = Array.from(new Set(productKeys));
+  const categories = Array.from({ length: count }, (_, index) => getProductCategory(row, index + 1));
+  const unique = Array.from(new Set(categories));
 
   if (count <= 1) return "overlap";
-  if (uniqueProducts.length > 1) return "auto";
-  return "overlap";
-}
-
-function getProductAutoGroupKey(row, index) {
-  const source = getImageSourceForIndex(row, "product", index);
-  const normalizedSource = String(source || "")
-    .toLowerCase()
-    .replace(/^blob:\/\/blob-\d+\//, "")
-    .replace(/^products\//, "")
-    .replace(/^front\//, "")
-    .replace(/^angle\//, "")
-    .replace(/\.(png|jpe?g|webp|tiff?|psd)$/i, "")
-    .trim();
-  if (normalizedSource) return normalizedSource;
-  return `${normalizeProductCategory(getProductCategory(row, index))}:${getProductSpecGapKey(row, index)}`;
-}
-
-function isSameAutoProductGroup(row, leftIndex, rightIndex) {
-  return getProductAutoGroupKey(row, leftIndex) === getProductAutoGroupKey(row, rightIndex);
+  if (unique.length > 1) return "line";
+  if (unique[0] === "jar" && count === 2) return "overlap";
+  if (count >= 3) return "line";
+  return "line";
 }
 
 function resolveImageGroupLayout(row, prefix, count) {
@@ -1254,9 +1184,6 @@ function getProductHeightRatio(row, index, count = 1) {
   const mode = getProductHeightMode(row, count);
   const category = getProductCategory(row, index);
   const source = getImageSourceForIndex(row, "product", index);
-  if (/essential-oil-stickers(?:-front)?\.png/i.test(source)) {
-    return getBottleHeightRatioBySpec(row, 100, mode, "bottle");
-  }
   const specs = getProductSpecFromSource(source);
   return getChartProductHeightRatio(row, category, specs, mode, source);
 }
@@ -1669,9 +1596,6 @@ function buildTitleFontRanges(text, superscripts, scaledRanges) {
 }
 
 function getTextStylePointSize(style) {
-  const implied = style && style.impliedFontSize;
-  if (implied && typeof implied._value === "number") return implied._value;
-  if (typeof implied === "number") return implied;
   const size = style && style.size;
   if (size && typeof size._value === "number") return size._value;
   if (typeof size === "number") return size;
@@ -1680,10 +1604,6 @@ function getTextStylePointSize(style) {
 
 function makePointValue(value) {
   return { _unit: "pointsUnit", _value: value };
-}
-
-function makePixelValue(value) {
-  return { _unit: "pixelsUnit", _value: value };
 }
 
 function makeRgbColor(color) {
@@ -1894,36 +1814,14 @@ function estimateMultilineTextWidth(text, fontSize) {
 
 function formatPddSubtitleText(value) {
   const text = String(value || "").trim();
-  if (getSubtitleCharCount(text) <= 30) return text;
-  return splitSubtitleByPlusBalanced(text);
-}
+  const plusCount = (text.match(/\+/g) || []).length;
+  if (plusCount < 3 || text.includes("\n") || text.includes("\r")) return text;
 
-function splitSubtitleByPlusBalanced(text) {
-  const source = String(text || "").trim();
-  if (!source.includes("+")) return source;
+  const parts = text.split("+").map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 4) return text;
 
-  const parts = source.split("+").map((part) => part.trim()).filter(Boolean);
-  if (parts.length < 2) return source;
-
-  let best = null;
-  let bestFirstNotShorter = null;
-  for (let splitIndex = 1; splitIndex < parts.length; splitIndex += 1) {
-    const firstLine = parts.slice(0, splitIndex).join("+");
-    const secondLine = `+${parts.slice(splitIndex).join("+")}`;
-    const firstLen = getDisplayLength(firstLine);
-    const secondLen = getDisplayLength(secondLine);
-    const maxLen = Math.max(firstLen, secondLen);
-    const score = Math.abs(firstLen - secondLen);
-    if (!best || score < best.score || (score === best.score && maxLen < best.maxLen)) {
-      best = { firstLine, secondLine, score, maxLen };
-    }
-    if (firstLen >= secondLen && (!bestFirstNotShorter || score < bestFirstNotShorter.score || (score === bestFirstNotShorter.score && maxLen < bestFirstNotShorter.maxLen))) {
-      bestFirstNotShorter = { firstLine, secondLine, score, maxLen };
-    }
-  }
-
-  const result = bestFirstNotShorter || best;
-  return result ? `${result.firstLine}\n${result.secondLine}` : source;
+  const splitIndex = Math.ceil(parts.length / 2);
+  return `${parts.slice(0, splitIndex).join("+")}+\n${parts.slice(splitIndex).join("+")}`;
 }
 
 async function applyTextLayerUniformStyle(layer, styleConfig, label) {
@@ -2518,67 +2416,6 @@ function getProductCategoryPairGaps(row, itemBoxes, fallbackGap, layout = "overl
   return gaps;
 }
 
-function getExplicitProductPairGap(row, leftIndex, rightIndex) {
-  const leftKeys = getProductGapKeyCandidates(row, leftIndex);
-  const rightKeys = getProductGapKeyCandidates(row, rightIndex);
-  for (const leftKey of leftKeys) {
-    for (const rightKey of rightKeys) {
-      const direct = readNumber(row, `product.gap.${leftKey}.${rightKey}`, null);
-      const reverse = readNumber(row, `product.gap.${rightKey}.${leftKey}`, null);
-      if (Number.isFinite(direct)) return direct;
-      if (Number.isFinite(reverse)) return reverse;
-    }
-  }
-  return null;
-}
-
-function getProductAutoUniformLineGap(row, leftIndex, rightIndex, leftWidth, rightWidth, fallbackGap) {
-  const explicitPair = getExplicitProductPairGap(row, leftIndex, rightIndex);
-  if (Number.isFinite(explicitPair)) return Math.max(0, explicitPair);
-
-  const manualRank = getProductGapAt(row, leftIndex, "line", Math.min(leftWidth, rightWidth), null);
-  if (Number.isFinite(manualRank)) return Math.max(0, manualRank);
-
-  const explicitAuto = readNumber(row, "product.autoLineGap", readNumber(row, "product.autoGap", null));
-  if (Number.isFinite(explicitAuto)) return Math.max(0, explicitAuto);
-
-  const basisWidth = Math.min(leftWidth, rightWidth);
-  if (!Number.isFinite(basisWidth) || basisWidth <= 0) return fallbackGap;
-  return Math.max(0, Math.round(basisWidth * 0.12));
-}
-
-function getProductAutoMixedPairGaps(row, itemBoxes, fallbackGap) {
-  const gaps = [];
-  const modes = [];
-  for (let i = 0; i < Math.max(0, itemBoxes.length - 1); i += 1) {
-    const sameProduct = isSameAutoProductGroup(row, i + 1, i + 2);
-    const basisWidth = Math.min(itemBoxes[i].width, itemBoxes[i + 1].width);
-    if (sameProduct) {
-      gaps.push(getProductCategoryPairGap(
-        row,
-        i + 1,
-        i + 2,
-        itemBoxes[i].width,
-        itemBoxes[i + 1].width,
-        -basisWidth * 0.18,
-        "overlap"
-      ));
-      modes.push("overlap");
-    } else {
-      gaps.push(getProductAutoUniformLineGap(
-        row,
-        i + 1,
-        i + 2,
-        itemBoxes[i].width,
-        itemBoxes[i + 1].width,
-        fallbackGap
-      ));
-      modes.push("line");
-    }
-  }
-  return { gaps, modes };
-}
-
 function shouldUseProductCategoryPairGaps(row) {
   return !hasValue(row, "product.gap") &&
     !hasValue(row, "product.spacing") &&
@@ -2640,7 +2477,7 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
   if (
     prefix === "product" &&
     count > 1 &&
-    (layout === "overlap" || layout === "stack" || layout === "line" || layout === "auto") &&
+    (layout === "overlap" || layout === "stack" || layout === "line") &&
     !hasItemHeight &&
     !hasItemWidth &&
     shouldUseProductCategoryPairGaps(row)
@@ -2655,24 +2492,16 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
       itemBoxes.push({ width, height });
     }
 
-    const autoGapInfo = layout === "auto" ? getProductAutoMixedPairGaps(row, itemBoxes, 0) : null;
-    let gaps = autoGapInfo
-      ? autoGapInfo.gaps
-      : getProductCategoryPairGaps(row, itemBoxes, -itemWidth * 0.42, layout);
-    if (layout !== "line" && layout !== "auto") {
-      gaps = fitProductGapsToArea(itemBoxes.map((box) => box.width), gaps, areaBox.width);
-    }
+    let gaps = getProductCategoryPairGaps(row, itemBoxes, -itemWidth * 0.42, layout);
+    gaps = fitProductGapsToArea(itemBoxes.map((box) => box.width), gaps, areaBox.width);
     let totalWidth = itemBoxes.reduce((sum, box) => sum + box.width, 0) + gaps.reduce((sum, value) => sum + value, 0);
-    if ((layout === "line" || layout === "auto") && totalWidth > areaBox.width) {
+    if (layout === "line" && totalWidth > areaBox.width) {
       const shrink = areaBox.width / totalWidth;
       itemBoxes.forEach((box) => {
         box.width *= shrink;
         box.height *= shrink;
       });
-      gaps = gaps.map((gap, index) => {
-        const mode = autoGapInfo && autoGapInfo.modes[index] || layout;
-        return mode === "overlap" ? gap * shrink : Math.max(0, gap * shrink);
-      });
+      gaps = gaps.map((gap) => Math.max(0, gap * shrink));
       totalWidth = itemBoxes.reduce((sum, box) => sum + box.width, 0) + gaps.reduce((sum, value) => sum + value, 0);
     }
     let left = areaBox.centerX - totalWidth / 2;
@@ -2699,8 +2528,7 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
     const categories = Array.from({ length: count }, (_, index) => normalizeProductCategory(getProductCategory(row, index + 1)));
     const specKeys = Array.from({ length: count }, (_, index) => getProductSpecGapKey(row, index + 1));
     const slotSpans = Array.from({ length: count }, (_, index) => getProductLayoutSlotSpan(row, index + 1));
-    const autoModes = autoGapInfo ? `, autoModes=${autoGapInfo.modes.join("|")}` : "";
-    log(`  Product category gap preset: layout=${layout}${autoModes}, categories=${categories.join("+")}, specKeys=${specKeys.join("+")}, slotSpans=${slotSpans.join("+")}, gaps=${gaps.join("|")}, totalWidth=${Math.round(totalWidth)}.`);
+    log(`  Product category gap preset: layout=${layout}, categories=${categories.join("+")}, specKeys=${specKeys.join("+")}, slotSpans=${slotSpans.join("+")}, gaps=${gaps.join("|")}, totalWidth=${Math.round(totalWidth)}.`);
     return boxes;
   }
 
@@ -3171,30 +2999,6 @@ async function applyProductGroupScale(doc, row) {
   log(`  Product group scale applied: factor=${factor}, anchor=(${Math.round(anchorPoint.x)},${Math.round(anchorPoint.y)}), groupW=${groupBox ? Math.round(groupBox.width) : "?"}, groupH=${groupBox ? Math.round(groupBox.height) : "?"}, items=${scaledItems.length}.`);
 }
 
-async function constrainProductGroupToAreaAfterScale(doc, row) {
-  const areaBox = state.groupAreaBoxes.product;
-  if (!areaBox) return;
-
-  let items = collectProductGroupItems(doc, row);
-  let groupBox = getItemsGroupBox(items);
-  if (!groupBox) return;
-
-  const fitFactor = Math.min(areaBox.width / groupBox.width, areaBox.height / groupBox.height, 1);
-  if (Number.isFinite(fitFactor) && fitFactor > 0 && fitFactor < 1) {
-    const anchorPoint = { x: areaBox.centerX, y: areaBox.bottom };
-    for (const item of items) {
-      await scaleLayerAroundPoint(item.layer, fitFactor, anchorPoint);
-    }
-    items = collectProductGroupItems(doc, row);
-    groupBox = getItemsGroupBox(items);
-    log(`  Product group constrained to area after scale: factor=${fitFactor.toFixed(3)}, groupW=${groupBox ? Math.round(groupBox.width) : "?"}, groupH=${groupBox ? Math.round(groupBox.height) : "?"}, areaW=${Math.round(areaBox.width)}, areaH=${Math.round(areaBox.height)}.`);
-  }
-
-  if (groupBox) {
-    await translateProductItems(items, areaBox.centerX - groupBox.centerX, areaBox.bottom - groupBox.bottom);
-  }
-}
-
 function getItemsTotalWidth(items, gapsOrGap) {
   const width = items.reduce((sum, item) => sum + item.box.width, 0);
   if (Array.isArray(gapsOrGap)) {
@@ -3278,108 +3082,6 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
   log(`  Arranged product line after replace. touchEdges=${touchEdges}, gapMode=${useCategoryGaps ? "category" : "manual"}, gap=${gaps.join("|") || gap}, groupW=${finalGroupBox ? Math.round(finalGroupBox.width) : "?"}, groupH=${finalGroupBox ? Math.round(finalGroupBox.height) : "?"}, items=${freshItems.length}`);
 }
 
-function makeProductActualBoundsGroups(items, row, layout) {
-  const indexedItems = refreshProductItems(items).map((item, index) => ({
-    ...item,
-    index: index + 1,
-    key: layout === "auto" ? getProductAutoGroupKey(row, index + 1) : `item-${index + 1}`
-  }));
-  const groups = [];
-
-  for (const item of indexedItems) {
-    const previous = groups[groups.length - 1];
-    if (layout === "auto" && previous && previous.key === item.key) {
-      previous.items.push(item);
-      previous.lastIndex = item.index;
-    } else {
-      groups.push({
-        key: item.key,
-        firstIndex: item.index,
-        lastIndex: item.index,
-        items: [item]
-      });
-    }
-  }
-
-  groups.forEach((group) => {
-    group.box = getItemsGroupBox(group.items);
-  });
-  return groups.filter((group) => group.box);
-}
-
-function getProductActualBoundsGap(row, leftGroup, rightGroup, layout) {
-  const leftItem = leftGroup.items[leftGroup.items.length - 1];
-  const rightItem = rightGroup.items[0];
-  if (layout === "auto") {
-    return getProductAutoUniformLineGap(
-      row,
-      leftItem.index,
-      rightItem.index,
-      leftGroup.box.width,
-      rightGroup.box.width,
-      0
-    );
-  }
-  return getProductCategoryPairGap(
-    row,
-    leftItem.index,
-    rightItem.index,
-    leftGroup.box.width,
-    rightGroup.box.width,
-    0,
-    "line"
-  );
-}
-
-async function resolveProductActualBoundsHorizontalSpacing(items, row, areaBox, layout) {
-  if (!areaBox || !items.length || !["auto", "line"].includes(layout)) return;
-
-  let groups = makeProductActualBoundsGroups(items, row, layout);
-  if (groups.length <= 1) {
-    await arrangeProductLayerStacking(refreshProductItems(items), getImageGroupZOrder(row, "product"));
-    return;
-  }
-
-  const gaps = [];
-  for (let i = 1; i < groups.length; i += 1) {
-    const previous = groups[i - 1];
-    const current = groups[i];
-    const gap = Math.max(0, getProductActualBoundsGap(row, previous, current, layout));
-    gaps.push(gap);
-    const requiredLeft = previous.box.right + gap;
-    if (current.box.left < requiredLeft) {
-      const dx = requiredLeft - current.box.left;
-      for (const item of current.items) {
-        await item.layer.translate(dx, 0);
-      }
-      groups = makeProductActualBoundsGroups(items, row, layout);
-    }
-  }
-
-  let freshItems = refreshProductItems(items);
-  let groupBox = getItemsGroupBox(freshItems);
-  if (groupBox && groupBox.width > areaBox.width) {
-    const factor = areaBox.width / groupBox.width;
-    if (Number.isFinite(factor) && factor > 0 && factor < 1) {
-      const anchorPoint = { x: areaBox.centerX, y: areaBox.bottom };
-      for (const item of freshItems) {
-        await scaleLayerAroundPoint(item.layer, factor, anchorPoint);
-      }
-      freshItems = refreshProductItems(items);
-      groupBox = getItemsGroupBox(freshItems);
-      log(`  Product actual bounds scaled to area: factor=${factor.toFixed(3)}, groupW=${groupBox ? Math.round(groupBox.width) : "?"}, areaW=${Math.round(areaBox.width)}.`);
-    }
-  }
-  if (groupBox) {
-    await translateProductItems(freshItems, areaBox.centerX - groupBox.centerX, 0);
-  }
-
-  freshItems = refreshProductItems(items);
-  groupBox = getItemsGroupBox(freshItems);
-  await arrangeProductLayerStacking(freshItems, getImageGroupZOrder(row, "product"));
-  log(`  Product actual bounds horizontal fix: layout=${layout}, groups=${groups.map((group) => `${group.firstIndex}-${group.lastIndex}`).join("|")}, gaps=${gaps.map((gap) => Math.round(gap)).join("|")}, groupW=${groupBox ? Math.round(groupBox.width) : "?"}, areaW=${Math.round(areaBox.width)}.`);
-}
-
 async function arrangeProductOverlapItems(items, row, areaBox, layout) {
   const minWidth = Math.min(...items.map((item) => item.box.width));
   const hasManualOverlapRatio = row["product.overlapRatio"] !== undefined && row["product.overlapRatio"] !== "";
@@ -3449,24 +3151,20 @@ async function arrangeProductLineAfterReplace(doc, row) {
     log("  Product arrange skipped: count <= 1.");
     return;
   }
-  const areaBox = state.groupAreaBoxes.product;
-  if (!areaBox) {
-    log("  Product arrange skipped: product.area not found.");
-    return;
-  }
-
   if (layout !== "line") {
-    if (layout === "auto") {
-      const preparedLayers = collectProductItems(doc, count);
-      await resolveProductActualBoundsHorizontalSpacing(preparedLayers, row, areaBox, "auto");
-      return;
-    }
     log("  Product arrange skipped: using prepared gift-style overlap layout.");
     return;
   }
   if (!shouldTouchProductEdges(row) && shouldUseProductCategoryPairGaps(row)) {
     const preparedLayers = collectProductItems(doc, count);
-    await resolveProductActualBoundsHorizontalSpacing(preparedLayers, row, areaBox, "line");
+    await arrangeProductLayerStacking(preparedLayers, getImageGroupZOrder(row, "product"));
+    log("  Product arrange skipped: using prepared category-gap line layout.");
+    return;
+  }
+
+  const areaBox = state.groupAreaBoxes.product;
+  if (!areaBox) {
+    log("  Product arrange skipped: product.area not found.");
     return;
   }
 
@@ -3494,7 +3192,14 @@ async function arrangeImageGroupLayerStacking(items, zOrder, label = "product") 
   if (!items.length) return;
 
   const leftToRight = [...items].sort((a, b) => a.box.centerX - b.box.centerX);
-  const frontToBack = zOrder === "rightFront" ? [...leftToRight].reverse() : leftToRight;
+  let frontToBack = zOrder === "rightFront" ? [...leftToRight].reverse() : leftToRight;
+  const hasAmpoule = frontToBack.some((item) => isAmpouleCategorySource(item.source));
+  if (hasAmpoule) {
+    frontToBack = [
+      ...frontToBack.filter((item) => !isAmpouleCategorySource(item.source)),
+      ...frontToBack.filter((item) => isAmpouleCategorySource(item.source))
+    ];
+  }
 
   for (let i = frontToBack.length - 2; i >= 0; i -= 1) {
     const frontLayer = frontToBack[i].layer;
@@ -3508,6 +3213,9 @@ async function arrangeImageGroupLayerStacking(items, zOrder, label = "product") 
     }
   }
 
+  if (hasAmpoule) {
+    log(`  ${label} z-order rule: non-ampoule layers placed above ampoule layers.`);
+  }
 }
 
 async function arrangeProductLayerStacking(items, zOrder) {
@@ -3977,7 +3685,7 @@ async function resizeLayerToBox(layer, targetBox, options = {}) {
           _options: { dialogOptions: "dontDisplay" }
         }
       ],
-      { synchronousExecution: true, modalBehavior: "execute" }
+      { synchronousExecution: false, modalBehavior: "execute" }
     );
   };
 
@@ -4232,7 +3940,6 @@ async function scaleTextLayerFontSize(layer, scale) {
       const textStyle = { ...(range.textStyle || {}) };
       const baseSize = getTextStylePointSize(textStyle);
       const scaledSize = baseSize * scale;
-      textStyle.fontSize = makePointValue(scaledSize);
       textStyle.size = makePointValue(scaledSize);
       textStyle.impliedFontSize = makePointValue(scaledSize);
       return {
@@ -4267,179 +3974,23 @@ async function applyBottomTextRules(layer, value) {
   const mixedStyle = getCurrentTemplateConfig().bottomTextMixedStyle;
   if (mixedStyle) {
     await replaceTextLayer(layer, value);
-    log("  Bottom text contents only; style writes disabled to preserve PSD geometry.");
+    log("  Promo title contents only; style writes disabled to preserve PSD geometry.");
   } else {
     await replaceTextLayerPreserveFirstStyle(layer, value);
-    const explicitScale = readNumber(state.currentRow || {}, "txt.bottomTextScale", readNumber(state.currentRow || {}, "bottomText.scale", 1));
+    const explicitScale = readNumber(
+      state.currentRow || {},
+      "txt.promoTitleScale",
+      readNumber(
+        state.currentRow || {},
+        "promoTitle.scale",
+        readNumber(state.currentRow || {}, "txt.bottomTextScale", readNumber(state.currentRow || {}, "bottomText.scale", 1))
+      )
+    );
     if (Number.isFinite(explicitScale) && explicitScale > 0 && explicitScale !== 1) {
       await scaleTextLayerFontSize(layer, explicitScale);
-      log(`  Bottom text scaled by CSV: scale=${explicitScale}.`);
+      log(`  Promo title scaled by CSV: scale=${explicitScale}.`);
     }
   }
-}
-
-async function fitBottomTextFontToMaxWidth(layer) {
-  if (!layer || layer.name !== "txt.bottomText") return;
-  const maxWidth = readNumber(state.currentRow || {}, "bottomText.maxWidth", 680);
-  if (!Number.isFinite(maxWidth) || maxWidth <= 0) return;
-
-  const box = getBoundsBox(layer.boundsNoEffects || layer.bounds);
-  if (!box || !Number.isFinite(box.width) || box.width <= maxWidth) return;
-
-  const scale = Math.max(0.25, Math.min(1, maxWidth / box.width));
-  if (scale >= 0.999) return;
-  await scaleTextLayerFontSize(layer, scale);
-  log(`  Bottom text font fit: width=${Math.round(box.width)}, max=${Math.round(maxWidth)}, scale=${scale.toFixed(3)}.`);
-}
-
-function isParagraphTextKey(textKey) {
-  return !!(textKey && Array.isArray(textKey.textShape) && textKey.textShape.length);
-}
-
-function getBottomTextFittedFontSize(textValue, templateFontSize, originalBox) {
-  if (!Number.isFinite(templateFontSize) || templateFontSize <= 0) return templateFontSize;
-
-  const row = state.currentRow || {};
-  const maxWidth = readNumber(row, "txt.bottomText.maxWidth", readNumber(row, "bottomText.maxWidth", 680));
-  const measuredWidth = estimateMultilineTextWidth(textValue, templateFontSize);
-  const limitWidth = Number.isFinite(maxWidth) && maxWidth > 0
-    ? maxWidth
-    : originalBox && originalBox.width;
-  if (!Number.isFinite(limitWidth) || limitWidth <= 0 || measuredWidth <= limitWidth) {
-    return templateFontSize;
-  }
-
-  const minScale = readNumber(row, "txt.bottomText.minScale", readNumber(row, "bottomText.minScale", 0.48));
-  const scale = Math.max(minScale, Math.min(1, limitWidth / measuredWidth));
-  const fitted = templateFontSize * scale;
-  log(`  txt.bottomText estimated font fit: textW=${Math.round(measuredWidth)}, max=${Math.round(limitWidth)}, font=${templateFontSize.toFixed(1)}->${fitted.toFixed(1)}.`);
-  return fitted;
-}
-
-async function restoreTemplateTextCenter(layer, originalBox, label) {
-  if (!layer || !originalBox) return;
-  const currentBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
-  if (!currentBox) return;
-
-  await layer.translate(originalBox.centerX - currentBox.centerX, originalBox.centerY - currentBox.centerY);
-  log(`  ${label || layer.name} template center restored: x=${Math.round(originalBox.centerX)}, y=${Math.round(originalBox.centerY)}.`);
-}
-
-async function restoreBottomTextVisualCenter(layer, originalBox) {
-  if (!layer || layer.name !== "txt.bottomText" || !originalBox) return;
-  const currentBox = await getFreshLayerVisualBoundsBox(layer);
-  if (!currentBox) return;
-
-  const row = state.currentRow || {};
-  const anchor = getCurrentTemplateConfig().bottomTextAnchor || {};
-  const targetCenterX = readNumber(row, "txt.bottomText.x", readNumber(row, "bottomText.x", originalBox.centerX || anchor.centerX));
-  const targetCenterY = readNumber(row, "txt.bottomText.y", readNumber(row, "bottomText.y", originalBox.centerY || anchor.centerY));
-
-  await layer.translate(targetCenterX - currentBox.centerX, targetCenterY - currentBox.centerY);
-  await waitForUiFrame();
-
-  const verifyBox = await getFreshLayerBoundsBox(layer);
-  if (verifyBox) {
-    const dx = targetCenterX - verifyBox.centerX;
-    const dy = targetCenterY - verifyBox.centerY;
-    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-      await layer.translate(dx, dy);
-      log(`  txt.bottomText visual center corrected twice: dx=${dx.toFixed(2)}, dy=${dy.toFixed(2)}.`);
-    }
-  }
-  log(`  txt.bottomText visual center restored: x=${Math.round(targetCenterX)}, y=${Math.round(targetCenterY)}, measuredX=${Math.round((verifyBox || currentBox).centerX)}.`);
-}
-
-async function moveActiveLayerByPixels(dx, dy, label) {
-  if (!Number.isFinite(dx) || !Number.isFinite(dy) || (Math.abs(dx) <= 0.01 && Math.abs(dy) <= 0.01)) return;
-  ensureModules();
-  try {
-    await photoshop.action.batchPlay(
-      [
-        {
-          _obj: "move",
-          _target: [
-            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
-          ],
-          to: {
-            _obj: "offset",
-            horizontal: makePixelValue(dx),
-            vertical: makePixelValue(dy)
-          },
-          _options: { dialogOptions: "dontDisplay" }
-        }
-      ],
-      { synchronousExecution: true, modalBehavior: "execute" }
-    );
-  } catch (error) {
-    log(`  ${label || "Layer"} batch move skipped: ${formatError(error)}`);
-    throw error;
-  }
-}
-
-async function alignBottomTextParagraphBox(layer, originalBox) {
-  if (!layer || layer.name !== "txt.bottomText" || !originalBox) return;
-  ensureModules();
-  photoshop.app.activeDocument.activeLayers = [layer];
-  const currentBox = await getFreshLayerBoundsBox(layer);
-  if (!currentBox) return;
-
-  const row = state.currentRow || {};
-  const targetCenterX = readNumber(row, "txt.bottomText.x", readNumber(row, "bottomText.x", originalBox.centerX));
-  const targetCenterY = readNumber(row, "txt.bottomText.y", readNumber(row, "bottomText.y", originalBox.centerY));
-  const dx = targetCenterX - currentBox.centerX;
-  const dy = targetCenterY - currentBox.centerY;
-  try {
-    await moveActiveLayerByPixels(dx, dy, "txt.bottomText");
-  } catch (error) {
-    await layer.translate(dx, dy);
-  }
-
-  await waitForUiFrame();
-
-  const verifyBox = await getFreshLayerVisualBoundsBox(layer);
-  log(`  txt.bottomText visual bounds centered: x=${Math.round(targetCenterX)}, y=${Math.round(targetCenterY)}, beforeX=${Math.round(currentBox.centerX)}, afterX=${verifyBox ? Math.round(verifyBox.centerX) : "?"}, boxW=${Math.round(currentBox.width)}.`);
-}
-
-function applyBottomTextTextKeyAnchor(layer, textKey, originalBox) {
-  if (!layer || layer.name !== "txt.bottomText" || !textKey) return textKey;
-  if (isParagraphTextKey(textKey)) {
-    log("  txt.bottomText paragraph box preserved; clickPoint anchor skipped.");
-    return textKey;
-  }
-
-  const row = state.currentRow || {};
-  const anchor = getCurrentTemplateConfig().bottomTextAnchor || {};
-  const targetX = readNumber(row, "txt.bottomText.x", readNumber(row, "bottomText.x", originalBox && originalBox.centerX || anchor.centerX || 400));
-  const nextTextKey = { ...textKey };
-  const clickPoint = textKey.textClickPoint ? { ...textKey.textClickPoint } : null;
-
-  if (!clickPoint) {
-    log("  txt.bottomText textClickPoint not found; using bounds center fallback.");
-    return nextTextKey;
-  }
-
-  if (clickPoint.horizontal && typeof clickPoint.horizontal === "object") {
-    clickPoint.horizontal = { ...clickPoint.horizontal, _value: targetX };
-  } else {
-    clickPoint.horizontal = makePixelValue(targetX);
-  }
-  nextTextKey.textClickPoint = clickPoint;
-  log(`  txt.bottomText textClickPoint anchored: x=${Math.round(targetX)}.`);
-  return nextTextKey;
-}
-
-function buildBottomTextParagraphStyle(baseParagraph) {
-  const zero = makePointValue(0);
-  return {
-    ...(baseParagraph || { _obj: "paragraphStyle" }),
-    justification: { _enum: "justification", _value: "center" },
-    firstLineIndent: zero,
-    leftIndent: zero,
-    rightIndent: zero,
-    startIndent: zero,
-    endIndent: zero
-  };
 }
 
 async function replaceSmartObjectLayer(layer, file) {
@@ -4553,7 +4104,7 @@ async function replaceSmartObjectLayer(layer, file) {
 async function getAssetEntry(filename, options = {}) {
   if (!filename) return null;
 
-  const normalized = normalizeImagePathForTemplate(stripBlobPathPrefix(String(filename).replace(/\\/g, "/")));
+  const normalized = normalizeImagePathForTemplate(String(filename).replace(/\\/g, "/"));
   const productViewFallbacks = getProductImageViewFallbacks(normalized);
   for (const fallback of productViewFallbacks) {
     try {
@@ -4571,7 +4122,7 @@ async function getAssetEntry(filename, options = {}) {
 }
 
 function getProductImageViewFallbacks(filename) {
-  const normalized = normalizeImagePathForTemplate(stripBlobPathPrefix(String(filename || "").replace(/\\/g, "/")));
+  const normalized = normalizeImagePathForTemplate(String(filename || "").replace(/\\/g, "/"));
   const match = normalized.match(/^(.*?)-(angle|front)(\.[^.]+)$/i);
   if (!match) {
     const baseMatch = normalized.match(/^(.*?)(\.[^.]+)$/);
@@ -4613,7 +4164,7 @@ function getProductImageViewFallbacks(filename) {
 }
 
 async function getAssetEntryWithoutProductViewFallback(normalized, options = {}) {
-  normalized = normalizeImagePathForTemplate(stripBlobPathPrefix(normalized));
+  normalized = normalizeImagePathForTemplate(normalized);
   if (options.normalizeGiftRight && !normalized.startsWith("__giftRight/")) {
     try {
       const normalizedGiftRight = await assetsFolder.getEntry(`__giftRight/${normalized}`);
@@ -4749,8 +4300,6 @@ function resolveProductNameToImage(name, options = {}) {
   const raw = String(name || "").trim();
   if (!raw) return "";
   if (/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(raw)) return raw;
-  const knownAlias = resolveKnownProductAliasImage(raw);
-  if (knownAlias) return normalizeImagePathForTemplate(knownAlias);
   if (!state.productNameMap) return "";
   const normalized = normalizeProductNameKey(raw);
   const compact = compactSpecHyphenKey(normalized);
@@ -4761,68 +4310,6 @@ function resolveProductNameToImage(name, options = {}) {
   if (mapped) return normalizeImagePathForTemplate(mapped);
   if (options.allowRows === false) return "";
   return normalizeImagePathForTemplate(resolveProductNameByRows(raw));
-}
-
-function resolveKnownProductAliasImage(name) {
-  const normalized = normalizeProductNameKey(name);
-  const hasRepeat2 = /(?:\*|x)2$/i.test(normalized);
-
-  if (/润肤油/.test(normalized) && /(?:1\.8ml|2ml).*(?:\*|x)5\s*(?:\*|x)\s*2/i.test(normalized)) {
-    return "front/baby-massage-oil-ampoule-set-10x-front.png";
-  }
-  if (/润肤油/.test(normalized) && /(?:1\.8ml|2ml).*(?:\*|x)5/i.test(normalized)) {
-    return "front/baby-massage-oil-ampoule-set-5x-front.png";
-  }
-  if (/润肤油/.test(normalized) && /120ml/i.test(normalized) && !hasRepeat2) {
-    return "front/baby-massage-oil-bottle-120ml-front.png";
-  }
-  if (/润肤油/.test(normalized) && /60ml/i.test(normalized) && !hasRepeat2) {
-    return "front/baby-massage-oil-bottle-60ml-front.png";
-  }
-  if (/身体乳/.test(normalized) && /100g/i.test(normalized) && !hasRepeat2) {
-    return "front/baby-moisturing-body-lotion-tube-100g-front.png";
-  }
-  if (/身体乳/.test(normalized) && /400ml/i.test(normalized)) {
-    return "front/baby-moisturing-body-lotion-bottle-400ml-front.png";
-  }
-  if (/泡泡洗沐|泡泡沐浴露|泡泡洗发沐浴/.test(normalized) && /500ml/i.test(normalized)) {
-    return "front/baby-foaming-wash-shampoo-unscented-bottle-500ml-front.png";
-  }
-  if (/泡泡洗沐|泡泡沐浴露|泡泡洗发沐浴/.test(normalized) && /300ml/i.test(normalized)) {
-    return "front/baby-foaming-wash-shampoo-unscented-bottle-300ml-front.png";
-  }
-  if (/叮叮.*喷雾|驱蚊喷雾/.test(normalized) && /100ml/i.test(normalized)) {
-    return "front/baby-floral-water-bottle-100ml-front.png";
-  }
-  if (/爽身露/.test(normalized) && /120ml/i.test(normalized) && !hasRepeat2) {
-    return "front/baby-refreshing-lotion-bottle-120ml-front.png";
-  }
-  if (/爽身露/.test(normalized) && /60ml/i.test(normalized) && !hasRepeat2) {
-    return "front/baby-refreshing-lotion-bottle-60ml-front.png";
-  }
-  if (/精油贴|精华贴片/.test(normalized)) {
-    return "front/essential-oil-stickers-front.png";
-  }
-  if (/护臀膏/.test(normalized) && /50g/i.test(normalized) && !hasRepeat2) {
-    return "front/baby-diaper-cream-tube-50g-front.png";
-  }
-  if (/唇周霜/.test(normalized) && /15g/i.test(normalized)) {
-    return "front/baby-lip-care-cream-tube-15g-front.png";
-  }
-  if (/安心霜/.test(normalized) && /10g/i.test(normalized)) {
-    return "front/baby-soothing-cream-tube-10g-front.png";
-  }
-  if (/安心霜/.test(normalized) && /30g/i.test(normalized)) {
-    return "front/baby-soothing-cream-jar-30g-front.png";
-  }
-  if (/安心霜/.test(normalized) && /50g/i.test(normalized)) {
-    return "front/baby-soothing-cream-jar-50g-front.png";
-  }
-  if (/安心霜/.test(normalized) && /65g/i.test(normalized)) {
-    return "front/baby-soothing-cream-jar-65g-front.png";
-  }
-
-  return "";
 }
 
 function normalizeImagePathForTemplate(filename) {
@@ -5105,8 +4592,7 @@ function expandLabelToImageSet(row, prefix, labelColumns, targetNameColumn) {
 
 function applySkuGiftLabelSources(row) {
   let expanded = { ...row };
-  const templateId = getCurrentTemplateConfig().id;
-  if (templateId === "pddSkuGift" && !hasValue(expanded, "product.view")) {
+  if (getCurrentTemplateConfig().id === "pddSkuGift" && !hasValue(expanded, "product.view")) {
     expanded["product.view"] = "front";
   }
 
@@ -5114,19 +4600,6 @@ function applySkuGiftLabelSources(row) {
     const mainNames = extractProductNamesFromLabel(expanded["txt.mainProductLabel"]);
     if (mainNames) {
       expanded["product.name.cn"] = mainNames;
-    }
-  }
-
-  if (
-    (templateId === "pddSku" || templateId === "pddSkuGift") &&
-    !hasValue(expanded, "product.name.cn") &&
-    !hasValue(expanded, "img.productSet") &&
-    !hasValue(expanded, "img.product")
-  ) {
-    const subtitleNames = String(expanded["txt.subtitle"] || "").trim();
-    if (subtitleNames) {
-      expanded["product.name.cn"] = subtitleNames;
-      log("  Product CN fallback sourced from txt.subtitle.");
     }
   }
 
@@ -5421,21 +4894,38 @@ async function getLayerBox(layer) {
 
 function getTextAreaLayerNames(textLayerName) {
   const suffix = String(textLayerName || "").replace(/^txt\./, "");
-  return [
+  const names = [
     `TEXT.${suffix}.area`,
     `${textLayerName}.area`,
     `ttxt.${suffix}.area`,
     `ttxt.${textLayerName}.area`
   ];
+  if (isPromoTitleName(textLayerName)) {
+    names.push(
+      "TEXT.promoTitle.area",
+      "txt.promoTitle.area",
+      "TEXT.bottomText.area",
+      "txt.bottomText.area"
+    );
+  }
+  return Array.from(new Set(names));
+}
+
+function isPromoTitleName(name) {
+  return name === "txt.promoTitle" || name === "txt.bottomText";
+}
+
+function findTextLayerForColumn(doc, column) {
+  if (isPromoTitleName(column)) {
+    return findLayerByAnyName(doc, ["txt.promoTitle", "txt.bottomText"]);
+  }
+  return findLayerByName(doc, column);
 }
 
 function shouldKeepTemplateTextBox(layerName) {
-  const templateId = getCurrentTemplateConfig().id;
-  if (layerName === "txt.bottomText" && (templateId === "pddSku" || templateId === "pddSkuGift")) {
-    return true;
-  }
-
-  return templateId === "pddSkuGift" && [
+  return getCurrentTemplateConfig().id === "pddSkuGift" && [
+    "txt.promoTitle",
+    "txt.bottomText",
     "txt.mainProductLabel",
     "txt.giftProductLabel"
   ].includes(layerName);
@@ -5601,9 +5091,7 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
   if (!layer.textItem) {
     throw new Error(`Layer "${layer.name}" is not a text layer`);
   }
-  const bottomTextOriginalBox = layer.name === "txt.bottomText"
-    ? getTextAreaBoxForLayer(doc, layer.name) || getBoundsBox(layer.boundsNoEffects || layer.bounds)
-    : null;
+
   ensureModules();
   photoshop.app.activeDocument.activeLayers = [layer];
 
@@ -5634,19 +5122,6 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
     const textLength = Array.from(textValue).length;
     const symbolsAsLatin = shouldUseLineSeedForSymbols(layer.name);
     const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle, { symbolsAsLatin });
-    const templateFontSize = layer.name === "txt.bottomText" ? getTextStylePointSize(baseStyle) : NaN;
-    const outputFontSize = layer.name === "txt.bottomText"
-      ? getBottomTextFittedFontSize(textValue, templateFontSize, bottomTextOriginalBox)
-      : templateFontSize;
-    const textStyleRange = forceTextStyleRangesFontSize(
-      buildMixedTextTemplateStyleRanges(textValue, styleByKind, { symbolsAsLatin }),
-      outputFontSize
-    );
-    const isBottomTextParagraph = layer.name === "txt.bottomText" && isParagraphTextKey(textKey);
-    const anchoredTextKey = applyBottomTextTextKeyAnchor(layer, textKey, bottomTextOriginalBox);
-    const paragraphStyle = layer.name === "txt.bottomText"
-      ? buildBottomTextParagraphStyle(baseParagraph)
-      : baseParagraph || { _obj: "paragraphStyle" };
 
     await photoshop.action.batchPlay(
       [
@@ -5657,15 +5132,15 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
           ],
           to: {
             _obj: "textLayer",
-            ...anchoredTextKey,
+            ...textKey,
             textKey: textValue,
-            textStyleRange,
+            textStyleRange: buildMixedTextTemplateStyleRanges(textValue, styleByKind, { symbolsAsLatin }),
             paragraphStyleRange: [
               {
                 _obj: "paragraphStyleRange",
                 from: 0,
                 to: textLength,
-                paragraphStyle
+                paragraphStyle: baseParagraph || { _obj: "paragraphStyle" }
               }
             ]
           },
@@ -5674,20 +5149,9 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
       ],
       { synchronousExecution: true, modalBehavior: "execute" }
     );
-    if (layer.name === "txt.bottomText") {
-      if (isBottomTextParagraph) {
-        await alignBottomTextParagraphBox(layer, bottomTextOriginalBox);
-      } else {
-        await fitBottomTextFontToMaxWidth(layer);
-        await restoreBottomTextVisualCenter(layer, bottomTextOriginalBox);
-      }
-    }
   } catch (error) {
     log(`  Preserve template paragraph skipped for ${layer.name}: ${formatError(error)}`);
     await replaceTextLayerPreserveFirstStyle(layer, value);
-    if (layer.name === "txt.bottomText") {
-      await restoreBottomTextVisualCenter(layer, bottomTextOriginalBox);
-    }
   }
 }
 
@@ -5818,8 +5282,7 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   const config = getCurrentTemplateConfig().subtitleRectangle;
   if (!config || !textLayer) return;
 
-  const variant = getSubtitleLayerVariant(textValue);
-  const rectangleLayer = findSubtitleRectangleLayer(doc, variant, config);
+  const rectangleLayer = findLayerByName(doc, config.layerName || "txt.subtitle.rectangle");
   if (!rectangleLayer) {
     log("  Subtitle rectangle not found.");
     return;
@@ -5837,19 +5300,10 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   const subtitleStyle = getCurrentTemplateConfig().subtitleTextStyle || {};
   const fontSize = readNumber(state.currentRow || {}, "subtitle.fontSize", Number(subtitleStyle.fontSize) || 30);
   const estimatedTextWidth = estimateMultilineTextWidth(textValue || textLayer.textItem && textLayer.textItem.contents || "", fontSize);
-  const measuredTextWidth = getSubtitleRectangleTextWidth(textValue, fontSize, variant);
-  const maxWidth = readNumber(
-    state.currentRow || {},
-    `subtitle.rectangleMaxWidth.${variant}`,
-    readNumber(state.currentRow || {}, "subtitle.rectangleMaxWidth", getDefaultSubtitleRectangleMaxWidth(variant, textValue))
-  );
-  const widthScale = readNumber(
-    state.currentRow || {},
-    `subtitle.rectangleWidthScale.${variant}`,
-    readNumber(state.currentRow || {}, "subtitle.rectangleWidthScale", Number(config.widthScale) || 1)
-  );
+  const measuredTextWidth = estimatedTextWidth > 0 ? estimatedTextWidth : textBox.width;
+  const maxWidth = readNumber(state.currentRow || {}, "subtitle.rectangleMaxWidth", Number(config.maxWidth) || 680);
   const targetWidth = Math.min(
-    Math.max(measuredTextWidth * widthScale + paddingX * 2, Number(config.minWidth) || 0),
+    Math.max(measuredTextWidth + paddingX * 2, Number(config.minWidth) || 0),
     maxWidth
   );
   const currentBox = getBoundsBox(rectangleLayer.boundsNoEffects || rectangleLayer.bounds);
@@ -5864,116 +5318,24 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   );
 
   try {
-    rectangleLayer.visible = true;
-    await resizeLayerToBox(rectangleLayer, targetBox, { preserveHeight: true });
-    try {
-      await rectangleLayer.move(textLayer, photoshop.constants.ElementPlacement.PLACEAFTER);
-    } catch (error) {
-      log(`  Subtitle rectangle z-order skipped: ${formatError(error)}`);
+    rectangleLayer.visible = false;
+    const newRectangle = await duplicateLayerToBox(
+      rectangleLayer,
+      config.layerName || "txt.subtitle.rectangle",
+      targetBox,
+      { preserveHeight: true }
+    );
+    if (newRectangle) {
+      try {
+        await newRectangle.move(textLayer, photoshop.constants.ElementPlacement.PLACEAFTER);
+      } catch (error) {
+        log(`  Subtitle rectangle z-order skipped: ${formatError(error)}`);
+      }
     }
-    log(`  Subtitle rectangle resized: variant=${variant}, boundsW=${Math.round(textBox.width)}, estimateW=${Math.round(estimatedTextWidth)}, textW=${Math.round(measuredTextWidth)}, maxW=${Math.round(maxWidth)}, w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
+    log(`  Subtitle rectangle duplicated: textW=${Math.round(measuredTextWidth)}, w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
   } catch (error) {
-    log(`  Subtitle rectangle resize skipped: ${formatError(error)}`);
+    log(`  Subtitle rectangle duplicate skipped: ${formatError(error)}`);
   }
-}
-
-function getSubtitleRectangleTextWidth(textValue, fontSize, variant) {
-  const lines = String(textValue || "")
-    .split(/\r\n|\r|\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const textWidth = Math.max(...(lines.length ? lines : [""]).map((line) => estimateTextLineWidth(line, fontSize)), 0);
-  const charCount = getSubtitleCharCount(textValue);
-  const scale = getSubtitleRectangleWidthScaleByLength(variant, charCount);
-  return textWidth * scale;
-}
-
-function getSubtitleRectangleWidthScaleByLength(variant, charCount) {
-  if (variant <= 1) return 1.28;
-  if (charCount >= 39) return 1.08;
-  if (charCount >= 36) return 0.98;
-  return 0.88;
-}
-
-function getDefaultSubtitleRectangleMaxWidth(variant, textValue = "") {
-  const charCount = getSubtitleCharCount(textValue);
-  if (variant <= 1) return 760;
-  if (charCount >= 39) return 760;
-  if (charCount >= 36) return 720;
-  return 660;
-}
-
-function getSubtitleLayerVariant(textValue) {
-  const charCount = getSubtitleCharCount(textValue);
-  return charCount > 30 ? 2 : 1;
-}
-
-function getSubtitleCharCount(textValue) {
-  return Array.from(String(textValue || "").replace(/\r\n|\r|\n/g, "")).length;
-}
-
-function isSubtitleTextLayer(layer) {
-  return !!(layer && /^txt\.subtitle(?:\.\d+)?$/.test(String(layer.name || "")));
-}
-
-function findSubtitleTextLayer(doc, finalText) {
-  const variant = getSubtitleLayerVariant(finalText);
-  const preferred = findLayerByName(doc, `txt.subtitle.${variant}`);
-  const fallback = findLayerByName(doc, "txt.subtitle");
-  const layer = preferred || fallback;
-  hideAlternateSubtitleLayers(doc, layer);
-  if (preferred) {
-    log(`  Subtitle layer selected: txt.subtitle.${variant}, chars=${Array.from(String(finalText || "").replace(/\r\n|\r|\n/g, "")).length}.`);
-  }
-  return layer;
-}
-
-function hideAlternateSubtitleLayers(doc, activeLayer) {
-  ["txt.subtitle", "txt.subtitle.1", "txt.subtitle.2"].forEach((name) => {
-    const layer = findLayerByName(doc, name);
-    if (layer && layer !== activeLayer) {
-      layer.visible = false;
-    }
-  });
-}
-
-function forceTextStyleRangesFontSize(textStyleRange, fontSize) {
-  if (!Array.isArray(textStyleRange) || !Number.isFinite(fontSize) || fontSize <= 0) {
-    return textStyleRange;
-  }
-  return textStyleRange.map((range) => ({
-    ...range,
-    textStyle: {
-      ...(range.textStyle || {}),
-      fontSize: makePointValue(fontSize),
-      size: makePointValue(fontSize),
-      impliedFontSize: makePointValue(fontSize)
-    }
-  }));
-}
-
-function findSubtitleRectangleLayer(doc, variant, config) {
-  const names = [
-    `txt.subtitle.rectangle.${variant}`,
-    config.layerName || "txt.subtitle.rectangle"
-  ];
-  const layer = names.map((name) => findLayerByName(doc, name)).find(Boolean);
-  if (layer) {
-    hideAlternateSubtitleRectangleLayers(doc, layer);
-    if (layer.name !== (config.layerName || "txt.subtitle.rectangle")) {
-      log(`  Subtitle rectangle layer selected: ${layer.name}.`);
-    }
-  }
-  return layer;
-}
-
-function hideAlternateSubtitleRectangleLayers(doc, activeLayer) {
-  ["txt.subtitle.rectangle", "txt.subtitle.rectangle.1", "txt.subtitle.rectangle.2"].forEach((name) => {
-    const layer = findLayerByName(doc, name);
-    if (layer && layer !== activeLayer) {
-      layer.visible = false;
-    }
-  });
 }
 
 async function applyTitleAndProductNote(doc, row) {
@@ -6015,11 +5377,8 @@ async function applyTitleAndProductNote(doc, row) {
     : titleLineCount > 1 && productNoteLayer2
       ? productNoteLayer2
       : productNoteLayer1 || findLayerByName(doc, "txt.productNote");
+  const subtitleLayer = findLayerByName(doc, "txt.subtitle");
   const forceSubtitleLayer = getCurrentTemplateConfig().productNameToSubtitle && hasValue(row, "txt.subtitle");
-  const subtitlePreviewText = forceSubtitleLayer ? formatPddSubtitleText(noteText) : noteText;
-  const subtitleLayer = forceSubtitleLayer
-    ? findSubtitleTextLayer(doc, subtitlePreviewText)
-    : findLayerByName(doc, "txt.subtitle");
   const fallbackNoteLayer = forceSubtitleLayer
     ? subtitleLayer || productNoteLayer
     : productNoteLayer || subtitleLayer;
@@ -6031,27 +5390,26 @@ async function applyTitleAndProductNote(doc, row) {
     fallbackNoteLayer.visible = true;
     const noteOriginalBox = getBoundsBox(fallbackNoteLayer.boundsNoEffects || fallbackNoteLayer.bounds);
     const subtitleConfig = getCurrentTemplateConfig().subtitleRectangle;
-    const isSubtitleLayer = isSubtitleTextLayer(fallbackNoteLayer);
-    const maxSubtitleWidth = isSubtitleLayer && subtitleConfig
+    const maxSubtitleWidth = fallbackNoteLayer.name === "txt.subtitle" && subtitleConfig
       ? readNumber(row, "subtitle.maxTextWidth", Number(subtitleConfig.maxTextWidth) || null)
       : null;
-    const pddSubtitle = isSubtitleLayer && getCurrentTemplateConfig().productNameToSubtitle;
+    const pddSubtitle = fallbackNoteLayer.name === "txt.subtitle" && getCurrentTemplateConfig().productNameToSubtitle;
     let finalNoteText = pddSubtitle ? formatPddSubtitleText(noteText) : noteText;
     if (pddSubtitle) {
       await replaceTextLayerPddSkuGiftSubtitleStyle(fallbackNoteLayer, finalNoteText, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
-      log(`  Subtitle text applied: chars=${getSubtitleCharCount(finalNoteText)}, lines=${String(finalNoteText || "").split(/\r\n|\r|\n/).filter(Boolean).length}.`);
-    } else if (isSubtitleLayer && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
+      log(`  Subtitle plus-wrap rule applied: plusCount=${(String(noteText).match(/\+/g) || []).length}.`);
+    } else if (fallbackNoteLayer.name === "txt.subtitle" && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
       finalNoteText = await wrapTitleToMeasuredWidth(fallbackNoteLayer, noteText, maxSubtitleWidth, { forceMaxWidth: true });
     } else {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
     }
     const noteAfterBox = getBoundsBox(fallbackNoteLayer.boundsNoEffects || fallbackNoteLayer.bounds);
-    if (isSubtitleLayer && noteOriginalBox && noteAfterBox) {
+    if (fallbackNoteLayer.name === "txt.subtitle" && noteOriginalBox && noteAfterBox) {
       await fallbackNoteLayer.translate(noteOriginalBox.centerX - noteAfterBox.centerX, noteOriginalBox.top - noteAfterBox.top);
       log("  Subtitle anchor restored.");
     }
-    if (isSubtitleLayer) {
+    if (fallbackNoteLayer.name === "txt.subtitle") {
       await resizeSubtitleRectangle(doc, fallbackNoteLayer, finalNoteText);
     }
     handled["txt.productNote"] = true;
@@ -6073,9 +5431,9 @@ function isGiftControlColumn(column) {
     /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
     /^productShadow\.(top|opacity)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
-    /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale)$/.test(column) ||
-    /^bottomText\.maxWidth$/.test(column) ||
-    /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleWidthScale|rectangleRadius|maxTextWidth|fontSize)(\.\d+)?$/.test(column) ||
+    /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale|promoTitleScale)$/.test(column) ||
+    /^(bottomText|promoTitle)\.maxWidth$/.test(column) ||
+    /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleRadius|maxTextWidth|fontSize)$/.test(column) ||
     /^productNote\.(gap|offsetY)$/.test(column) ||
     /^(note|remark|remarks|备注|产品视角)$/.test(column);
 }
@@ -6220,7 +5578,7 @@ async function applyRowToDocument(doc, row) {
       continue;
     }
 
-    const layer = findLayerByName(doc, column);
+    const layer = column.startsWith("txt.") ? findTextLayerForColumn(doc, column) : findLayerByName(doc, column);
     if (!layer) {
       if (column === "txt.productNote" || column === "txt.note" || column === "txt.description" || column === "txt.subtitle") {
         continue;
@@ -6235,7 +5593,7 @@ async function applyRowToDocument(doc, row) {
         log(`  Text content replaced; PSD paragraph kept: ${column}.`);
         continue;
       }
-      if (column === "txt.bottomText") {
+      if (isPromoTitleName(column)) {
         await applyBottomTextRules(layer, value);
       } else {
         await replaceTextLayer(layer, value);
@@ -6260,7 +5618,6 @@ async function applyRowToDocument(doc, row) {
   await arrangeProductLineAfterReplace(doc, expandedRow);
   log("  After product arrange.");
   await applyProductGroupScale(doc, expandedRow);
-  await constrainProductGroupToAreaAfterScale(doc, expandedRow);
   await applyProductShadow(doc);
   if (getCurrentTemplateConfig().keepPersonOnTop) {
     await keepPersonOnTop(doc);
