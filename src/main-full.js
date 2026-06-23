@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260622-pdd-sku-global-promo-template-style";
+const SCRIPT_VERSION = "20260623-pdd-sku-promo-real-bounds-switch";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -5035,11 +5035,14 @@ async function selectPromoTitleLayerForValue(doc, value, fallbackLayer = null) {
 
   try {
     primaryLayer.visible = true;
-    const primaryBox = getBoundsBox(primaryLayer.boundsNoEffects || primaryLayer.bounds);
-    const fontSize = await getTextLayerFontSize(primaryLayer, primaryBox ? primaryBox.height : 48);
+    const templateBox = getBoundsBox(primaryLayer.boundsNoEffects || primaryLayer.bounds);
+    const fontSize = await getTextLayerFontSize(primaryLayer, templateBox ? templateBox.height : 48);
     const estimatedWidth = estimateMultilineTextWidth(value, fontSize);
-    const measuredWidth = estimatedWidth;
-    const exceeds = measuredWidth > areaBox.width + 1;
+    const widthScale = readNumber(state.currentRow || {}, "promoTitle.widthScale", readNumber(state.currentRow || {}, "txt.promoTitleWidthScale", 1.12));
+    await replaceTextLayerPreserveTemplateParagraph(primaryLayer, value, doc);
+    const primaryBox = getBoundsBox(primaryLayer.boundsNoEffects || primaryLayer.bounds);
+    const measuredWidth = Math.max(primaryBox ? primaryBox.width : 0, estimatedWidth * widthScale);
+    const exceeds = measuredWidth > areaBox.width;
     const selected = exceeds ? compactLayer : primaryLayer;
     selected.visible = true;
     try {
@@ -5048,7 +5051,7 @@ async function selectPromoTitleLayerForValue(doc, value, fallbackLayer = null) {
       log(`  Promo title opacity skipped: ${formatError(error)}`);
     }
     hideAlternatePromoTitleLayers(doc, selected);
-    log(`  Promo title layer selected: ${selected.name}, textW=${Math.round(measuredWidth)}, areaW=${Math.round(areaBox.width)}.`);
+    log(`  Promo title layer selected: ${selected.name}, rawW=${Math.round(estimatedWidth)}, scaledW=${Math.round(measuredWidth)}, areaW=${Math.round(areaBox.width)}, overflow=${exceeds}.`);
     return selected;
   } catch (error) {
     log(`  Promo title variant check skipped: ${formatError(error)}`);
@@ -5698,8 +5701,9 @@ function isGiftControlColumn(column) {
     /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
     /^productShadow\.(top|opacity)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
-    /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale|promoTitleScale)$/.test(column) ||
+    /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|bottomTextScale|promoTitleScale|promoTitleWidthScale)$/.test(column) ||
     /^(bottomText|promoTitle)\.maxWidth$/.test(column) ||
+    /^promoTitle\.widthScale$/.test(column) ||
     /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleWidthScale|rectangleRadius|maxTextWidth|fontSize)(\.\d+)?$/.test(column) ||
     /^productNote\.(gap|offsetY)$/.test(column) ||
     /^(note|remark|remarks|备注|产品视角)$/.test(column);
