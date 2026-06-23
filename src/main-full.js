@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260623-pdd-sku-promo-real-bounds-switch";
+const SCRIPT_VERSION = "20260623-pdd-sku-gift-default-profile";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -192,7 +192,7 @@ const TEMPLATE_CONFIGS = {
   }
 };
 
-let activeTemplateId = "pddSku";
+let activeTemplateId = "pddSkuGift";
 
 const state = {
   rows: [],
@@ -3592,10 +3592,16 @@ async function applyProductShadow(doc) {
     }
 
     let shadowBox = getBoundsBox(shadowLayer.boundsNoEffects || shadowLayer.bounds);
-    const top = readNumber(state.currentRow || {}, "productShadow.top", Number(config.top) || 740);
+    const productAreaBox = state.groupAreaBoxes && state.groupAreaBoxes.product;
+    const top = productAreaBox && Number.isFinite(productAreaBox.bottom)
+      ? productAreaBox.bottom
+      : readNumber(state.currentRow || {}, "productShadow.top", Number(config.top) || 740);
     if (shadowBox && Number.isFinite(top)) {
       try {
         await shadowLayer.translate(0, top - shadowBox.top);
+        if (productAreaBox) {
+          log(`  Product shadow top aligned to product.area bottom: y=${Math.round(top)}.`);
+        }
       } catch (error) {
         log(`  Product shadow top align skipped: ${formatError(error)}`);
       }
@@ -5783,9 +5789,26 @@ async function exportPsd(doc, row, index) {
   return outputName;
 }
 
+function ensureProductProjectVisibleBeforeExport(doc) {
+  const config = getCurrentTemplateConfig().productShadow || {};
+  const projectGroupName = config.targetGroupName || "PRODUCT.PROJECT";
+  const projectGroup = findLayerByName(doc, projectGroupName) || findLayerByName(doc, "PRODUCT.PROJECT");
+  if (projectGroup) {
+    projectGroup.visible = true;
+    log(`  Product project group visible before export: ${projectGroup.name}.`);
+  }
+
+  const shadowLayer = findLayerByName(doc, config.name || "PRODUCT.shadow") || findLayerByName(doc, "PRODUCT.shadow");
+  if (shadowLayer) {
+    shadowLayer.visible = true;
+    log(`  Product shadow visible before export: ${shadowLayer.name}.`);
+  }
+}
+
 async function exportDocument(doc, row, index) {
   const formats = getExportFormats(row);
   log(`  Exporting ${formats.map((format) => format.toUpperCase()).join(" + ")}...`);
+  ensureProductProjectVisibleBeforeExport(doc);
   const outputNames = [];
   for (const format of formats) {
     if (format === "psd") {

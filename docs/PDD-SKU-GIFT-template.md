@@ -1,8 +1,10 @@
 # PDD_SKU_GIFT 稳定版记录
 
-稳定版本：`20260623-pdd-sku-promo-real-bounds-switch`
+稳定版本：`20260623-pdd-sku-gift-default-profile`
 
-这个 profile 是 `PDD SKU` 的独立赠品区变体，面板里显示为 `PDD SKU GIFT`，不会覆盖原 `PDD SKU` 模板逻辑。
+这个 profile 是 `PDD SKU` 的独立赠品区变体，面板里显示为 `PDD SKU GIFT`。当前已作为 PDD SKU 系列主力入口使用，普通 `PDD_SKU` 图也默认用它生成。
+
+旧版 `PDD SKU` profile 代码保留用于历史回溯，但已从插件面板下拉选项隐藏，避免后续维护两套分叉逻辑。
 
 ## 保存路径
 
@@ -30,7 +32,7 @@
 - `txt.mainProductLabel` / `txt.giftProductLabel` 的符号、英文、数字按 LINE Seed Sans App Regular；中文沿用 PSD 模板原中文样式。
 - `txt.subtitle` 中文沿用 PSD 模板原中文字体，英文、数字、符号按 LINE Seed Sans App Regular。
 - `txt.subtitle.rectangle` 根据 `txt.subtitle` 内容宽度调整红色矩形宽度。
-- `PRODUCT.shadow` 通过复制 `PRODUCT` 组、合并、垂直镜像生成；顶边对齐 `y=665`，不透明度 100%，目标组为 `PRODUCT.PROJECT`。
+- `PRODUCT.shadow` 通过复制 `PRODUCT` 组、合并、垂直镜像生成；顶边默认对齐当前 `product.area` 下边缘，不透明度 100%，目标组为 `PRODUCT.PROJECT`；导出前强制显示 `PRODUCT.PROJECT` 和 `PRODUCT.shadow`。
 - 如果产品区或赠品区存在次抛产品，其他产品图层默认优先排在次抛图层上方。
 - 导出格式以插件 UI 选择为准，支持 `JPG`、`PSD`、`JPG + PSD`。
 
