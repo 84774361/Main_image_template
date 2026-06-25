@@ -1,6 +1,6 @@
 # SKU 通用模板稳定版记录
 
-稳定版本：`20260625-sku-subtitle-raw-variant`
+稳定版本：`20260625-sku-gap-same-category`
 
 这个 profile 在面板里显示为 `SKU`，作为不同电商渠道通用的 SKU 主图模板入口。内部 profile id 仍保留为 `pddSkuGift`，用于兼容已有 PSD、CSV 字段和历史记录。
 
@@ -33,6 +33,8 @@
 - `txt.subtitle` 中文沿用 PSD 模板原中文字体，英文、数字、符号按 LINE Seed Sans App Regular。
 - `txt.subtitle.1` / `txt.subtitle.2` 的切换用原始 `txt.subtitle` 文案判断，超过阈值后即使换行清理空格导致显示字符数变短，也保持使用小字号变体。
 - `txt.subtitle.rectangle` 根据 `txt.subtitle` 内容宽度调整红色矩形宽度。
+- 管装 / tube 15g 使用通用高度规则：same `0.72`，mixed `0.7`；不再对 `唇周霜15g` 单独硬编码。
+- `product.layout=auto` 转为 line 排布时，默认仍按品类/规格自动计算 gap；不同品类保持约 `0.64~0.84` 的大间距，同品类 jar 仍保留 line 中偏大的间距，但显著小于不同品类。
 - `PRODUCT.shadow` 通过复制 `PRODUCT` 组、合并、垂直镜像生成；顶边默认对齐当前 `product.area` 下边缘，不透明度 100%，目标组为 `PRODUCT.PROJECT`；导出前强制显示 `PRODUCT.PROJECT` 和 `PRODUCT.shadow`。
 - 如果产品区或赠品区存在次抛产品，其他产品图层默认优先排在次抛图层上方。
 - 导出格式以插件 UI 选择为准，支持 `JPG`、`PSD`、`JPG + PSD`。

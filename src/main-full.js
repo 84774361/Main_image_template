@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260625-sku-subtitle-raw-variant";
+const SCRIPT_VERSION = "20260625-sku-gap-same-category";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -996,9 +996,6 @@ function getDefaultHeightRatio(row, prefix) {
   if (prefix === "product" && getProductCategoryFromSource(sourceText) === "jar") {
     return 0.56;
   }
-  if (prefix === "product" && /baby-lip-care-cream-tube-15g|唇周霜15g/.test(sourceText)) {
-    return 0.7;
-  }
   if (prefix === "giftLeft") {
     const specs = getProductSpecFromSource([
       sourceText,
@@ -1149,6 +1146,7 @@ function getTubeHeightRatioBySpec(row, size, mode) {
   if (size >= 50) return readProductHeightRatio(row, "tube50", same ? 0.78 : 0.72);
   if (size >= 30) return readProductHeightRatio(row, "tube30", same ? 0.68 : 0.62);
   if (size >= 25) return readProductHeightRatio(row, "tube25", same ? 0.62 : 0.58);
+  if (size >= 15) return readProductHeightRatio(row, "tube15", same ? 0.72 : 0.7);
   if (size >= 10) return readProductHeightRatio(row, "tube10", same ? 0.5 : 0.42);
   if (size > 0) return readProductHeightRatio(row, "tube5", same ? 0.42 : 0.36);
   return readProductHeightRatio(row, "tubeDefault", same ? 0.84 : 0.7);
@@ -2209,7 +2207,7 @@ function getProductCategoryPairGapRatio(leftCategory, rightCategory, layout = "o
   const right = normalizeProductCategory(rightCategory);
   const pair = [left, right].sort().join("|");
   const lineRatios = {
-    "jar|jar": 1.50,
+    "jar|jar": 0.50,
     "bottle|bottle": 0,
     "tube|tube": 0,
     "ampoule|ampoule": 0.01,
@@ -2301,11 +2299,11 @@ function getProductLineSpecGapWeight(key) {
     bottle300ml: 0.03,
     bottle400ml: 0.04,
     bottle500ml: 0.05,
-    jar: 1.10,
-    jar25g: 0.96,
-    jar30g: 1.08,
-    jar50g: 1.22,
-    jar65g: 1.36,
+    jar: 0.46,
+    jar25g: 0.40,
+    jar30g: 0.44,
+    jar50g: 0.50,
+    jar65g: 0.56,
     tube: 0.02,
     tube5g: 0,
     tube10g: 0,
@@ -2336,10 +2334,10 @@ function getProductLineSpecGapWeight(key) {
     return 0;
   }
   if (spec.category === "jar") {
-    if (spec.size >= 65) return 1.36;
-    if (spec.size >= 50) return 1.22;
-    if (spec.size >= 30) return 1.08;
-    return 0.96;
+    if (spec.size >= 65) return 0.56;
+    if (spec.size >= 50) return 0.50;
+    if (spec.size >= 30) return 0.44;
+    return 0.40;
   }
   if (spec.category === "tube") {
     if (spec.size >= 100) return 0.04;
@@ -2359,14 +2357,14 @@ function getProductLineSpecPairGapRatio(row, leftIndex, rightIndex) {
   const rightKey = getProductSpecGapKey(row, rightIndex);
   const pair = [leftKey, rightKey].sort().join("|");
   const ratios = {
-    "jar25g|jar25g": 1.32,
-    "jar25g|jar30g": 1.38,
-    "jar25g|jar50g": 1.46,
-    "jar30g|jar30g": 1.42,
-    "jar30g|jar50g": 1.50,
-    "jar50g|jar50g": 1.62,
-    "jar50g|jar65g": 1.70,
-    "jar65g|jar65g": 1.80,
+    "jar25g|jar25g": 0.40,
+    "jar25g|jar30g": 0.44,
+    "jar25g|jar50g": 0.50,
+    "jar30g|jar30g": 0.44,
+    "jar30g|jar50g": 0.52,
+    "jar50g|jar50g": 0.50,
+    "jar50g|jar65g": 0.58,
+    "jar65g|jar65g": 0.56,
     "bottle30ml|jar30g": 0.82,
     "bottle30ml|jar50g": 0.90,
     "bottle40ml|jar30g": 0.82,
