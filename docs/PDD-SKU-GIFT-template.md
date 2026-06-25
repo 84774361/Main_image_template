@@ -1,6 +1,6 @@
 # SKU 通用模板稳定版记录
 
-稳定版本：`20260625-sku-tighter-auto-gap`
+稳定版本：`20260625-sku-merge-exported-psd`
 
 这个 profile 在面板里显示为 `SKU`，作为不同电商渠道通用的 SKU 主图模板入口。内部 profile id 仍保留为 `pddSkuGift`，用于兼容已有 PSD、CSV 字段和历史记录。
 
@@ -37,6 +37,7 @@
 - `product.layout=auto` 转为 line 排布时，默认仍按品类/规格自动计算 gap；不同品类保持约 `0.64~0.84` 的大间距，同品类 jar 仍保留 line 中偏大的间距，但显著小于不同品类。
 - tube 同品类在 auto/line 中允许轻微 overlap：`tube5g|tube5g=-0.1`、`tube10g|tube10g=-0.16`、`tube15g|tube15g=-0.15`。
 - `精油贴` / `贴片` / `sticker` 归入 ampoule 类；`ampoule|ampoule` 在 auto/line 中为 `-0.3`，用于让次抛/袋装/贴片类更紧密 overlap。
+- 面板可勾选“合并本次导出的 PSD 为汇总 PSD”；合并时删除各 PSD 内的 AREA 组，只保留第一个 PSD 的 `BG` 作为最底层背景，其余每张 SKU 会按文件名打包为独立组。
 - `PRODUCT.shadow` 通过复制 `PRODUCT` 组、合并、垂直镜像生成；顶边默认对齐当前 `product.area` 下边缘，不透明度 100%，目标组为 `PRODUCT.PROJECT`；导出前强制显示 `PRODUCT.PROJECT` 和 `PRODUCT.shadow`。
 - 如果产品区或赠品区存在次抛产品，其他产品图层默认优先排在次抛图层上方。
 - 导出格式以插件 UI 选择为准，支持 `JPG`、`PSD`、`JPG + PSD`。

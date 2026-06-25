@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260625-sku-tighter-auto-gap";
+const SCRIPT_VERSION = "20260625-sku-merge-exported-psd";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -201,8 +201,10 @@ const state = {
   groupAreaBoxes: {},
   placedImageLayers: {},
   templateLayerBoxes: {},
+  currentRow: null,
   productNameMap: null,
-  productNameRows: []
+  productNameRows: [],
+  exportedPsdEntries: []
 };
 
 function ensureModules() {
@@ -320,6 +322,11 @@ function shouldAutoFitImages() {
 function shouldUseTrimmedAssets() {
   const el = $("useTrimmedAssets");
   return !el || el.checked;
+}
+
+function shouldMergeExportedPsds() {
+  const el = $("mergeExportedPsds");
+  return !!(el && el.checked);
 }
 
 function parseCsv(text) {
@@ -3392,6 +3399,228 @@ async function deleteLayerBestEffort(layer, label) {
   return false;
 }
 
+function isLayerGroup(layer) {
+  return !!(layer && layer.layers && layer.layers.length !== undefined);
+}
+
+function isBgLayerName(name) {
+  return String(name || "").trim().toLowerCase() === "bg";
+}
+
+function isAreaGroupName(name) {
+  const value = String(name || "").trim();
+  return /(^|[._\s-])areas?($|[._\s-])/i.test(value) || /^AREA$/i.test(value);
+}
+
+function collectLayerGroupsByPredicate(layers, predicate, result = []) {
+  Array.from(layers || []).forEach((layer) => {
+    if (!isLayerGroup(layer)) return;
+    if (predicate(layer)) {
+      result.push(layer);
+      return;
+    }
+    collectLayerGroupsByPredicate(layer.layers, predicate, result);
+  });
+  return result;
+}
+
+function getTopLevelBgLayer(doc) {
+  return Array.from(doc && doc.layers || []).find((layer) => isBgLayerName(layer.name));
+}
+
+async function removeAreaGroups(doc) {
+  const areaGroups = collectLayerGroupsByPredicate(doc.layers, (layer) => isAreaGroupName(layer.name));
+  let removed = 0;
+  for (const layer of areaGroups) {
+    if (await deleteLayerBestEffort(layer, `Merge AREA group ${layer.name}`)) {
+      removed += 1;
+    }
+  }
+  if (removed) log(`  Merge cleanup: removed ${removed} AREA group(s).`);
+}
+
+async function removeBgLayers(doc) {
+  const bgLayers = getAllLayers(doc.layers).filter((layer) => isBgLayerName(layer.name));
+  let removed = 0;
+  for (const layer of bgLayers) {
+    if (await deleteLayerBestEffort(layer, `Merge duplicate BG ${layer.name}`)) {
+      removed += 1;
+    }
+  }
+  if (removed) log(`  Merge cleanup: removed ${removed} BG layer(s).`);
+}
+
+async function moveBgToBottom(doc) {
+  const bgLayer = getTopLevelBgLayer(doc);
+  if (!bgLayer) return;
+  const topLayers = Array.from(doc.layers || []);
+  const bottomLayer = topLayers[topLayers.length - 1];
+  if (!bottomLayer || bottomLayer === bgLayer) return;
+
+  try {
+    await bgLayer.move(bottomLayer, photoshop.constants.ElementPlacement.PLACEAFTER);
+    log("  Merge BG placed at bottom.");
+  } catch (error) {
+    log(`  Merge BG bottom move skipped: ${formatError(error)}`);
+  }
+}
+
+async function activateDocumentBestEffort(doc) {
+  if (!doc) return false;
+  ensureModules();
+
+  try {
+    photoshop.app.activeDocument = doc;
+    if (photoshop.app.activeDocument === doc || photoshop.app.activeDocument && photoshop.app.activeDocument.id === doc.id) {
+      return true;
+    }
+  } catch (error) {
+    log(`  Activate document DOM skipped: ${formatError(error)}`);
+  }
+
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "select",
+          _target: [
+            { _ref: "document", _id: doc.id }
+          ],
+          makeVisible: false,
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    return true;
+  } catch (error) {
+    log(`  Activate document action skipped: ${formatError(error)}`);
+  }
+
+  return false;
+}
+
+async function groupSelectedLayersBestEffort(layers, groupName, label) {
+  const selectedLayers = (layers || []).filter(Boolean);
+  if (!selectedLayers.length) return null;
+
+  ensureModules();
+  try {
+    photoshop.app.activeDocument.activeLayers = selectedLayers;
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "make",
+          _target: [
+            { _ref: "layerSection" }
+          ],
+          from: {
+            _ref: "layer",
+            _enum: "ordinal",
+            _value: "targetEnum"
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    const group = photoshop.app.activeDocument.activeLayers[0];
+    if (group) {
+      group.name = groupName;
+      group.visible = true;
+      return group;
+    }
+  } catch (error) {
+    log(`  ${label || "Group selected layers"} skipped: ${formatError(error)}`);
+  }
+
+  return null;
+}
+
+async function packDocumentLayersForMerge(doc, groupName, keepBg) {
+  await activateDocumentBestEffort(doc);
+  await removeAreaGroups(doc);
+  if (keepBg) {
+    await moveBgToBottom(doc);
+  } else {
+    await removeBgLayers(doc);
+  }
+
+  const packLayers = Array.from(doc.layers || []).filter((layer) => {
+    return layer && !(keepBg && isBgLayerName(layer.name));
+  });
+  if (!packLayers.length) {
+    log(`  Merge skipped ${groupName}: no non-BG layers to group.`);
+    return null;
+  }
+
+  const group = await groupSelectedLayersBestEffort(packLayers, groupName, `Merge pack ${groupName}`);
+  if (group) log(`  Merge packed group: ${group.name}.`);
+  if (keepBg) await moveBgToBottom(doc);
+  return group;
+}
+
+async function duplicateLayerToDocumentBestEffort(layer, targetDoc, name) {
+  if (!layer || !targetDoc) return null;
+  ensureModules();
+  const placement = photoshop.constants.ElementPlacement.PLACEATBEGINNING;
+
+  try {
+    const duplicated = await layer.duplicate(targetDoc, placement);
+    if (duplicated) {
+      duplicated.name = name;
+      duplicated.visible = true;
+      return duplicated;
+    }
+  } catch (error) {
+    log(`  Merge DOM duplicate to master skipped: ${formatError(error)}`);
+  }
+
+  try {
+    const duplicated = await layer.duplicate(targetDoc);
+    if (duplicated) {
+      duplicated.name = name;
+      duplicated.visible = true;
+      return duplicated;
+    }
+  } catch (error) {
+    log(`  Merge DOM duplicate target-only skipped: ${formatError(error)}`);
+  }
+
+  try {
+    photoshop.app.activeDocument.activeLayers = [layer];
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "duplicate",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          to: {
+            _ref: "document",
+            _id: targetDoc.id
+          },
+          name,
+          version: 5,
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    await activateDocumentBestEffort(targetDoc);
+    const duplicated = targetDoc.activeLayers && targetDoc.activeLayers[0] || photoshop.app.activeDocument.activeLayers[0];
+    if (duplicated) {
+      duplicated.name = name;
+      duplicated.visible = true;
+      return duplicated;
+    }
+  } catch (error) {
+    log(`  Merge action duplicate to master skipped: ${formatError(error)}`);
+  }
+
+  return null;
+}
+
 async function removeExistingProductShadowLayers(doc, config) {
   const shadowName = config.name || "PRODUCT.shadow";
   const existing = getAllLayers(doc.layers).filter((layer) => layer.name === shadowName);
@@ -5767,6 +5996,7 @@ async function exportPsd(doc, row, index) {
 
   if (doc.saveAs && doc.saveAs.psd) {
     await doc.saveAs.psd(psdFile, { maximizeCompatibility: true }, true);
+    state.exportedPsdEntries.push({ file: psdFile, name: outputName, row, index });
     return outputName;
   }
 
@@ -5793,6 +6023,101 @@ async function exportPsd(doc, row, index) {
     { synchronousExecution: false, modalBehavior: "execute" }
   );
 
+  state.exportedPsdEntries.push({ file: psdFile, name: outputName, row, index });
+  return outputName;
+}
+
+function makeTimestampForFileName() {
+  const now = new Date();
+  const pad2 = (value) => String(value).padStart(2, "0");
+  return [
+    now.getFullYear(),
+    pad2(now.getMonth() + 1),
+    pad2(now.getDate()),
+    "_",
+    pad2(now.getHours()),
+    pad2(now.getMinutes()),
+    pad2(now.getSeconds())
+  ].join("");
+}
+
+async function savePsdDocumentAsFile(doc, file) {
+  if (doc.saveAs && doc.saveAs.psd) {
+    await doc.saveAs.psd(file, { maximizeCompatibility: true }, true);
+    return;
+  }
+
+  const token = fs.createSessionToken(file);
+  await photoshop.action.batchPlay(
+    [
+      {
+        _obj: "save",
+        as: {
+          _obj: "photoshop35Format",
+          maximizeCompatibility: true
+        },
+        in: {
+          _kind: "local",
+          _path: token
+        },
+        copy: true,
+        lowerCase: true,
+        _options: {
+          dialogOptions: "dontDisplay"
+        }
+      }
+    ],
+    { synchronousExecution: false, modalBehavior: "execute" }
+  );
+}
+
+async function mergeExportedPsdsAsGroups(entries) {
+  const psdEntries = (entries || [])
+    .filter((entry) => entry && entry.file && /\.psd$/i.test(entry.name || entry.file.name || ""))
+    .sort((a, b) => (a.index || 0) - (b.index || 0));
+
+  if (!psdEntries.length) {
+    log("Merge PSD skipped: no PSD files were exported in this run.");
+    return "";
+  }
+
+  log(`Merge PSD start: ${psdEntries.length} file(s).`);
+  const first = psdEntries[0];
+  const master = await photoshop.app.open(first.file);
+  const firstGroupName = sanitizeFileBaseName(String(first.name || first.file.name || "1").replace(/\.psd$/i, ""), `sku_${first.index || 1}`);
+  await packDocumentLayersForMerge(master, firstGroupName, true);
+
+  let imported = 1;
+  for (let i = 1; i < psdEntries.length; i += 1) {
+    const entry = psdEntries[i];
+    const groupName = sanitizeFileBaseName(String(entry.name || entry.file.name || `sku_${i + 1}`).replace(/\.psd$/i, ""), `sku_${entry.index || i + 1}`);
+    let srcDoc = null;
+    try {
+      log(`  Merge opening: ${entry.name || entry.file.name}`);
+      srcDoc = await photoshop.app.open(entry.file);
+      const srcGroup = await packDocumentLayersForMerge(srcDoc, groupName, false);
+      if (!srcGroup) continue;
+      const duplicated = await duplicateLayerToDocumentBestEffort(srcGroup, master, groupName);
+      if (!duplicated) {
+        log(`  Merge import skipped: ${groupName}.`);
+        continue;
+      }
+      imported += 1;
+      log(`  Merge imported group: ${groupName}.`);
+    } finally {
+      if (srcDoc) {
+        await closeDocWithoutSaving(srcDoc);
+      }
+      await activateDocumentBestEffort(master);
+    }
+  }
+
+  await activateDocumentBestEffort(master);
+  await moveBgToBottom(master);
+  const outputName = `merged_psd_groups_${makeTimestampForFileName()}.psd`;
+  const mergedFile = await outputFolder.createFile(outputName, { overwrite: true });
+  await savePsdDocumentAsFile(master, mergedFile);
+  log(`Merge PSD saved: ${outputName}, groups=${imported}.`);
   return outputName;
 }
 
@@ -5973,10 +6298,12 @@ async function runBatch() {
     log(`Script version: ${SCRIPT_VERSION}`);
     log(`Loaded ${state.rows.length} rows.`);
     state.productNameMap = await loadProductNameMap();
+    state.exportedPsdEntries = [];
 
     ensureModules();
     let successCount = 0;
     let failureCount = 0;
+    let mergedPsdName = "";
     const rowResults = [];
     await photoshop.core.executeAsModal(
       async () => {
@@ -6009,6 +6336,10 @@ async function runBatch() {
           setProgress(i + 1, state.rows.length);
         }
         log(`Finished rows. Success: ${successCount}/${state.rows.length}`);
+        if (shouldMergeExportedPsds()) {
+          setSummary("Merging exported PSD files...");
+          mergedPsdName = await mergeExportedPsdsAsGroups(state.exportedPsdEntries);
+        }
       },
       { commandName: "Batch generate main images" }
     );
@@ -6025,6 +6356,8 @@ async function runBatch() {
     const failed = rowResults.find((result) => !result.ok);
     if (failed) {
       setSummary(`Done: ${successCount} exported, ${failureCount} failed. Last error: ${failed.error}`);
+    } else if (mergedPsdName) {
+      setSummary(`Done: ${successCount} exported, ${failureCount} failed. Merged PSD: ${mergedPsdName}`);
     } else {
       setSummary(`Done: ${successCount} exported, ${failureCount} failed.`);
     }
