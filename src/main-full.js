@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260625-sku-gap-same-category";
+const SCRIPT_VERSION = "20260625-sku-tighter-auto-gap";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -899,7 +899,7 @@ function getImageSourceForIndex(row, prefix, index) {
 
 function getProductCategoryFromSource(source) {
   const text = String(source || "").toLowerCase();
-  if (/(ampoule|次抛|安瓶|set-\d+x|\d+x)/.test(text)) return "ampoule";
+  if (/(ampoule|次抛|安瓶|set-\d+x|\d+x|sticker|stickers|patch|贴片|精油贴)/.test(text)) return "ampoule";
   if (/(tube|管)/.test(text)) return "tube";
   if (/(pump|泵|按压)/.test(text)) return "pump";
   if (/(jar|pot|罐)/.test(text)) return "jar";
@@ -2209,8 +2209,8 @@ function getProductCategoryPairGapRatio(leftCategory, rightCategory, layout = "o
   const lineRatios = {
     "jar|jar": 0.50,
     "bottle|bottle": 0,
-    "tube|tube": 0,
-    "ampoule|ampoule": 0.01,
+    "tube|tube": -0.08,
+    "ampoule|ampoule": -0.3,
     "bottle|jar": 0.72,
     "jar|tube": 0.78,
     "ampoule|jar": 0.84,
@@ -2365,6 +2365,12 @@ function getProductLineSpecPairGapRatio(row, leftIndex, rightIndex) {
     "jar50g|jar50g": 0.50,
     "jar50g|jar65g": 0.58,
     "jar65g|jar65g": 0.56,
+    "tube5g|tube5g": -0.1,
+    "tube10g|tube5g": -0.10,
+    "tube15g|tube5g": -0.10,
+    "tube10g|tube10g": -0.16,
+    "tube10g|tube15g": -0.08,
+    "tube15g|tube15g": -0.15,
     "bottle30ml|jar30g": 0.82,
     "bottle30ml|jar50g": 0.90,
     "bottle40ml|jar30g": 0.82,
@@ -2378,6 +2384,7 @@ function getProductLineSpecPairGapRatio(row, leftIndex, rightIndex) {
     "bottle25g|tube100g": 0.02,
     "bottle500ml|tube100g": 0.02,
     "bottle500ml|jar50g": 0.76,
+    "ampoule|ampoule": -0.3,
     "ampouleSet|bottle500ml": 0.03,
     "ampouleSet|jar50g": 0.78,
     "ampouleSet|tube100g": 0.03
@@ -2417,7 +2424,9 @@ function getProductCategoryPairGap(row, leftIndex, rightIndex, leftWidth, rightW
   const basisWidth = Math.min(leftWidth, rightWidth);
   if (!Number.isFinite(basisWidth) || basisWidth <= 0) return fallbackGap;
   const gap = Math.round(basisWidth * ratio);
-  return layout === "line" ? Math.max(0, gap) : gap;
+  if (layout !== "line") return gap;
+  const sameCategory = leftCategory === rightCategory;
+  return sameCategory ? gap : Math.max(0, gap);
 }
 
 function getProductCategoryPairGaps(row, itemBoxes, fallbackGap, layout = "overlap") {
