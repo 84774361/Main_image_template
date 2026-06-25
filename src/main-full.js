@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260623-pdd-sku-gift-default-profile";
+const SCRIPT_VERSION = "20260625-sku-subtitle-raw-variant";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -139,8 +139,8 @@ const TEMPLATE_CONFIGS = {
   pddSkuGift: {
     ...BASE_TEMPLATE_CONFIG,
     id: "pddSkuGift",
-    label: "PDD SKU GIFT",
-    filePrefixPlaceholder: "pdd_sku_gift_",
+    label: "SKU",
+    filePrefixPlaceholder: "sku_",
     paths: {
       template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\02\\PDD_SKU_GIFT_Template.psd",
       csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\02\\sku-防晒40ml+叮叮喷雾100ml.csv",
@@ -5463,11 +5463,11 @@ function applyTitleTextRules(row) {
   return expanded;
 }
 
-async function resizeSubtitleRectangle(doc, textLayer, textValue) {
+async function resizeSubtitleRectangle(doc, textLayer, textValue, variantSourceText = textValue) {
   const config = getCurrentTemplateConfig().subtitleRectangle;
   if (!config || !textLayer) return;
 
-  const variant = getSubtitleLayerVariant(textValue);
+  const variant = getSubtitleLayerVariant(variantSourceText);
   const rectangleLayer = findSubtitleRectangleLayer(doc, variant, config);
   if (!rectangleLayer) {
     log("  Subtitle rectangle not found.");
@@ -5565,14 +5565,14 @@ function isSubtitleTextLayer(layer) {
   return !!(layer && /^txt\.subtitle(?:\.\d+)?$/.test(String(layer.name || "")));
 }
 
-function findSubtitleTextLayer(doc, finalText) {
-  const variant = getSubtitleLayerVariant(finalText);
+function findSubtitleTextLayer(doc, finalText, variantSourceText = finalText) {
+  const variant = getSubtitleLayerVariant(variantSourceText);
   const preferred = findLayerByName(doc, `txt.subtitle.${variant}`);
   const fallback = findLayerByName(doc, "txt.subtitle");
   const layer = preferred || fallback;
   hideAlternateSubtitleLayers(doc, layer);
   if (preferred) {
-    log(`  Subtitle layer selected: txt.subtitle.${variant}, chars=${getSubtitleCharCount(finalText)}.`);
+    log(`  Subtitle layer selected: txt.subtitle.${variant}, chars=${getSubtitleCharCount(variantSourceText)}.`);
   }
   return layer;
 }
@@ -5652,7 +5652,7 @@ async function applyTitleAndProductNote(doc, row) {
   const forceSubtitleLayer = getCurrentTemplateConfig().productNameToSubtitle && hasValue(row, "txt.subtitle");
   const subtitlePreviewText = forceSubtitleLayer ? formatPddSubtitleText(noteText) : noteText;
   const subtitleLayer = forceSubtitleLayer
-    ? findSubtitleTextLayer(doc, subtitlePreviewText)
+    ? findSubtitleTextLayer(doc, subtitlePreviewText, noteText)
     : findLayerByName(doc, "txt.subtitle");
   const fallbackNoteLayer = forceSubtitleLayer
     ? subtitleLayer || productNoteLayer
@@ -5686,7 +5686,7 @@ async function applyTitleAndProductNote(doc, row) {
       log("  Subtitle anchor restored.");
     }
     if (isSubtitleLayer) {
-      await resizeSubtitleRectangle(doc, fallbackNoteLayer, finalNoteText);
+      await resizeSubtitleRectangle(doc, fallbackNoteLayer, finalNoteText, noteText);
     }
     handled["txt.productNote"] = true;
     handled["txt.note"] = true;

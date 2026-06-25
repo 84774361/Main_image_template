@@ -1,8 +1,8 @@
-# PDD_SKU_GIFT 稳定版记录
+# SKU 通用模板稳定版记录
 
-稳定版本：`20260623-pdd-sku-gift-default-profile`
+稳定版本：`20260625-sku-subtitle-raw-variant`
 
-这个 profile 是 `PDD SKU` 的独立赠品区变体，面板里显示为 `PDD SKU GIFT`。当前已作为 PDD SKU 系列主力入口使用，普通 `PDD_SKU` 图也默认用它生成。
+这个 profile 在面板里显示为 `SKU`，作为不同电商渠道通用的 SKU 主图模板入口。内部 profile id 仍保留为 `pddSkuGift`，用于兼容已有 PSD、CSV 字段和历史记录。
 
 旧版 `PDD SKU` profile 代码保留用于历史回溯，但已从插件面板下拉选项隐藏，避免后续维护两套分叉逻辑。
 
@@ -31,6 +31,7 @@
 - `txt.mainProductLabel` 和 `txt.giftProductLabel` 保持 PSD 原文本框、段落、字号、颜色；超过 22 字符时按 `+` 换行，`+` 保留在上一行末尾。
 - `txt.mainProductLabel` / `txt.giftProductLabel` 的符号、英文、数字按 LINE Seed Sans App Regular；中文沿用 PSD 模板原中文样式。
 - `txt.subtitle` 中文沿用 PSD 模板原中文字体，英文、数字、符号按 LINE Seed Sans App Regular。
+- `txt.subtitle.1` / `txt.subtitle.2` 的切换用原始 `txt.subtitle` 文案判断，超过阈值后即使换行清理空格导致显示字符数变短，也保持使用小字号变体。
 - `txt.subtitle.rectangle` 根据 `txt.subtitle` 内容宽度调整红色矩形宽度。
 - `PRODUCT.shadow` 通过复制 `PRODUCT` 组、合并、垂直镜像生成；顶边默认对齐当前 `product.area` 下边缘，不透明度 100%，目标组为 `PRODUCT.PROJECT`；导出前强制显示 `PRODUCT.PROJECT` 和 `PRODUCT.shadow`。
 - 如果产品区或赠品区存在次抛产品，其他产品图层默认优先排在次抛图层上方。
