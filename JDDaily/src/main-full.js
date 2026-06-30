@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260630-jddaily-layout-gap-semantics";
+const SCRIPT_VERSION = "20260630-jddaily-gap-reflow";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -2250,7 +2250,7 @@ function getImageGroupGap(row, prefix, layout, itemWidth) {
 
   if (layout === "line") {
     if (gapValue !== undefined && gapValue !== "") {
-      return Math.max(0, readNumber(row, `${prefix}.gap`, 0));
+      return readNumber(row, `${prefix}.gap`, 0);
     }
     return 0;
   }
@@ -2549,7 +2549,7 @@ function getProductGapAt(row, leftIndex, layout, itemWidth, fallbackGap) {
   const categoryRank = getProductCategoryRank(row, leftIndex, Math.max(leftIndex + 1, getGiftCount(row, "product") || 1));
   const categoryGap = readNumber(row, `product.gap.${categoryRank}`, null);
   if (Number.isFinite(categoryGap)) {
-    return layout === "line" ? Math.max(0, categoryGap) : categoryGap;
+    return categoryGap;
   }
   return fallbackGap;
 }
@@ -3286,14 +3286,10 @@ async function arrangeProductLineAfterReplace(doc, row) {
     log("  Product arrange skipped: count <= 1.");
     return;
   }
-  if (layout !== "line") {
-    log("  Product arrange skipped: using prepared gift-style overlap layout.");
-    return;
-  }
   if (!shouldTouchProductEdges(row) && shouldUseProductCategoryPairGaps(row)) {
     const preparedLayers = collectProductItems(doc, count);
     await arrangeProductLayerStacking(preparedLayers, getImageGroupZOrder(row, "product"));
-    log("  Product arrange skipped: using prepared category-gap line layout.");
+    log(`  Product arrange skipped: using prepared category-gap ${layout} layout.`);
     return;
   }
 
