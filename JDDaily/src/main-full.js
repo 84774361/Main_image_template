@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260627-jddaily750-bottomtext-template-fonts";
+const SCRIPT_VERSION = "20260630-jddaily750-school-shampoo-bottle";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -21,6 +21,18 @@ const TITLE_FONT_RULE = {
 const TITLE_SUPERSCRIPT_FONT = {
   postScriptName: "LINESeedSansApp-Regular",
   fontName: "LINE Seed Sans App Regular"
+};
+
+const SUBTITLE_FONT_RULE = {
+  preserveFontSize: true,
+  chinese: {
+    postScriptName: "FZLanTingHei_GBK",
+    fontName: "方正兰亭黑_GBK"
+  },
+  latin: {
+    postScriptName: "LINESeedSansApp-Regular",
+    fontName: "LINE Seed Sans App Regular"
+  }
 };
 
 const BASE_TEMPLATE_CONFIG = {
@@ -595,8 +607,8 @@ function getAgeCnAliases(age) {
 
 function getAgeCnCanonicalFromText(value) {
   const normalized = normalizeProductNameKey(value);
-  if (normalized.includes("婴童") || normalized.includes("一页")) return "婴童";
-  if (normalized.includes("学龄")) return "学龄";
+  if (normalized.includes("学龄") || normalized.includes("儿童")) return "学龄";
+  if (normalized.includes("婴童")) return "婴童";
   return "";
 }
 
@@ -1121,6 +1133,7 @@ function getTubeHeightRatioBySpec(row, size, mode) {
   if (size >= 50) return readProductHeightRatio(row, "tube50", same ? 0.78 : 0.72);
   if (size >= 30) return readProductHeightRatio(row, "tube30", same ? 0.68 : 0.62);
   if (size >= 25) return readProductHeightRatio(row, "tube25", same ? 0.62 : 0.58);
+  if (size >= 15) return readProductHeightRatio(row, "tube15", same ? 0.72 : 0.7);
   if (size >= 10) return readProductHeightRatio(row, "tube10", same ? 0.5 : 0.42);
   if (size > 0) return readProductHeightRatio(row, "tube5", same ? 0.42 : 0.36);
   return readProductHeightRatio(row, "tubeDefault", same ? 0.84 : 0.7);
@@ -1737,6 +1750,66 @@ function buildMixedTextStyleRanges(text, baseStyle, styleConfig) {
       from: range.from,
       to: range.to,
       textStyle
+    };
+  });
+}
+
+function makeMixedTextStyle(baseStyle, styleConfig, kind) {
+  const config = styleConfig[kind] || {};
+  const fontSize = styleConfig.preserveFontSize ? NaN : Number(config.fontSize || styleConfig.fontSize);
+  const textStyle = {
+    ...baseStyle,
+    fontPostScriptName: config.postScriptName || baseStyle.fontPostScriptName,
+    fontName: config.fontName || baseStyle.fontName,
+    color: makeRgbColor(config.color || baseStyle.color),
+    tracking: baseStyle.tracking || 0
+  };
+  if (Number.isFinite(fontSize) && fontSize > 0) {
+    textStyle.size = makePointValue(fontSize);
+    textStyle.impliedFontSize = makePointValue(fontSize);
+  }
+  return textStyle;
+}
+
+function buildMixedTextStyleRangesWithSuperscripts(text, baseStyle, styleConfig, superscripts) {
+  const chars = Array.from(toPhotoshopText(text));
+  const ranges = [];
+  let start = 0;
+  let current = null;
+
+  chars.forEach((char, index) => {
+    const kind = isIndexInRanges(index, superscripts)
+      ? "superscript"
+      : isLatinDigitChar(char)
+        ? "latin"
+        : "chinese";
+    if (current === null) {
+      current = kind;
+      start = index;
+      return;
+    }
+
+    if (kind !== current) {
+      ranges.push({ from: start, to: index, kind: current });
+      current = kind;
+      start = index;
+    }
+  });
+
+  if (current !== null) {
+    ranges.push({ from: start, to: chars.length, kind: current });
+  }
+
+  return ranges.map((range) => {
+    const normalKind = range.kind === "superscript" ? "latin" : range.kind;
+    const normalStyle = makeMixedTextStyle(baseStyle, styleConfig, normalKind);
+    return {
+      _obj: "textStyleRange",
+      from: range.from,
+      to: range.to,
+      textStyle: range.kind === "superscript"
+        ? makeSuperscriptTextStylePreserveFont(normalStyle)
+        : normalStyle
     };
   });
 }
@@ -3889,7 +3962,7 @@ function shouldPreserveTemplateTextStyle() {
   return !!getCurrentTemplateConfig().preserveTemplateTextStyle;
 }
 
-async function replaceTextLayerMixedStyle(layer, value, styleConfig, label) {
+async function replaceTextLayerMixedStyle(layer, value, styleConfig, label, options = {}) {
   if (!layer || value === undefined || value === null) return;
   if (!layer.textItem) {
     throw new Error(`Layer "${layer.name}" is not a text layer`);
@@ -3933,7 +4006,9 @@ async function replaceTextLayerMixedStyle(layer, value, styleConfig, label) {
             _obj: "textLayer",
             ...textKey,
             textKey: textValue,
-            textStyleRange: buildMixedTextStyleRanges(textValue, baseStyle, styleConfig)
+            textStyleRange: Array.isArray(options.superscripts) && options.superscripts.length
+              ? buildMixedTextStyleRangesWithSuperscripts(textValue, baseStyle, styleConfig, options.superscripts)
+              : buildMixedTextStyleRanges(textValue, baseStyle, styleConfig)
           },
           _options: { dialogOptions: "dontDisplay" }
         }
@@ -4929,6 +5004,8 @@ function resolveProductNameToImage(name, options = {}) {
   const raw = String(name || "").trim();
   if (!raw) return "";
   if (/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(raw)) return raw;
+  const explicitDaily = resolveExplicitJdDailyProductName(raw);
+  if (explicitDaily) return explicitDaily;
   if (!state.productNameMap) return resolveJdDailyProductNameFallback(raw);
   const normalized = normalizeProductNameKey(raw);
   const compact = compactSpecHyphenKey(normalized);
@@ -4939,6 +5016,27 @@ function resolveProductNameToImage(name, options = {}) {
   if (mapped) return mapped;
   if (options.allowRows === false) return "";
   return resolveProductNameByRows(raw) || resolveJdDailyProductNameFallback(raw);
+}
+
+function resolveExplicitJdDailyProductName(name) {
+  if (getCurrentTemplateConfig().id !== "jddaily750") return "";
+
+  const text = String(name || "")
+    .replace(/（.*?）|\(.*?\)/g, "")
+    .replace(/\s+/g, "");
+  const specMatch = text.match(/(\d+(?:\.\d+)?)(ml|ML|g|G)/);
+  if (!specMatch) return "";
+
+  const size = Number(specMatch[1]);
+  const unit = specMatch[2].toLowerCase();
+  const spec = `${specMatch[1]}${unit}`;
+
+  if (/(学龄|儿童)/.test(text) && /洗发水/.test(text)) {
+    const category = unit === "g" && size >= 300 ? "refill" : "bottle";
+    return `products/612-shampoo-${category}-${spec}.png`;
+  }
+
+  return "";
 }
 
 function resolveJdDailyProductNameFallback(name) {
@@ -4953,6 +5051,22 @@ function resolveJdDailyProductNameFallback(name) {
   if (!specMatch) return "";
 
   const spec = `${specMatch[1]}${specMatch[2].toLowerCase()}`;
+  if (/学龄|儿童/.test(text)) {
+    const schoolRules = [
+      { pattern: /安心霜|学龄霜|修护霜|舒缓霜/, base: "612-repairing-cream", category: Number(specMatch[1]) >= 30 ? "jar" : "tube" },
+      { pattern: /冰沙霜/, base: "612-cooling-cream", category: Number(specMatch[1]) >= 30 ? "jar" : "tube" },
+      { pattern: /身体乳|保湿修护身体乳/, base: "612-body-lotion", category: /g$/i.test(spec) ? "tube" : "bottle" },
+      { pattern: /柔净洁面泡|洁面泡|洁面/, base: /儿童/.test(text) ? "kids-cleansing-foam" : "612-cleansing-foam", category: "bottle" },
+      { pattern: /泡泡沐浴露|沐浴露/, base: "612-body-wash-foam", category: "bottle" },
+      { pattern: /洗发水/, base: "612-shampoo", category: "bottle" },
+      { pattern: /护发素/, base: "612-conditioner", category: "tube" },
+      { pattern: /保湿喷雾|喷雾/, base: "612-moisturizing-spray", category: "bottle" },
+      { pattern: /精华露|次抛/, base: "612-soothing-essence", category: "bottle" }
+    ];
+    const schoolRule = schoolRules.find((item) => item.pattern.test(text));
+    if (schoolRule) return `${schoolRule.base}-${schoolRule.category}-${spec}.png`;
+  }
+
   const rules = [
     { pattern: /安心霜|舒缓霜/, base: "baby-soothing-cream", category: Number(specMatch[1]) >= 30 ? "jar" : "tube" },
     { pattern: /冰沙霜/, base: "baby-cooling-cream", category: Number(specMatch[1]) >= 30 ? "jar" : "tube" },
@@ -5754,13 +5868,18 @@ async function applyTitleAndProductNote(doc, row) {
   [subtitleLayer1, subtitleLayer2, subtitleBaseLayer].forEach((layer) => {
     if (layer && layer !== subtitleLayer) layer.visible = false;
   });
+  let subtitleLineCount = 0;
   if (subtitleLayer && subtitleText !== undefined && subtitleText !== null) {
     subtitleLayer.visible = true;
-    await replaceTextLayerKeepTemplateStyle(subtitleLayer, subtitleText);
+    const parsedSubtitle = parseTitleSuperscriptMarkup(subtitleText);
+    await replaceTextLayerMixedStyle(subtitleLayer, parsedSubtitle.text, SUBTITLE_FONT_RULE, "Subtitle", {
+      superscripts: parsedSubtitle.superscripts
+    });
+    subtitleLineCount = Math.max(1, String(parsedSubtitle.text).split(/\r\n|\r|\n/).length);
     handled["txt.subtitle"] = true;
     handled["txt.subtitle.1"] = true;
     handled["txt.subtitle.2"] = true;
-    log(`  Subtitle variant used: ${subtitleLayer.name}, titleLines=${titleLineCount}; template position/font/size preserved.`);
+    log(`  Subtitle variant used: ${subtitleLayer.name}, titleLines=${titleLineCount}, subtitleLines=${subtitleLineCount}; mixed font applied, superscripts=${parsedSubtitle.superscripts.length}.`);
   } else if (subtitleLayer) {
     subtitleLayer.visible = false;
     handled["txt.subtitle"] = true;
@@ -5768,7 +5887,8 @@ async function applyTitleAndProductNote(doc, row) {
     handled["txt.subtitle.2"] = true;
   }
 
-  const titleNoteVariantIndex = Math.min(Math.max(titleLineCount, 1), 3);
+  const titleNoteLineBasis = Math.max(titleLineCount, 1) + subtitleLineCount;
+  const titleNoteVariantIndex = Math.min(Math.max(titleNoteLineBasis, 1), 3);
   const titleNoteText = firstTextValue(row, [
     `txt.titleNote.${titleNoteVariantIndex}`,
     "txt.titleNote"
@@ -5777,9 +5897,9 @@ async function applyTitleAndProductNote(doc, row) {
   const titleNoteLayer2 = findLayerByName(doc, "txt.titleNote.2");
   const titleNoteLayer3 = findLayerByName(doc, "txt.titleNote.3");
   const titleNoteBaseLayer = findLayerByName(doc, "txt.titleNote");
-  const titleNoteLayer = titleLineCount >= 3 && titleNoteLayer3
+  const titleNoteLayer = titleNoteVariantIndex >= 3 && titleNoteLayer3
     ? titleNoteLayer3
-    : titleLineCount > 1 && titleNoteLayer2
+    : titleNoteVariantIndex > 1 && titleNoteLayer2
       ? titleNoteLayer2
       : titleNoteLayer1 || titleNoteBaseLayer || titleNoteLayer2 || titleNoteLayer3;
 
@@ -5794,7 +5914,7 @@ async function applyTitleAndProductNote(doc, row) {
     handled["txt.titleNote.1"] = true;
     handled["txt.titleNote.2"] = true;
     handled["txt.titleNote.3"] = true;
-    log(`  Title note variant used: ${titleNoteLayer.name}, titleLines=${titleLineCount}.`);
+    log(`  Title note variant used: ${titleNoteLayer.name}, titleLines=${titleLineCount}, subtitleLines=${subtitleLineCount}, lineBasis=${titleNoteLineBasis}.`);
   } else {
     [titleNoteLayer1, titleNoteLayer2, titleNoteLayer3, titleNoteBaseLayer].forEach((layer) => {
       if (layer) layer.visible = false;
