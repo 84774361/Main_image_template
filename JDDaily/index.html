@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="src/styles.css" />
+    <script src="src/main-full.js"></script>
+  </head>
+  <body>
+    <main class="panel">
+      <header class="header">
+        <h1>&#20027;&#22270;&#25209;&#37327;&#29983;&#25104;</h1>
+        <p>PSD &#27169;&#26495; + CSV &#25968;&#25454; + &#32032;&#26448;&#30446;&#24405;</p>
+      </header>
+
+      <section class="controls">
+        <button id="pickTemplate" type="button">&#36873;&#25321; PSD &#27169;&#26495;</button>
+        <div id="templateName" class="fileLabel">&#26410;&#36873;&#25321;</div>
+
+        <button id="pickCsv" type="button">&#36873;&#25321; CSV &#25968;&#25454;</button>
+        <div id="csvName" class="fileLabel">&#26410;&#36873;&#25321;</div>
+
+        <button id="pickAssets" type="button">&#36873;&#25321;&#32032;&#26448;&#30446;&#24405;</button>
+        <div id="assetsName" class="fileLabel">&#26410;&#36873;&#25321;</div>
+
+        <button id="pickOutput" type="button">&#36873;&#25321;&#23548;&#20986;&#30446;&#24405;</button>
+        <div id="outputName" class="fileLabel">&#26410;&#36873;&#25321;</div>
+      </section>
+
+      <section class="options">
+        <label>
+          &#23548;&#20986;&#26684;&#24335;
+          <select id="exportFormat">
+            <option value="jpg" selected>JPG</option>
+            <option value="psd">PSD</option>
+            <option value="jpg,psd">JPG + PSD</option>
+          </select>
+        </label>
+        <label>
+          JPG &#36136;&#37327;
+          <input id="jpgQuality" type="number" min="1" max="12" value="10" />
+        </label>
+        <label>
+          &#25991;&#20214;&#21517;&#21069;&#32512;
+          <input id="filePrefix" type="text" placeholder="&#21487;&#36873;&#65292;&#22914; jd_daily_750_" />
+        </label>
+      </section>
+
+      <button id="runBatch" class="primary" type="button">&#24320;&#22987;&#25209;&#37327;&#29983;&#25104;</button>
+
+      <section class="status">
+        <div id="summary">&#31561;&#24453;&#24320;&#22987;</div>
+        <progress id="progress" value="0" max="1"></progress>
+        <pre id="log"></pre>
+      </section>
+    </main>
+  </body>
+</html>
