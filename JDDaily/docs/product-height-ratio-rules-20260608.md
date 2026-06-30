@@ -73,6 +73,7 @@ Pump products use the bottle table with a `+0.04` default boost, capped by the n
 | `>=50g/ml` | `0.78` | `0.72` | `product.tube50HeightRatio` |
 | `>=30g/ml` | `0.68` | `0.62` | `product.tube30HeightRatio` |
 | `>=25g/ml` | `0.62` | `0.58` | `product.tube25HeightRatio` |
+| `>=15g/ml` | `0.72` | `0.70` | `product.tube15HeightRatio` |
 | `>=10g/ml` | `0.50` | `0.42` | `product.tube10HeightRatio` |
 | `<10g/ml` | `0.42` | `0.36` | `product.tube5HeightRatio` |
 

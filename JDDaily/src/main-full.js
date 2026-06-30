@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260630-jddaily750-school-shampoo-bottle";
+const SCRIPT_VERSION = "20260630-jddaily-layout-gap-semantics";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -1279,7 +1279,7 @@ function applyGiftLeftHeightRatioToBox(row, index, areaBox, box) {
 function getProductOverlapRatio(row, items) {
   const explicit = readNumber(row, "product.overlapRatio", null);
   if (Number.isFinite(explicit)) {
-    return Math.max(-0.8, Math.min(explicit, 0.8));
+    return Math.min(Math.abs(explicit), 0.8);
   }
 
   const categories = items.map((_, index) => getProductCategory(row, index + 1));
@@ -1291,10 +1291,6 @@ function getProductOverlapRatio(row, items) {
 function getProductOverlapGap(row, items, areaBox) {
   const overlapRatio = getProductOverlapRatio(row, items);
   const minWidth = Math.min(...items.map((item) => item.box.width));
-
-  if (overlapRatio < 0) {
-    return areaBox.width * Math.abs(overlapRatio);
-  }
 
   return -minWidth * overlapRatio;
 }
@@ -2298,10 +2294,10 @@ function getProductCategoryPairGapRatio(leftCategory, rightCategory, layout = "o
   const right = normalizeProductCategory(rightCategory);
   const pair = [left, right].sort().join("|");
   const lineRatios = {
-    "jar|jar": 1.50,
+    "jar|jar": 0.50,
     "bottle|bottle": 0,
-    "tube|tube": 0,
-    "ampoule|ampoule": 0.01,
+    "tube|tube": -0.08,
+    "ampoule|ampoule": -0.3,
     "bottle|jar": 0.72,
     "jar|tube": 0.78,
     "ampoule|jar": 0.84,
@@ -2508,7 +2504,9 @@ function getProductCategoryPairGap(row, leftIndex, rightIndex, leftWidth, rightW
   const basisWidth = Math.min(leftWidth, rightWidth);
   if (!Number.isFinite(basisWidth) || basisWidth <= 0) return fallbackGap;
   const gap = Math.round(basisWidth * ratio);
-  return layout === "line" ? Math.max(0, gap) : gap;
+  if (layout !== "line") return gap;
+  const sameCategory = leftCategory === rightCategory;
+  return sameCategory ? gap : Math.max(0, gap);
 }
 
 function getProductCategoryPairGaps(row, itemBoxes, fallbackGap, layout = "overlap") {
@@ -3240,17 +3238,6 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
   const hasManualGap = !hasManualOverlapRatio && (row["product.gap"] !== undefined && row["product.gap"] !== "" || hasProductCategoryGap(row));
   const overlapRatio = getProductOverlapRatio(row, items);
 
-  if (!hasManualGap && overlapRatio < 0) {
-    const slotRow = {
-      ...row,
-      "product.gap": String(Math.round(areaBox.width * Math.abs(overlapRatio))),
-      "product.slotFill": row["product.slotFill"] || "0.86"
-    };
-    await arrangeProductLineItems(items, slotRow, areaBox, "negative-slot");
-    log(`  Arranged product ${layout} using negative slot spread. overlapRatio=${overlapRatio}, slotGap=${slotRow["product.gap"]}`);
-    return;
-  }
-
   let gap = hasManualGap
     ? getImageGroupGap(row, "product", layout, minWidth)
     : getProductOverlapGap(row, items, areaBox);
@@ -3277,21 +3264,17 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
     : gap;
   const finalTotalWidth = getItemsTotalWidth(finalItems, gaps);
   let left = areaBox.centerX - finalTotalWidth / 2;
-  const spreadByCenter = !hasManualGap && overlapRatio < 0;
-  const centerSpan = spreadByCenter ? getNegativeOverlapSpan(row, finalItems, areaBox, overlapRatio) : 0;
-  const centerStart = areaBox.centerX - centerSpan / 2;
-  const centerStep = finalItems.length > 1 ? centerSpan / (finalItems.length - 1) : 0;
 
   for (let i = 0; i < finalItems.length; i += 1) {
     const item = finalItems[i];
-    const targetCenterX = spreadByCenter ? centerStart + i * centerStep : left + item.box.width / 2;
+    const targetCenterX = left + item.box.width / 2;
     const yOffset = layout === "stack" ? (i - (finalItems.length - 1) / 2) * item.box.height * 0.04 : 0;
     await item.layer.translate(targetCenterX - item.box.centerX, areaBox.bottom - item.box.bottom + yOffset);
     left += item.box.width + (Array.isArray(gaps) ? gaps[i] || 0 : gap);
   }
 
   await arrangeProductLayerStacking(finalItems, getImageGroupZOrder(row, "product"));
-  log(`  Arranged product ${layout} after replace. overlapRatio=${overlapRatio}, gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, centerSpan=${Math.round(centerSpan)}, totalWidth=${Math.round(finalTotalWidth)}, items=${finalItems.length}`);
+  log(`  Arranged product ${layout} after replace. overlapRatio=${overlapRatio}, gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, totalWidth=${Math.round(finalTotalWidth)}, items=${finalItems.length}`);
 }
 
 async function arrangeProductLineAfterReplace(doc, row) {
