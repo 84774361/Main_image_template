@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260630-jddaily-gap-reflow";
+const SCRIPT_VERSION = "20260701-jddaily-bottomtext-short-threshold";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -123,6 +123,8 @@ const TEMPLATE_CONFIGS = {
     bottomTextCenterX: 500,
     bottomTextAreaName: "bottomText.area",
     bottomTextOverflowScale: 0.8,
+    bottomTextShortMaxUnits: 7.0,
+    bottomTextShortFitRatio: 0.88,
     bottomTextStyle: {
       chinese: {
         postScriptName: "FZLanTingHei_GBK",
@@ -3780,7 +3782,7 @@ async function replaceTextLayerKeepTemplateStyle(layer, value, options = {}) {
 
 async function replaceTextLayersByName(doc, name, value, options = {}) {
   if (name === "txt.bottomText" && options.bottomText) {
-    return applyBottomTextVariantRules(doc, value);
+    return applyBottomTextVariantRules(doc, value, options.row || {});
   }
 
   const layers = findLayersByName(doc, name).filter((layer) => layer && layer.textItem);
@@ -4412,6 +4414,44 @@ async function applyBottomTextLayerTemplateContents(layer, value) {
   await applyBottomTextTemplateStyle(layer, value, 1);
 }
 
+function getBottomTextVisualUnits(value) {
+  const text = String(value || "").replace(/\s+/g, "");
+  let units = 0;
+  for (const char of text) {
+    if (/[\u4e00-\u9fff]/.test(char)) {
+      units += 1;
+    } else if (/[A-Za-z0-9]/.test(char)) {
+      units += 0.55;
+    } else {
+      units += 0.35;
+    }
+  }
+  return units;
+}
+
+function getBottomTextShortMaxUnits(row) {
+  const config = getCurrentTemplateConfig();
+  const value = readOptionalNumber(row, [
+    "bottomText.shortMaxUnits",
+    "bottomText.shortMaxChars",
+    "txt.bottomText.shortMaxUnits",
+    "txt.bottomText.shortMaxChars"
+  ]);
+  return Number.isFinite(value) ? value : Number(config.bottomTextShortMaxUnits || 0);
+}
+
+function getBottomTextShortFitRatio(row) {
+  const config = getCurrentTemplateConfig();
+  const value = readOptionalNumber(row, [
+    "bottomText.shortFitRatio",
+    "bottomText.shortWidthRatio",
+    "txt.bottomText.shortFitRatio",
+    "txt.bottomText.shortWidthRatio"
+  ]);
+  const ratio = Number.isFinite(value) ? value : Number(config.bottomTextShortFitRatio || 1);
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+}
+
 async function applyBottomTextTemplateStyle(layer, value, scale = 1) {
   if (!layer || value === undefined || value === null) return;
   if (!layer.textItem) {
@@ -4471,7 +4511,7 @@ async function applyBottomTextTemplateStyle(layer, value, scale = 1) {
   }
 }
 
-async function applyBottomTextVariantRules(doc, value) {
+async function applyBottomTextVariantRules(doc, value, row = {}) {
   const config = getCurrentTemplateConfig();
   const areaLayer = findLayerByName(doc, config.bottomTextAreaName || "bottomText.area");
   const areaBox = getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
@@ -4497,14 +4537,20 @@ async function applyBottomTextVariantRules(doc, value) {
     shortLayer.visible = true;
     await applyBottomTextLayerTemplateContents(shortLayer, value);
     const shortBox = await getLayerBox(shortLayer);
-    const fits = !areaBox || !shortBox || shortBox.width <= areaBox.width;
+    const shortMaxUnits = getBottomTextShortMaxUnits(row);
+    const visualUnits = getBottomTextVisualUnits(value);
+    const fitRatio = getBottomTextShortFitRatio(row);
+    const safeWidth = areaBox && Number.isFinite(areaBox.width) ? areaBox.width * fitRatio : null;
+    const fitsWidth = !safeWidth || !shortBox || shortBox.width <= safeWidth;
+    const fitsUnits = !Number.isFinite(shortMaxUnits) || shortMaxUnits <= 0 || visualUnits <= shortMaxUnits;
+    const fits = fitsWidth && fitsUnits;
     if (fits || !longLayer) {
       selectedLayer = shortLayer;
-      log(`  Bottom text variant selected: txt.bottomText.1${areaBox && shortBox ? `, width=${Math.round(shortBox.width)}/${Math.round(areaBox.width)}` : ""}.`);
+      log(`  Bottom text variant selected: txt.bottomText.1${areaBox && shortBox ? `, width=${Math.round(shortBox.width)}/${Math.round(safeWidth || areaBox.width)}` : ""}, units=${visualUnits.toFixed(1)}/${shortMaxUnits || "auto"}.`);
     } else {
       shortLayer.visible = false;
       selectedLayer = longLayer;
-      log(`  Bottom text variant overflow: txt.bottomText.1 width=${Math.round(shortBox.width)}/${Math.round(areaBox.width)}, using txt.bottomText.2.`);
+      log(`  Bottom text variant overflow: txt.bottomText.1${areaBox && shortBox ? ` width=${Math.round(shortBox.width)}/${Math.round(safeWidth || areaBox.width)}` : ""}, units=${visualUnits.toFixed(1)}/${shortMaxUnits || "auto"}, using txt.bottomText.2.`);
     }
   }
 
@@ -5975,7 +6021,7 @@ function isGiftControlColumn(column) {
     /^person\.(offsetX|offsetY)$/.test(column) ||
     column === "titleStyle" ||
     /^(title|txt)\.(wrapAt|titleWrapAt|titleMaxWidth|maxWidth|productNoteGap|productNoteOffsetY|titleLineHeight|lineHeight|titleLineHeightRatio|lineHeightRatio|titleTracking|tracking|style|titleStyle|bottomTextScale|bottomTextCenterX|bottomTextOverflowScale)$/.test(column) ||
-    /^bottomText\.(maxWidth|centerX|overflowScale|area)$/.test(column) ||
+    /^bottomText\.(maxWidth|centerX|overflowScale|area|shortMaxUnits|shortMaxChars|shortFitRatio|shortWidthRatio)$/.test(column) ||
     /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleRadius|maxTextWidth|fontSize)$/.test(column) ||
     /^productNote\.(gap|offsetY)$/.test(column) ||
     /^(note|remark|remarks|备注|产品视角)$/.test(column);
@@ -6121,7 +6167,8 @@ async function applyRowToDocument(doc, row) {
 
     if (column === "txt.bottomText") {
       const replaced = await replaceTextLayersByName(doc, column, value, {
-        bottomText: true
+        bottomText: true,
+        row: expandedRow
       });
       if (!replaced) {
         log(`  Skip: layer not found: ${column}`);
@@ -6143,6 +6190,7 @@ async function applyRowToDocument(doc, row) {
         const replaced = await replaceTextLayersByName(doc, column, value, {
           bottomText: column === "txt.bottomText",
           priceDecimalTail: column === "txt.price",
+          row: expandedRow,
           subscriptSuffixes: getCurrentTemplateConfig().bottomTextSubscriptSuffixes || []
         });
         if (!replaced) {

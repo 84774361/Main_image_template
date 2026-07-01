@@ -2,7 +2,7 @@
   "manifestVersion": 4,
   "id": "com.newpage.jddaily.mainimage",
   "name": "JDDaily Main Image",
-  "version": "0.2.79",
+  "version": "0.2.82",
   "main": "panel.html",
   "host": {
     "app": "PS",
