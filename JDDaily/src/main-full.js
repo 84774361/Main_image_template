@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260701-jddaily-subtitle-superscript";
+const SCRIPT_VERSION = "20260701-jddaily-giftleft-action-move-align";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -268,6 +268,7 @@ const state = {
   busy: false,
   giftTargets: {},
   groupAreaBoxes: {},
+  groupAreaNames: {},
   placedImageLayers: {},
   templateLayerBoxes: {},
   productNameMap: null,
@@ -791,6 +792,45 @@ function findLayerByAnyName(doc, names) {
     if (layer) return layer;
   }
   return null;
+}
+
+function findLayerByNameInLayer(parentLayer, name) {
+  if (!parentLayer || !parentLayer.layers) return null;
+  for (const layer of parentLayer.layers) {
+    if (layer.name === name) return layer;
+    const child = findLayerByNameInLayer(layer, name);
+    if (child) return child;
+  }
+  return null;
+}
+
+function findLayerByAnyNameInLayer(parentLayer, names) {
+  for (const name of names || []) {
+    const layer = findLayerByNameInLayer(parentLayer, name);
+    if (layer) return layer;
+  }
+  return null;
+}
+
+function findGiftLeftImageGroupInLayer(parentLayer) {
+  return findLayerByAnyNameInLayer(parentLayer, [
+    "giftLeftimage",
+    "giftLeftImage",
+    "giftLeft.image"
+  ]);
+}
+
+function findDailyMechanismLayerForGiftLeft(doc, names) {
+  const candidates = [];
+  for (const name of names || []) {
+    candidates.push(...findLayersByName(doc, name));
+  }
+
+  return candidates.find((layer) => {
+    return layer && layer.visible !== false && findGiftLeftImageGroupInLayer(layer);
+  }) || candidates.find((layer) => {
+    return layer && findGiftLeftImageGroupInLayer(layer);
+  }) || null;
 }
 
 function setLayerVisibleByAnyName(doc, names, visible, label) {
@@ -2919,9 +2959,11 @@ async function prepareImageGroupLayers(doc, row, prefix) {
   if (areaBox) {
     log(`  ${prefix}.area: ${areaLayer.name}, x=${Math.round(areaBox.left)}, y=${Math.round(areaBox.top)}, w=${Math.round(areaBox.width)}, h=${Math.round(areaBox.height)}`);
     state.groupAreaBoxes[prefix] = areaBox;
+    state.groupAreaNames[prefix] = areaLayer.name;
   } else {
     log(`  ${prefix}.area not found. Using img.${prefix} as layout area.`);
     delete state.groupAreaBoxes[prefix];
+    delete state.groupAreaNames[prefix];
   }
 
   if ((count <= 1 && prefix !== "giftLeft") || !baseLayer) return;
@@ -3112,6 +3154,63 @@ async function moveLayerNearTemplateLayer(layer, templateLayer, placement) {
   }
 }
 
+async function moveLayerInsideGroup(layer, groupLayer, label) {
+  if (!layer || !groupLayer) return false;
+  const placements = [
+    photoshop.constants.ElementPlacement.PLACEINSIDE,
+    photoshop.constants.ElementPlacement.PLACEATEND,
+    photoshop.constants.ElementPlacement.INSIDE
+  ].filter(Boolean);
+  for (const placement of placements) {
+    try {
+      await layer.move(groupLayer, placement);
+      log(`  Moved ${layer.name} inside ${label || groupLayer.name}.`);
+      return true;
+    } catch (error) {
+      // Try the next UXP placement constant.
+    }
+  }
+  log(`  Layer group move skipped for ${layer.name}: could not move inside ${label || groupLayer.name}.`);
+  return false;
+}
+
+async function moveLayerByOffset(layer, dx, dy, label) {
+  if (!layer || (!dx && !dy)) return;
+  try {
+    // GiftLeft alignment relies on Photoshop's native move offset; DOM translate did not move grouped smart-object content reliably.
+    photoshop.app.activeDocument.activeLayers = [layer];
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "move",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          to: {
+            _obj: "offset",
+            horizontal: { _unit: "pixelsUnit", _value: dx },
+            vertical: { _unit: "pixelsUnit", _value: dy }
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: false, modalBehavior: "execute" }
+    );
+  } catch (error) {
+    log(`  Action move skipped for ${label || layer.name}: ${formatError(error)}; using DOM translate.`);
+    await layer.translate(dx, dy);
+  }
+}
+
+function findCurrentGiftLeftImageGroup(doc, row) {
+  const config = getCurrentTemplateConfig();
+  const switchConfig = config.dailyMechanismSwitch || {};
+  const type = getDailyMechanismType(row || state.currentRow || {}, switchConfig);
+  const mechanismNames = switchConfig.groups && switchConfig.groups[type] || [`daily.mechanism.${type}`];
+  const mechanismLayer = findDailyMechanismLayerForGiftLeft(doc, mechanismNames);
+  return mechanismLayer ? findGiftLeftImageGroupInLayer(mechanismLayer) : null;
+}
+
 async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, targetBoxes, areaBox, count, layout) {
   state.placedImageLayers = state.placedImageLayers || {};
 
@@ -3137,7 +3236,11 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     layer.name = `img.${prefix}.${i}`;
     layer.visible = true;
     if (prefix === "giftLeft") {
-      await moveLayerNearTemplateLayer(layer, baseLayer, photoshop.constants.ElementPlacement.PLACEBEFORE);
+      const giftLeftImageGroup = findCurrentGiftLeftImageGroup(doc, row);
+      const movedInside = await moveLayerInsideGroup(layer, giftLeftImageGroup, "current giftLeftimage");
+      if (!movedInside) {
+        await moveLayerNearTemplateLayer(layer, baseLayer, photoshop.constants.ElementPlacement.PLACEBEFORE);
+      }
     }
     const targetBox = prefix === "product"
       ? applyProductHeightRatioToBox(row, i, areaBox, targetBoxes[i - 1], count)
@@ -3198,29 +3301,69 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
 
 async function alignGiftLeftImageGroupToArea(doc) {
   const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.giftLeft;
+  const areaName = state.groupAreaNames && state.groupAreaNames.giftLeft || "giftLeft.area";
   if (!areaBox) {
     log("  GiftLeft group align skipped: giftLeft.area not found.");
     return;
   }
 
-  const groupLayer = findVisiblePreferredLayerByName(doc, "giftLeftimage") ||
-    findVisiblePreferredLayerByName(doc, "giftLeftImage") ||
-    findVisiblePreferredLayerByName(doc, "giftLeft.image");
-  const targetLayer = groupLayer || findVisiblePreferredLayerByName(doc, "img.giftLeft");
+  const config = getCurrentTemplateConfig();
+  const switchConfig = config.dailyMechanismSwitch || {};
+  const type = getDailyMechanismType(state.currentRow || {}, switchConfig);
+  const mechanismNames = switchConfig.groups && switchConfig.groups[type] || [`daily.mechanism.${type}`];
+  const mechanismLayer = findDailyMechanismLayerForGiftLeft(doc, mechanismNames);
+  if (!mechanismLayer) {
+    log(`  GiftLeft group align skipped: active daily.mechanism.${type} group not found.`);
+    return;
+  }
+
+  const targetLayer = findGiftLeftImageGroupInLayer(mechanismLayer);
   if (!targetLayer) {
-    log("  GiftLeft group align skipped: giftLeftimage group not found.");
+    log(`  GiftLeft group align skipped: giftLeftimage not found under ${mechanismLayer.name}.`);
     return;
   }
 
-  const box = getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds);
+  const collectVisibleChildBoxes = (layer, result = []) => {
+    if (!layer || layer.visible === false) return result;
+    if (layer.layers && layer.layers.length) {
+      layer.layers.forEach((child) => collectVisibleChildBoxes(child, result));
+      return result;
+    }
+    const childBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+    if (childBox) {
+      result.push({ layer, box: childBox });
+    }
+    return result;
+  };
+  const childBoxes = collectVisibleChildBoxes(targetLayer);
+  const box = childBoxes.length ? makeBox(
+    Math.min(...childBoxes.map((item) => item.box.left)),
+    Math.min(...childBoxes.map((item) => item.box.top)),
+    Math.max(...childBoxes.map((item) => item.box.right)) - Math.min(...childBoxes.map((item) => item.box.left)),
+    Math.max(...childBoxes.map((item) => item.box.bottom)) - Math.min(...childBoxes.map((item) => item.box.top))
+  ) : getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds);
   if (!box) {
-    log(`  GiftLeft group align skipped: ${targetLayer.name} has no bounds.`);
+    log(`  GiftLeft group align skipped: ${targetLayer.name} has no visible child bounds.`);
     return;
   }
 
-  await targetLayer.translate(areaBox.left - box.left, areaBox.bottom - box.bottom);
-  const alignedBox = getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds);
-  log(`  GiftLeft group aligned left-bottom: ${targetLayer.name}, x=${alignedBox ? Math.round(alignedBox.left) : "?"}/${Math.round(areaBox.left)}, bottom=${alignedBox ? Math.round(alignedBox.bottom) : "?"}/${Math.round(areaBox.bottom)}.`);
+  const dx = areaBox.left - box.left;
+  const dy = areaBox.bottom - box.bottom;
+  if (childBoxes.length) {
+    for (const item of childBoxes) {
+      await moveLayerByOffset(item.layer, dx, dy, item.layer.name);
+    }
+  } else {
+    await moveLayerByOffset(targetLayer, dx, dy, targetLayer.name);
+  }
+  const alignedChildBoxes = collectVisibleChildBoxes(targetLayer);
+  const alignedBox = alignedChildBoxes.length ? makeBox(
+    Math.min(...alignedChildBoxes.map((item) => item.box.left)),
+    Math.min(...alignedChildBoxes.map((item) => item.box.top)),
+    Math.max(...alignedChildBoxes.map((item) => item.box.right)) - Math.min(...alignedChildBoxes.map((item) => item.box.left)),
+    Math.max(...alignedChildBoxes.map((item) => item.box.bottom)) - Math.min(...alignedChildBoxes.map((item) => item.box.top))
+  ) : getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds);
+  log(`  GiftLeft align: area=${areaName}, moved=${childBoxes.length ? childBoxes.map((item) => item.layer.name).join("+") : targetLayer.name}, dx=${Math.round(dx)}, dy=${Math.round(dy)}, after=${alignedBox ? `${Math.round(alignedBox.left)},${Math.round(alignedBox.bottom)}` : "?"}, target=${Math.round(areaBox.left)},${Math.round(areaBox.bottom)}.`);
 }
 
 function collectProductItems(doc, count) {
@@ -6392,6 +6535,7 @@ async function processOne(row, index) {
   ensureModules();
   state.giftTargets = {};
   state.groupAreaBoxes = {};
+  state.groupAreaNames = {};
   state.placedImageLayers = {};
   state.templateLayerBoxes = {};
   state.currentRow = null;
@@ -6416,6 +6560,7 @@ async function runBatch() {
   state.busy = true;
     state.giftTargets = {};
     state.groupAreaBoxes = {};
+    state.groupAreaNames = {};
     state.placedImageLayers = {};
     state.templateLayerBoxes = {};
     state.currentRow = null;
