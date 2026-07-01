@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260701-jddaily-bottomtext-short-threshold";
+const SCRIPT_VERSION = "20260701-jddaily-giftleft-group-align";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -892,7 +892,8 @@ function getImageSourceForIndex(row, prefix, index) {
 
 function getProductCategoryFromSource(source) {
   const text = String(source || "").toLowerCase();
-  if (/(ampoule|次抛|安瓶|set-\d+x|\d+x)/.test(text)) return "ampoule";
+  if (isFlatAmpoulePacketSource(text)) return "ampoule";
+  if (/(ampoule|次抛|安瓶|set-\d+x|\d+x|sticker|stickers|patch|贴片|精油贴)/.test(text)) return "ampoule";
   if (/(tube|管)/.test(text)) return "tube";
   if (/(pump|泵|按压)/.test(text)) return "pump";
   if (/(jar|pot|罐)/.test(text)) return "jar";
@@ -902,6 +903,22 @@ function getProductCategoryFromSource(source) {
   if (/(diaper|repairing|身体乳100g)/.test(text)) return "tube";
   if (/(wash|foam|shampoo|body-lotion|lotion|乳|oil|精油|sunscreen|sun)/.test(text)) return "bottle";
   return "default";
+}
+
+function isSmallBagSachetSource(source) {
+  const text = String(source || "")
+    .toLowerCase()
+    .replace(/\\/g, "/")
+    .replace(/[_\s]+/g, "-");
+  return /(?:bag|袋包|袋装)[^/]*(?:5g|5ml)|(?:5g|5ml)[^/]*(?:bag|袋包|袋装)|(?:sachet|小袋|片装)[^/]*(?:8g|8ml)|(?:8g|8ml)[^/]*(?:sachet|小袋|片装)|bath-oil-5g/i.test(text);
+}
+
+function isStickerPatchSource(source) {
+  return /(sticker|stickers|patch|贴片|精油贴)/i.test(String(source || ""));
+}
+
+function isFlatAmpoulePacketSource(source) {
+  return isSmallBagSachetSource(source) || isStickerPatchSource(source);
 }
 
 function getProductCategory(row, index) {
@@ -1019,6 +1036,7 @@ function getGiftLeftAmpouleGroupCount(row) {
   const explicitMatch = String(row && (row["giftLeft.ampouleGroups"] || row["giftLeft.groupCount"]) || "").match(/(\d+)/);
   if (explicitMatch) return Math.max(1, Math.min(Number(explicitMatch[1]), 12));
 
+  const imagePath = getGiftLeftAmpouleImagePath(row);
   const text = [
     row && row["txt.giftLeftDesc"],
     row && row.txt && row.txt.giftLeftDesc,
@@ -1030,6 +1048,15 @@ function getGiftLeftAmpouleGroupCount(row) {
     .replace(/Ｘ/g, "x")
     .replace(/ｘ/g, "x");
 
+  const unitsPerAsset = getAmpouleUnitsFromText(imagePath);
+  if (unitsPerAsset > 1) {
+    const totalUnits = getGiftLeftAmpouleTotalUnits(text);
+    if (totalUnits > 0) {
+      return Math.max(1, Math.min(Math.ceil(totalUnits / unitsPerAsset), 12));
+    }
+    return 1;
+  }
+
   const groupMatch = text.match(/(?:\*|x)\s*5\s*(?:\*|x)\s*(\d+)/i);
   if (groupMatch) return Math.max(1, Math.min(Number(groupMatch[1]), 12));
 
@@ -1039,6 +1066,28 @@ function getGiftLeftAmpouleGroupCount(row) {
   }
 
   return 1;
+}
+
+function getAmpouleUnitsFromText(value) {
+  const text = String(value || "")
+    .toLowerCase()
+    .replace(/×/g, "x")
+    .replace(/＊/g, "*")
+    .replace(/Ｘ/g, "x")
+    .replace(/ｘ/g, "x");
+  const setMatch = text.match(/(?:set[-_\s]*|[-_\s])(\d+)\s*x/i) || text.match(/(?:\*|x)\s*(\d+)(?:[^0-9]|$)/i);
+  return setMatch ? Number(setMatch[1]) || 0 : 0;
+}
+
+function getGiftLeftAmpouleTotalUnits(text) {
+  const normalized = String(text || "").toLowerCase();
+  const groupMatch = normalized.match(/(?:\*|x)\s*5\s*(?:\*|x)\s*(\d+)/i);
+  if (groupMatch) return 5 * Number(groupMatch[1]);
+
+  const countMatch = normalized.match(/(?:ampoule|次抛|精华露).*?(?:\*|x)\s*(\d+)/i);
+  if (countMatch) return Number(countMatch[1]) || 0;
+
+  return getAmpouleUnitsFromText(normalized);
 }
 
 function getGiftLeftAmpouleRows(groupCount) {
@@ -1143,6 +1192,9 @@ function getTubeHeightRatioBySpec(row, size, mode) {
 
 function getAmpouleHeightRatioBySpec(row, size, mode, source) {
   const same = mode === "same";
+  if (isFlatAmpoulePacketSource(source)) {
+    return readProductHeightRatio(row, "ampouleBag", same ? 0.8 : 0.72, ["product.stickerHeightRatio", "product.smallBagHeightRatio"]);
+  }
   if (isAmpouleSetSource(source)) return readProductHeightRatio(row, "ampouleSet", 0.65);
   if (size >= 60) return readProductHeightRatio(row, "ampoule60", same ? 0.78 : 0.72);
   if (size >= 40) return readProductHeightRatio(row, "ampoule40", same ? 0.72 : 0.66);
@@ -1700,6 +1752,10 @@ function isLatinDigitChar(char) {
   return /^[A-Za-z0-9]$/.test(char);
 }
 
+function isSubtitleLatinChar(char) {
+  return /^[A-Za-z0-9.,:;!?'"()&+\-/%\s]$/.test(char);
+}
+
 function isTitleLatinStyleChar(char) {
   return /^[A-Za-z0-9.,:;!?'"()&+\-/\s]$/.test(char);
 }
@@ -1926,6 +1982,62 @@ function buildMixedTextTemplateStyleRanges(text, styleByKind, styleConfig) {
         ...(styleByKind[range.kind] || styleByKind.chinese),
         color: makeRgbColor(config.color || (styleByKind[range.kind] && styleByKind[range.kind].color))
       }
+    };
+  });
+}
+
+function getTemplateStyleOrConfiguredFallback(styleByKind, baseStyle, styleConfig, kind) {
+  const templateStyle = styleByKind && styleByKind[kind];
+  const config = styleConfig && styleConfig[kind] || {};
+  const templateFont = templateStyle && (templateStyle.fontPostScriptName || templateStyle.fontName);
+  const baseFont = baseStyle && (baseStyle.fontPostScriptName || baseStyle.fontName);
+  if (kind === "latin" && (!templateStyle || templateFont === baseFont)) {
+    return {
+      ...(baseStyle || {}),
+      fontPostScriptName: config.postScriptName || (baseStyle && baseStyle.fontPostScriptName),
+      fontName: config.fontName || (baseStyle && baseStyle.fontName)
+    };
+  }
+  const fallbackStyle = {
+    ...(baseStyle || {}),
+    fontPostScriptName: config.postScriptName || (baseStyle && baseStyle.fontPostScriptName),
+    fontName: config.fontName || (baseStyle && baseStyle.fontName)
+  };
+  return templateStyle || fallbackStyle;
+}
+
+function buildSubtitleTemplateFontStyleRanges(text, textKey, baseStyle, styleConfig) {
+  const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle);
+  const chars = Array.from(toPhotoshopText(text));
+  const ranges = [];
+  let start = 0;
+  let current = null;
+
+  chars.forEach((char, index) => {
+    const kind = isSubtitleLatinChar(char) ? "latin" : "chinese";
+    if (current === null) {
+      current = kind;
+      start = index;
+      return;
+    }
+    if (kind !== current) {
+      ranges.push({ from: start, to: index, kind: current });
+      current = kind;
+      start = index;
+    }
+  });
+
+  if (current !== null) {
+    ranges.push({ from: start, to: chars.length, kind: current });
+  }
+
+  return ranges.map((range) => {
+    const templateStyle = getTemplateStyleOrConfiguredFallback(styleByKind, baseStyle, styleConfig, range.kind);
+    return {
+      _obj: "textStyleRange",
+      from: range.from,
+      to: range.to,
+      textStyle: { ...templateStyle }
     };
   });
 }
@@ -2337,6 +2449,7 @@ function formatProductSpecToken(size) {
 function getProductSpecGapKey(row, index) {
   const category = normalizeProductCategory(getProductCategory(row, index));
   const source = getImageSourceForIndex(row, "product", index);
+  if (category === "ampoule" && isFlatAmpoulePacketSource(source)) return "ampoulePacket";
   if (category === "ampoule" && isAmpouleSetSource(source)) return "ampouleSet";
 
   const specs = getProductSpecFromSource(source);
@@ -2402,6 +2515,7 @@ function getProductLineSpecGapWeight(key) {
     tube80g: 0.03,
     tube100g: 0.04,
     ampoule: 0.02,
+    ampoulePacket: 0.03,
     ampouleSet: 0.03,
     ampoule1p8ml: 0.01,
     ampoule3p8g: 0.01,
@@ -2467,6 +2581,13 @@ function getProductLineSpecPairGapRatio(row, leftIndex, rightIndex) {
     "bottle25g|tube100g": 0.02,
     "bottle500ml|tube100g": 0.02,
     "bottle500ml|jar50g": 0.76,
+    "ampoule|ampoule": -0.3,
+    "ampoulePacket|ampoulePacket": -0.5,
+    "ampoulePacket|ampouleSet": -0.3,
+    "ampoule|ampoulePacket": -0.3,
+    "ampoulePacket|bottle500ml": 0.03,
+    "ampoulePacket|jar50g": 0.78,
+    "ampoulePacket|tube100g": 0.03,
     "ampouleSet|bottle500ml": 0.03,
     "ampouleSet|jar50g": 0.78,
     "ampouleSet|tube100g": 0.03
@@ -2708,6 +2829,7 @@ async function prepareGiftLeftAmpouleLayers(doc, row, baseLayer, areaBox) {
     const layer = await placeAssetAsLayer(asset);
     layer.name = `img.giftLeft.${i}`;
     layer.visible = true;
+    await moveLayerNearTemplateLayer(layer, baseLayer, photoshop.constants.ElementPlacement.PLACEBEFORE);
     const box = getBoundsBox(layer.boundsNoEffects || layer.bounds);
     if (box) {
       layers.push({ layer, box });
@@ -3065,6 +3187,33 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
   }
 
   log(`  Placed ${layers.length} independent ${prefix} image layers with ${layout} layout.`);
+}
+
+async function alignGiftLeftImageGroupToArea(doc) {
+  const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.giftLeft;
+  if (!areaBox) {
+    log("  GiftLeft group align skipped: giftLeft.area not found.");
+    return;
+  }
+
+  const groupLayer = findVisiblePreferredLayerByName(doc, "giftLeftimage") ||
+    findVisiblePreferredLayerByName(doc, "giftLeftImage") ||
+    findVisiblePreferredLayerByName(doc, "giftLeft.image");
+  const targetLayer = groupLayer || findVisiblePreferredLayerByName(doc, "img.giftLeft");
+  if (!targetLayer) {
+    log("  GiftLeft group align skipped: giftLeftimage group not found.");
+    return;
+  }
+
+  const box = getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds);
+  if (!box) {
+    log(`  GiftLeft group align skipped: ${targetLayer.name} has no bounds.`);
+    return;
+  }
+
+  await targetLayer.translate(areaBox.left - box.left, areaBox.bottom - box.bottom);
+  const alignedBox = getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds);
+  log(`  GiftLeft group aligned left-bottom: ${targetLayer.name}, x=${alignedBox ? Math.round(alignedBox.left) : "?"}/${Math.round(areaBox.left)}, bottom=${alignedBox ? Math.round(alignedBox.bottom) : "?"}/${Math.round(areaBox.bottom)}.`);
 }
 
 function collectProductItems(doc, count) {
@@ -3987,9 +4136,11 @@ async function replaceTextLayerMixedStyle(layer, value, styleConfig, label, opti
             _obj: "textLayer",
             ...textKey,
             textKey: textValue,
-            textStyleRange: Array.isArray(options.superscripts) && options.superscripts.length
-              ? buildMixedTextStyleRangesWithSuperscripts(textValue, baseStyle, styleConfig, options.superscripts)
-              : buildMixedTextStyleRanges(textValue, baseStyle, styleConfig)
+            textStyleRange: options.templateFonts
+              ? buildSubtitleTemplateFontStyleRanges(textValue, textKey, baseStyle, styleConfig)
+              : Array.isArray(options.superscripts) && options.superscripts.length
+                ? buildMixedTextStyleRangesWithSuperscripts(textValue, baseStyle, styleConfig, options.superscripts)
+                : buildMixedTextStyleRanges(textValue, baseStyle, styleConfig)
           },
           _options: { dialogOptions: "dontDisplay" }
         }
@@ -5898,7 +6049,8 @@ async function applyTitleAndProductNote(doc, row) {
     subtitleLayer.visible = true;
     const parsedSubtitle = parseTitleSuperscriptMarkup(subtitleText);
     await replaceTextLayerMixedStyle(subtitleLayer, parsedSubtitle.text, SUBTITLE_FONT_RULE, "Subtitle", {
-      superscripts: parsedSubtitle.superscripts
+      superscripts: parsedSubtitle.superscripts,
+      templateFonts: true
     });
     subtitleLineCount = Math.max(1, String(parsedSubtitle.text).split(/\r\n|\r|\n/).length);
     handled["txt.subtitle"] = true;
@@ -6222,6 +6374,7 @@ async function applyRowToDocument(doc, row) {
   log("  After product arrange.");
   await applyProductGroupScale(doc, expandedRow);
   await applyProductShadow(doc);
+  await alignGiftLeftImageGroupToArea(doc);
   if (getCurrentTemplateConfig().keepPersonOnTop) {
     await keepPersonOnTop(doc);
   }
