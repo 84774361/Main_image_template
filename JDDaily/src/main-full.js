@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260701-jddaily-giftleft-group-align";
+const SCRIPT_VERSION = "20260701-jddaily-subtitle-superscript";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -2006,7 +2006,7 @@ function getTemplateStyleOrConfiguredFallback(styleByKind, baseStyle, styleConfi
   return templateStyle || fallbackStyle;
 }
 
-function buildSubtitleTemplateFontStyleRanges(text, textKey, baseStyle, styleConfig) {
+function buildSubtitleTemplateFontStyleRanges(text, textKey, baseStyle, styleConfig, superscripts = []) {
   const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle);
   const chars = Array.from(toPhotoshopText(text));
   const ranges = [];
@@ -2014,7 +2014,11 @@ function buildSubtitleTemplateFontStyleRanges(text, textKey, baseStyle, styleCon
   let current = null;
 
   chars.forEach((char, index) => {
-    const kind = isSubtitleLatinChar(char) ? "latin" : "chinese";
+    const kind = isIndexInRanges(index, superscripts)
+      ? "superscript"
+      : isSubtitleLatinChar(char)
+        ? "latin"
+        : "chinese";
     if (current === null) {
       current = kind;
       start = index;
@@ -2032,12 +2036,15 @@ function buildSubtitleTemplateFontStyleRanges(text, textKey, baseStyle, styleCon
   }
 
   return ranges.map((range) => {
-    const templateStyle = getTemplateStyleOrConfiguredFallback(styleByKind, baseStyle, styleConfig, range.kind);
+    const normalKind = range.kind === "superscript" ? "latin" : range.kind;
+    const templateStyle = getTemplateStyleOrConfiguredFallback(styleByKind, baseStyle, styleConfig, normalKind);
     return {
       _obj: "textStyleRange",
       from: range.from,
       to: range.to,
-      textStyle: { ...templateStyle }
+      textStyle: range.kind === "superscript"
+        ? makeSuperscriptTextStylePreserveFont(templateStyle)
+        : { ...templateStyle }
     };
   });
 }
@@ -4137,7 +4144,7 @@ async function replaceTextLayerMixedStyle(layer, value, styleConfig, label, opti
             ...textKey,
             textKey: textValue,
             textStyleRange: options.templateFonts
-              ? buildSubtitleTemplateFontStyleRanges(textValue, textKey, baseStyle, styleConfig)
+              ? buildSubtitleTemplateFontStyleRanges(textValue, textKey, baseStyle, styleConfig, options.superscripts || [])
               : Array.isArray(options.superscripts) && options.superscripts.length
                 ? buildMixedTextStyleRangesWithSuperscripts(textValue, baseStyle, styleConfig, options.superscripts)
                 : buildMixedTextStyleRanges(textValue, baseStyle, styleConfig)
