@@ -1,11 +1,11 @@
-﻿let templateFile = null;
+let templateFile = null;
 let csvFile = null;
 let assetsFolder = null;
 let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260701-jddaily-giftleft-action-move-align";
+const SCRIPT_VERSION = "20260701-jddaily-merge-psd-cleanup";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -261,7 +261,27 @@ const TEMPLATE_CONFIGS = {
   }
 };
 
+TEMPLATE_CONFIGS.tianmao88 = {
+  ...TEMPLATE_CONFIGS.jddaily750,
+  id: "tianmao88",
+  label: "Tmall 88",
+  filePrefixPlaceholder: "tmall_88_",
+  paths: {
+    ...TEMPLATE_CONFIGS.jddaily750.paths,
+    template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\TIANMAO\\天猫88主图.psd",
+    output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\TIANMAO\\export"
+  },
+  dailyMechanismSwitch: {
+    ...TEMPLATE_CONFIGS.jddaily750.dailyMechanismSwitch,
+    middleGiftLayers: {
+      "208": ["img.giftMiddle.208"],
+      "358": ["img.giftMiddle.358"],
+      "449": ["img.giftMiddle.449"]
+    }
+  }
+};
 let activeTemplateId = "jddaily750";
+let activeRowTemplateId = "";
 
 const state = {
   rows: [],
@@ -271,6 +291,7 @@ const state = {
   groupAreaNames: {},
   placedImageLayers: {},
   templateLayerBoxes: {},
+  exportedPsdEntries: [],
   productNameMap: null,
   productNameRows: []
 };
@@ -327,11 +348,27 @@ function getTemplateConfig(id = activeTemplateId) {
 }
 
 function getCurrentTemplateConfig() {
+  if (activeRowTemplateId && TEMPLATE_CONFIGS[activeRowTemplateId]) {
+    return getTemplateConfig(activeRowTemplateId);
+  }
+
   const selector = $("templateProfile");
   if (selector && selector.value && TEMPLATE_CONFIGS[selector.value]) {
     activeTemplateId = selector.value;
   }
   return getTemplateConfig();
+}
+
+function getRowTemplateProfileId(row) {
+  const id = String(row && (row["template.profile"] || row.templateProfile) || "").trim();
+  return id && TEMPLATE_CONFIGS[id] ? id : "";
+}
+
+function setActiveRowTemplateProfile(row) {
+  activeRowTemplateId = getRowTemplateProfileId(row);
+  if (activeRowTemplateId) {
+    log(`  Row template profile: ${activeRowTemplateId}.`);
+  }
 }
 
 function getConfiguredPath(kind) {
@@ -347,6 +384,16 @@ function getConfiguredExportName(row, index) {
     if (String(value || "").trim()) return String(value).trim();
   }
   return `image_${index + 1}`;
+}
+
+function sanitizeFileBaseName(value, fallback = "image") {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/[<>:"/\\|?*]+/g, "x")
+    .replace(/[\u0000-\u001F]+/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[. ]+$/g, "");
+  return cleaned || fallback;
 }
 
 function isIdentifierColumn(column) {
@@ -380,6 +427,11 @@ function shouldAutoFitImages() {
 function shouldUseTrimmedAssets() {
   const el = $("useTrimmedAssets");
   return !el || el.checked;
+}
+
+function shouldMergeExportedPsds() {
+  const el = $("mergeExportedPsds");
+  return !!(el && el.checked);
 }
 
 function parseCsv(text) {
@@ -937,6 +989,7 @@ function getProductCategoryFromSource(source) {
   if (/(tube|管)/.test(text)) return "tube";
   if (/(pump|泵|按压)/.test(text)) return "pump";
   if (/(jar|pot|罐)/.test(text)) return "jar";
+  if (/(canvas[-_\s]*bag|gift[-_\s]*bag|帆布袋|袋)/.test(text)) return "bag";
   if (/(bottle|瓶)/.test(text)) return "bottle";
   if (/(cream|面霜)/.test(text)) return "jar";
   if (/(安心霜|学龄霜|冰沙霜)/.test(text)) return "jar";
@@ -970,7 +1023,7 @@ function getProductCategory(row, index) {
 function normalizeProductCategory(category) {
   const value = String(category || "default").trim().toLowerCase();
   if (value === "pump") return "bottle";
-  if (["jar", "bottle", "tube", "ampoule"].includes(value)) return value;
+  if (["jar", "bottle", "tube", "ampoule", "bag"].includes(value)) return value;
   return "default";
 }
 
@@ -1033,6 +1086,9 @@ function resolveImageGroupLayout(row, prefix, count) {
   const layout = getImageGroupLayout(row, prefix);
   if (prefix === "product" && layout === "auto") {
     return getAutoProductLayout(row, count);
+  }
+  if (layout === "auto") {
+    return getImageGroupLayout({}, prefix);
   }
   return layout;
 }
@@ -1167,6 +1223,10 @@ function isAmpouleSetSource(source) {
   return /(ampoule[-_\s]*set|set-\d+x|\d+x|\*\s*\d+|次抛.*(?:x|\*)\s*\d+)/.test(text);
 }
 
+function shouldFitProductByHeight(row, index, source) {
+  return true;
+}
+
 function getBottleHeightRatioBySpec(row, size, mode, category) {
   const same = mode === "same";
   const pumpBoost = category === "pump" ? 0.04 : 0;
@@ -1183,7 +1243,7 @@ function getBottleHeightRatioBySpec(row, size, mode, category) {
   if (size >= 500) return readProductHeightRatio(row, "bottle500", (same ? 0.98 : 0.95) + pumpBoost, ["product.lotion500HeightRatio"]);
   if (size >= 400) return readProductHeightRatio(row, "bottle400", (same ? 0.94 : 0.9) + pumpBoost, ["product.lotion500HeightRatio"]);
   if (size >= 300) return readProductHeightRatio(row, "bottle300", (same ? 0.91 : 0.86) + pumpBoost, ["product.lotion500HeightRatio"]);
-  if (size >= 200) return readProductHeightRatio(row, "bottle200", (same ? 0.88 : 0.82) + pumpBoost);
+  if (size >= 200) return readProductHeightRatio(row, "bottle200", (same ? 0.64 : 0.61) + pumpBoost);
   if (size >= 150) return readProductHeightRatio(row, "bottle150", (same ? 0.86 : 0.8) + pumpBoost);
   if (size >= 100) return readProductHeightRatio(row, "bottle100", same ? 0.8 : 0.72);
   if (size >= 60) return readProductHeightRatio(row, "bottle60", same ? 0.72 : 0.66);
@@ -1243,12 +1303,17 @@ function getAmpouleHeightRatioBySpec(row, size, mode, source) {
   return readProductHeightRatio(row, "ampouleDefault", same ? 0.8 : 0.72);
 }
 
+function getBagHeightRatio(row, mode) {
+  return readProductHeightRatio(row, "bag", mode === "same" ? 0.9 : 0.9, ["product.canvasBagHeightRatio"]);
+}
+
 function getChartProductHeightRatio(row, category, specs, mode, source) {
   const size = getProductSpecSize(specs);
   if (category === "ampoule") return getAmpouleHeightRatioBySpec(row, size, mode, source);
   if (category === "jar") return getJarHeightRatioBySpec(row, size, mode);
   if (category === "tube") return getTubeHeightRatioBySpec(row, size, mode);
   if (category === "pump" || category === "bottle") return getBottleHeightRatioBySpec(row, size, mode, category);
+  if (category === "bag") return getBagHeightRatio(row, mode);
   return readProductHeightRatio(row, "default", mode === "same" ? 0.86 : 0.76);
 }
 
@@ -1534,35 +1599,70 @@ function normalizeDailyMechanism(value) {
 }
 
 function getDailyGiftMiddleType(row) {
-  const value = String(
-    row && (
-      row["daily.giftMiddleType"] ||
-      row["img.giftMiddle"] ||
-      row["img.giftMiddle.378"] ||
-      row["img.giftMiddle.298"] ||
-      row["img.giftMiddle.178"] ||
-      row["img.giftRight"]
-    ) || ""
-  ).trim().toLowerCase();
-  if (value.includes("378")) return "378";
-  if (value.includes("298") || value.includes("289")) return "298";
-  if (value.includes("178")) return "178";
+  const config = getCurrentTemplateConfig();
+  const switchConfig = config && config.dailyMechanismSwitch || {};
+  const middleTypes = Object.keys(switchConfig.middleGiftLayers || {});
+  const normalizeMiddleType = (value, mode = "contains") => {
+    const text = String(value || "").trim().toLowerCase();
+    if (!text) return "";
+    for (const type of middleTypes.sort((a, b) => b.length - a.length)) {
+      const normalizedType = String(type).toLowerCase();
+      if (mode === "exact" ? text === normalizedType : text.includes(normalizedType)) return type;
+    }
+    if (mode !== "exact" && text.includes("289") && middleTypes.includes("298")) return "298";
+    return "";
+  };
+
+  const explicit = normalizeMiddleType(row && row["daily.giftMiddleType"]);
+  if (explicit) return explicit;
+
+  const imageSelector = normalizeMiddleType(row && row["img.giftMiddle"], "exact");
+  if (imageSelector) return imageSelector;
+
+  for (const type of middleTypes) {
+    if (hasValue(row, `img.giftMiddle.${type}`)) return type;
+  }
   return "";
 }
-
 function getDailyMechanismType(row, switchConfig) {
   const column = switchConfig.column || "daily.mechanism";
   const explicit = normalizeDailyMechanism(row && row[column]);
   if (explicit) return explicit;
 
   const sheet = normalizeDailyMechanism(row && row.sheet);
-  if (sheet === "2") return "2";
+  if (sheet) return sheet;
 
-  const middleType = getDailyGiftMiddleType(row);
-  if (middleType === "378") return "4";
-  if (middleType) return "3";
   if (hasGiftLeftContent(row)) return "1";
   return String(switchConfig.defaultMechanism || "2");
+}
+
+function isDailyGiftMiddleLayerName(name) {
+  return /^img\.giftMiddle(?:\.|$)/.test(String(name || ""));
+}
+
+function setDailyGiftMiddleLayerVisibility(doc, switchConfig, middleType) {
+  const middleGiftLayers = switchConfig.middleGiftLayers || {};
+  const configuredNames = new Set(Object.values(middleGiftLayers).flat());
+  const middleLayers = getAllLayers(doc.layers).filter((layer) => {
+    return layer && (configuredNames.has(layer.name) || isDailyGiftMiddleLayerName(layer.name));
+  });
+
+  middleLayers.forEach((layer) => {
+    layer.visible = false;
+  });
+
+  if (!middleType) {
+    log(`  GiftMiddle switch: closed ${middleLayers.length}, active=none.`);
+    return;
+  }
+
+  const activeNames = middleGiftLayers[middleType];
+  if (!activeNames) {
+    log(`  Skip: daily.giftMiddleType not configured: ${middleType}`);
+    return;
+  }
+  const opened = setLayersVisibleByAnyName(doc, activeNames, true, `img.giftMiddle.${middleType}`);
+  log(`  GiftMiddle switch: closed ${middleLayers.length}, active=${middleType}, opened=${opened}.`);
 }
 
 function applyDailyMechanismSwitch(doc, row) {
@@ -1577,13 +1677,11 @@ function applyDailyMechanismSwitch(doc, row) {
   });
 
   const middleType = getDailyGiftMiddleType(row);
-  Object.entries(switchConfig.middleGiftLayers || {}).forEach(([layerType, names]) => {
-    setLayersVisibleByAnyName(doc, names, !!middleType && layerType === middleType, `img.giftMiddle.${layerType}`);
-  });
+  setDailyGiftMiddleLayerVisibility(doc, switchConfig, middleType);
 
   const showLeft298 = type === "4" || String(row && row["daily.left298"] || "").trim() === "1";
   setLayersVisibleByAnyName(doc, switchConfig.left298Layers || [], showLeft298, "img.giftLeft.298");
-  log(`  JDDaily mechanism switch: mechanism=${type}, middleGift=${middleType || "none"}.`);
+  log(`  Daily switch: mechanism=${type}, middleGift=${middleType || "none"}.`);
 }
 
 function getPersonTemplateType(row) {
@@ -2674,9 +2772,7 @@ function getProductCategoryPairGap(row, leftIndex, rightIndex, leftWidth, rightW
   const basisWidth = Math.min(leftWidth, rightWidth);
   if (!Number.isFinite(basisWidth) || basisWidth <= 0) return fallbackGap;
   const gap = Math.round(basisWidth * ratio);
-  if (layout !== "line") return gap;
-  const sameCategory = leftCategory === rightCategory;
-  return sameCategory ? gap : Math.max(0, gap);
+  return layout === "line" ? Math.max(0, gap) : gap;
 }
 
 function getProductCategoryPairGaps(row, itemBoxes, fallbackGap, layout = "overlap") {
@@ -2715,11 +2811,15 @@ function fitProductGapsToArea(widths, gaps, areaWidth) {
   return gaps.map((gap) => Math.round(gap - extraOverlap));
 }
 
+function normalizeProductLineGaps(gaps) {
+  return (gaps || []).map((gap) => Math.max(0, Number(gap) || 0));
+}
+
 function getProductGapAt(row, leftIndex, layout, itemWidth, fallbackGap) {
   const categoryRank = getProductCategoryRank(row, leftIndex, Math.max(leftIndex + 1, getGiftCount(row, "product") || 1));
   const categoryGap = readNumber(row, `product.gap.${categoryRank}`, null);
   if (Number.isFinite(categoryGap)) {
-    return categoryGap;
+    return layout === "line" ? Math.max(0, categoryGap) : categoryGap;
   }
   return fallbackGap;
 }
@@ -2772,7 +2872,9 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
     }
 
     let gaps = getProductCategoryPairGaps(row, itemBoxes, -itemWidth * 0.42, layout);
-    gaps = fitProductGapsToArea(itemBoxes.map((box) => box.width), gaps, areaBox.width);
+    gaps = layout === "line"
+      ? normalizeProductLineGaps(gaps)
+      : fitProductGapsToArea(itemBoxes.map((box) => box.width), gaps, areaBox.width);
     let totalWidth = itemBoxes.reduce((sum, box) => sum + box.width, 0) + gaps.reduce((sum, value) => sum + value, 0);
     if (layout === "line" && totalWidth > areaBox.width) {
       const shrink = areaBox.width / totalWidth;
@@ -3249,7 +3351,7 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
         : targetBoxes[i - 1];
 
     const sourceForFit = getImageSourceForIndex(row, prefix, i);
-    const fitByHeight = prefix === "product" && (sourceForFit.includes("cream") || isAmpouleSetSource(sourceForFit)) ||
+    const fitByHeight = (prefix === "product" && shouldFitProductByHeight(row, i, sourceForFit)) ||
       prefix === "giftLeft" ||
       prefix === "giftRight";
     await fitLayerToBox(layer, targetBox, {
@@ -3510,11 +3612,11 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
   let freshItems = refreshProductItems(items);
 
   const useCategoryGaps = !touchEdges && shouldUseProductCategoryPairGaps(row);
-  const gaps = touchEdges
+  const gaps = normalizeProductLineGaps(touchEdges
     ? Array(Math.max(0, freshItems.length - 1)).fill(0)
     : useCategoryGaps
       ? getProductCategoryPairGaps(row, freshItems.map((item) => item.box), gap, "line")
-      : getProductItemGaps(row, freshItems, "line", 0, gap);
+      : getProductItemGaps(row, freshItems, "line", 0, gap));
   let left = 0;
 
   for (let i = 0; i < freshItems.length; i += 1) {
@@ -3593,7 +3695,6 @@ async function arrangeProductLineAfterReplace(doc, row) {
     log(`  Product arrange skipped: using prepared category-gap ${layout} layout.`);
     return;
   }
-
   const areaBox = state.groupAreaBoxes.product;
   if (!areaBox) {
     log("  Product arrange skipped: product.area not found.");
@@ -3680,6 +3781,248 @@ async function mergeActiveLayerBestEffort(layer) {
     log(`  Product shadow merge skipped: ${formatError(error)}`);
     return layer;
   }
+}
+
+async function deleteLayerBestEffort(layer, label) {
+  if (!layer) return false;
+  ensureModules();
+
+  try {
+    if (typeof layer.delete === "function") {
+      await layer.delete();
+      return true;
+    }
+  } catch (error) {
+    log(`  ${label || layer.name} DOM delete skipped: ${formatError(error)}`);
+  }
+
+  try {
+    photoshop.app.activeDocument.activeLayers = [layer];
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "delete",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    return true;
+  } catch (error) {
+    log(`  ${label || layer.name} action delete skipped: ${formatError(error)}`);
+  }
+
+  return false;
+}
+
+function isLayerGroup(layer) {
+  return !!(layer && layer.layers && layer.layers.length !== undefined);
+}
+
+function isBgLayerName(name) {
+  return String(name || "").trim().toLowerCase() === "bg";
+}
+
+function isAreaGroupName(name) {
+  const value = String(name || "").trim();
+  return /(^|[._\s-])areas?($|[._\s-])/i.test(value) || /^AREA$/i.test(value);
+}
+
+function collectLayerGroupsByPredicate(layers, predicate, result = []) {
+  Array.from(layers || []).forEach((layer) => {
+    if (!isLayerGroup(layer)) return;
+    if (predicate(layer)) {
+      result.push(layer);
+      return;
+    }
+    collectLayerGroupsByPredicate(layer.layers, predicate, result);
+  });
+  return result;
+}
+
+function getTopLevelBgLayer(doc) {
+  return Array.from(doc && doc.layers || []).find((layer) => isBgLayerName(layer.name));
+}
+
+async function removeAreaGroups(doc) {
+  const areaGroups = collectLayerGroupsByPredicate(doc.layers, (layer) => isAreaGroupName(layer.name));
+  let removed = 0;
+  for (const layer of areaGroups) {
+    if (await deleteLayerBestEffort(layer, `Merge AREA group ${layer.name}`)) {
+      removed += 1;
+    }
+  }
+  if (removed) log(`  Merge cleanup: removed ${removed} AREA group(s).`);
+}
+
+async function removeBgLayers(doc) {
+  const bgLayers = getAllLayers(doc.layers).filter((layer) => isBgLayerName(layer.name));
+  let removed = 0;
+  for (const layer of bgLayers) {
+    if (await deleteLayerBestEffort(layer, `Merge duplicate BG ${layer.name}`)) {
+      removed += 1;
+    }
+  }
+  if (removed) log(`  Merge cleanup: removed ${removed} BG layer(s).`);
+}
+
+async function moveBgToBottom(doc) {
+  const bgLayer = getTopLevelBgLayer(doc);
+  if (!bgLayer) return;
+  const topLayers = Array.from(doc.layers || []);
+  const bottomLayer = topLayers[topLayers.length - 1];
+  if (!bottomLayer || bottomLayer === bgLayer) return;
+
+  try {
+    await bgLayer.move(bottomLayer, photoshop.constants.ElementPlacement.PLACEAFTER);
+    log("  Merge BG placed at bottom.");
+  } catch (error) {
+    log(`  Merge BG bottom move skipped: ${formatError(error)}`);
+  }
+}
+
+async function activateDocumentBestEffort(doc) {
+  if (!doc) return false;
+  ensureModules();
+
+  try {
+    photoshop.app.activeDocument = doc;
+    if (photoshop.app.activeDocument === doc || photoshop.app.activeDocument && photoshop.app.activeDocument.id === doc.id) {
+      return true;
+    }
+  } catch (error) {
+    log(`  Activate document DOM skipped: ${formatError(error)}`);
+  }
+
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "select",
+          _target: [
+            { _ref: "document", _id: doc.id }
+          ],
+          makeVisible: false,
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    return true;
+  } catch (error) {
+    log(`  Activate document action skipped: ${formatError(error)}`);
+  }
+
+  return false;
+}
+
+async function groupSelectedLayersBestEffort(layers, groupName, label) {
+  const selectedLayers = (layers || []).filter(Boolean);
+  if (!selectedLayers.length) return null;
+
+  ensureModules();
+  try {
+    photoshop.app.activeDocument.activeLayers = selectedLayers;
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "make",
+          _target: [
+            { _ref: "layerSection" }
+          ],
+          from: {
+            _ref: "layer",
+            _enum: "ordinal",
+            _value: "targetEnum"
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    const group = photoshop.app.activeDocument.activeLayers[0];
+    if (group) {
+      group.name = groupName;
+      group.visible = true;
+      return group;
+    }
+  } catch (error) {
+    log(`  ${label || "Group selected layers"} skipped: ${formatError(error)}`);
+  }
+
+  return null;
+}
+
+async function packDocumentLayersForMerge(doc, groupName, keepBg) {
+  await activateDocumentBestEffort(doc);
+  await removeAreaGroups(doc);
+  if (keepBg) {
+    await moveBgToBottom(doc);
+  } else {
+    await removeBgLayers(doc);
+  }
+
+  const packLayers = Array.from(doc.layers || []).filter((layer) => {
+    return layer && !(keepBg && isBgLayerName(layer.name));
+  });
+  if (!packLayers.length) {
+    log(`  Merge skipped ${groupName}: no non-BG layers to group.`);
+    return null;
+  }
+
+  const group = await groupSelectedLayersBestEffort(packLayers, groupName, `Merge pack ${groupName}`);
+  if (group) log(`  Merge packed group: ${group.name}.`);
+  if (keepBg) await moveBgToBottom(doc);
+  return group;
+}
+
+async function duplicateLayerToDocumentBestEffort(layer, targetDoc, name) {
+  if (!layer || !targetDoc) return null;
+  ensureModules();
+  try {
+    const duplicated = await layer.duplicate(targetDoc);
+    if (duplicated) {
+      duplicated.name = name;
+      duplicated.visible = true;
+    }
+    return duplicated;
+  } catch (error) {
+    log(`  Merge duplicate skipped for ${name}: ${formatError(error)}`);
+  }
+
+  try {
+    photoshop.app.activeDocument.activeLayers = [layer];
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "duplicate",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          to: {
+            _ref: "document",
+            _id: targetDoc.id
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    await activateDocumentBestEffort(targetDoc);
+    const duplicated = photoshop.app.activeDocument.activeLayers[0];
+    if (duplicated) {
+      duplicated.name = name;
+      duplicated.visible = true;
+    }
+    return duplicated;
+  } catch (error) {
+    log(`  Merge action duplicate skipped for ${name}: ${formatError(error)}`);
+  }
+
+  return null;
 }
 
 async function flipLayerVertical(layer) {
@@ -5896,17 +6239,29 @@ function normalizeImageAliases(row) {
 
 function expandDailyGiftMiddleImage(row) {
   const config = getCurrentTemplateConfig();
-  if (!config.dailyMechanismSwitch || !config.dailyMechanismSwitch.enabled) return row;
+  const switchConfig = config && config.dailyMechanismSwitch || {};
+  if (!switchConfig.enabled) return row;
 
   const expanded = { ...row };
   const middleImage = expanded["img.giftMiddle"];
   const middleType = getDailyGiftMiddleType(expanded);
+  const middleTypes = Object.keys(switchConfig.middleGiftLayers || {});
+  const middleImageIsSelector = middleTypes.some((type) => {
+    return String(middleImage || "").trim().toLowerCase() === String(type).toLowerCase();
+  });
+
+  if (middleImageIsSelector) {
+    if (!expanded["daily.giftMiddleType"]) {
+      expanded["daily.giftMiddleType"] = middleType;
+    }
+    return expanded;
+  }
+
   if (middleImage && middleType && !expanded[`img.giftMiddle.${middleType}`]) {
     expanded[`img.giftMiddle.${middleType}`] = middleImage;
   }
   return expanded;
 }
-
 async function expandRow(row) {
   let expanded = normalizeImageAliases(row);
   expanded = expandDailyGiftMiddleImage(expanded);
@@ -6374,6 +6729,7 @@ async function exportPsd(doc, row, index) {
 
   if (doc.saveAs && doc.saveAs.psd) {
     await doc.saveAs.psd(psdFile, { maximizeCompatibility: true }, true);
+    state.exportedPsdEntries.push({ file: psdFile, name: outputName, row, index });
     return outputName;
   }
 
@@ -6400,6 +6756,101 @@ async function exportPsd(doc, row, index) {
     { synchronousExecution: false, modalBehavior: "execute" }
   );
 
+  state.exportedPsdEntries.push({ file: psdFile, name: outputName, row, index });
+  return outputName;
+}
+
+function makeTimestampForFileName() {
+  const now = new Date();
+  const pad2 = (value) => String(value).padStart(2, "0");
+  return [
+    now.getFullYear(),
+    pad2(now.getMonth() + 1),
+    pad2(now.getDate()),
+    "_",
+    pad2(now.getHours()),
+    pad2(now.getMinutes()),
+    pad2(now.getSeconds())
+  ].join("");
+}
+
+async function savePsdDocumentAsFile(doc, file) {
+  if (doc.saveAs && doc.saveAs.psd) {
+    await doc.saveAs.psd(file, { maximizeCompatibility: true }, true);
+    return;
+  }
+
+  const token = fs.createSessionToken(file);
+  await photoshop.action.batchPlay(
+    [
+      {
+        _obj: "save",
+        as: {
+          _obj: "photoshop35Format",
+          maximizeCompatibility: true
+        },
+        in: {
+          _kind: "local",
+          _path: token
+        },
+        copy: true,
+        lowerCase: true,
+        _options: {
+          dialogOptions: "dontDisplay"
+        }
+      }
+    ],
+    { synchronousExecution: false, modalBehavior: "execute" }
+  );
+}
+
+async function mergeExportedPsdsAsGroups(entries) {
+  const psdEntries = (entries || [])
+    .filter((entry) => entry && entry.file && /\.psd$/i.test(entry.name || entry.file.name || ""))
+    .sort((a, b) => (a.index || 0) - (b.index || 0));
+
+  if (!psdEntries.length) {
+    log("Merge PSD skipped: no PSD files were exported in this run.");
+    return "";
+  }
+
+  log(`Merge PSD start: ${psdEntries.length} file(s).`);
+  const first = psdEntries[0];
+  const master = await photoshop.app.open(first.file);
+  const firstGroupName = sanitizeFileBaseName(String(first.name || first.file.name || "1").replace(/\.psd$/i, ""), `jddaily_${first.index || 1}`);
+  await packDocumentLayersForMerge(master, firstGroupName, true);
+
+  let imported = 1;
+  for (let i = 1; i < psdEntries.length; i += 1) {
+    const entry = psdEntries[i];
+    const groupName = sanitizeFileBaseName(String(entry.name || entry.file.name || `jddaily_${i + 1}`).replace(/\.psd$/i, ""), `jddaily_${entry.index || i + 1}`);
+    let srcDoc = null;
+    try {
+      log(`  Merge opening: ${entry.name || entry.file.name}`);
+      srcDoc = await photoshop.app.open(entry.file);
+      const srcGroup = await packDocumentLayersForMerge(srcDoc, groupName, false);
+      if (!srcGroup) continue;
+      const duplicated = await duplicateLayerToDocumentBestEffort(srcGroup, master, groupName);
+      if (!duplicated) {
+        log(`  Merge import skipped: ${groupName}.`);
+        continue;
+      }
+      imported += 1;
+      log(`  Merge imported group: ${groupName}.`);
+    } finally {
+      if (srcDoc) {
+        await closeDocWithoutSaving(srcDoc);
+      }
+      await activateDocumentBestEffort(master);
+    }
+  }
+
+  await activateDocumentBestEffort(master);
+  await moveBgToBottom(master);
+  const outputName = `merged_psd_groups_${makeTimestampForFileName()}.psd`;
+  const mergedFile = await outputFolder.createFile(outputName, { overwrite: true });
+  await savePsdDocumentAsFile(master, mergedFile);
+  log(`Merge PSD saved: ${outputName}, groups=${imported}.`);
   return outputName;
 }
 
@@ -6427,6 +6878,7 @@ async function closeDocWithoutSaving(doc) {
 }
 
 async function applyRowToDocument(doc, row) {
+  setActiveRowTemplateProfile(row);
   const expandedRow = await expandRow(row);
   state.currentRow = expandedRow;
 
@@ -6519,6 +6971,7 @@ async function applyRowToDocument(doc, row) {
     log(`  Skip: column needs txt. or img. prefix: ${column}`);
   }
 
+  applyDailyMechanismSwitch(doc, expandedRow);
   log("  Before product arrange.");
   await arrangeProductLineAfterReplace(doc, expandedRow);
   log("  After product arrange.");
@@ -6547,6 +7000,7 @@ async function processOne(row, index) {
     return await exportDocument(doc, row, index);
   } finally {
     await closeDocWithoutSaving(doc);
+    activeRowTemplateId = "";
   }
 }
 
@@ -6573,10 +7027,12 @@ async function runBatch() {
     log(`Script version: ${SCRIPT_VERSION}`);
     log(`Loaded ${state.rows.length} rows.`);
     state.productNameMap = await loadProductNameMap();
+    state.exportedPsdEntries = [];
 
     ensureModules();
     let successCount = 0;
     let failureCount = 0;
+    let mergedPsdName = "";
     const rowResults = [];
     await photoshop.core.executeAsModal(
       async () => {
@@ -6609,6 +7065,10 @@ async function runBatch() {
           setProgress(i + 1, state.rows.length);
         }
         log(`Finished rows. Success: ${successCount}/${state.rows.length}`);
+        if (shouldMergeExportedPsds()) {
+          setSummary("Merging exported PSD files...");
+          mergedPsdName = await mergeExportedPsdsAsGroups(state.exportedPsdEntries);
+        }
       },
       { commandName: "Batch generate main images" }
     );
@@ -6625,6 +7085,8 @@ async function runBatch() {
     const failed = rowResults.find((result) => !result.ok);
     if (failed) {
       setSummary(`Done: ${successCount} exported, ${failureCount} failed. Last error: ${failed.error}`);
+    } else if (mergedPsdName) {
+      setSummary(`Done: ${successCount} exported, ${failureCount} failed. Merged PSD: ${mergedPsdName}`);
     } else {
       setSummary(`Done: ${successCount} exported, ${failureCount} failed.`);
     }
