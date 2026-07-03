@@ -9,12 +9,12 @@ const SCRIPT_VERSION = "20260701-jddaily-merge-psd-cleanup";
 
 const TITLE_FONT_RULE = {
   latin: {
-    postScriptName: "LINESeedSansApp-Bold",
-    fontName: "LINE Seed Sans App Bold"
+    postScriptName: "LINESeedSansApp-Regular",
+    fontName: "LINE Seed Sans App Regular"
   },
   chinese: {
-    postScriptName: "FZLanTingZhongHei_GBK",
-    fontName: "方正兰亭中黑_GBK"
+    postScriptName: "FZLanTingHei_GBK",
+    fontName: "方正兰亭黑_GBK"
   }
 };
 
@@ -132,8 +132,8 @@ const TEMPLATE_CONFIGS = {
         fontSize: 47
       },
       latin: {
-        postScriptName: "LINESeedSansApp-Bold",
-        fontName: "LINE Seed Sans App Bold",
+        postScriptName: "LINESeedSansApp-Regular",
+        fontName: "LINE Seed Sans App Regular",
         fontSize: 57
       }
     },

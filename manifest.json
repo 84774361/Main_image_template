@@ -2,7 +2,7 @@
   "manifestVersion": 4,
   "id": "com.newpage.batchmainimage",
   "name": "Batch Main Image",
-  "version": "0.2.32",
+  "version": "0.2.35",
   "main": "panel.html",
   "host": {
     "app": "PS",
