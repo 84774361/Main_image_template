@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260703-pdd-title-template-style";
+const SCRIPT_VERSION = "20260703-title-chinese-template-font";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -56,7 +56,9 @@ const BASE_TEMPLATE_CONFIG = {
   productShadow: null,
   backgroundSwitch: null,
   layerVisibilitySwitches: [],
-  bottomTextFromProductName: null
+  bottomTextFromProductName: null,
+  productOverlapGapRatio: -0.42,
+  giftLeftOverlapGapRatio: -0.18
 };
 
 const TEMPLATE_CONFIGS = {
@@ -875,6 +877,12 @@ function getEnglishDerivedChineseProductAliases(row, fileName) {
     add("泡泡沐浴露");
     add("沐浴露");
   }
+  if (/repellent[-\s]*spray/.test(combined)) {
+    add("\u9a71\u868a\u55b7\u96fe");
+  }
+  if (/floral[-\s]*water|smoothing[-\s]*spray/.test(combined)) {
+    add("\u53ee\u53ee\u55b7\u96fe");
+  }
   if (/conditioner/.test(combined)) {
     add("护发素");
   }
@@ -1012,51 +1020,11 @@ function applyLayerVisibilitySwitches(doc, row) {
   }
 }
 
-function simplifyPddMainProductNameItem(value) {
-  const text = String(value || "")
-    .trim()
-    .replace(/NEW\s*PAGE/ig, "")
-    .replace(/一页/g, "")
-    .replace(/婴童|婴儿|新生儿|儿童|学龄|青春/g, "")
-    .replace(/\s+/g, "");
-  if (!text) return "";
-
-  const specMatch = text.match(/(\d+(?:\.\d+)?\s*(?:g|kg|ml|l|片|枚|个|只|支|瓶|袋|盒))(?:\s*[*xX×]\s*\d+)?/i);
-  const spec = specMatch ? specMatch[0].replace(/\s+/g, "") : "";
-  const categories = [
-    "蛋黄油身体乳",
-    "保湿身体乳",
-    "身体乳",
-    "帆布袋",
-    "叮叮喷雾",
-    "喷雾",
-    "安心霜",
-    "修护霜",
-    "冰沙霜",
-    "护臀膏",
-    "防晒霜",
-    "防晒",
-    "洁面泡",
-    "泡泡洗沐",
-    "沐浴露",
-    "洗发水",
-    "精华露",
-    "次抛",
-    "贴片",
-    "唇膏"
-  ];
-  const matched = categories.find((category) => text.includes(category));
-  if (!matched) return text;
-  const category = matched === "蛋黄油身体乳" || matched === "保湿身体乳" ? "身体乳" : matched;
-  return `${category}${spec}`;
-}
-
-function simplifyPddMainProductNameForBottomText(value) {
+function cleanPddMainProductNameForBottomText(value) {
   return String(value || "")
-    .split(/[+＋|｜]/)
-    .map(simplifyPddMainProductNameItem)
-    .filter(Boolean)
-    .join("+");
+    .trim()
+    .replace(/\s*(?:\*|x|X|\u00d7)\s*1(?=\s*(?:$|[+\uFF0B\/\u3001,\uFF0C;\uFF1B|]))/g, "")
+    .replace(/\s*([+\uFF0B\/\u3001,\uFF0C;\uFF1B|])\s*/g, "$1");
 }
 
 function applyBottomTextFromProductName(row) {
@@ -1068,11 +1036,11 @@ function applyBottomTextFromProductName(row) {
   const sourceValue = row[sourceColumn];
   if (!hasValue({ value: sourceValue }, "value")) return row;
 
-  const simplified = simplifyPddMainProductNameForBottomText(sourceValue);
-  if (!simplified) return row;
+  const bottomText = cleanPddMainProductNameForBottomText(sourceValue);
+  if (!bottomText) return row;
 
-  row[targetColumn] = simplified;
-  log(`  Bottom text sourced from ${sourceColumn}: ${simplified}`);
+  row[targetColumn] = bottomText;
+  log(`  Bottom text sourced from ${sourceColumn}: ${bottomText}`);
   return row;
 }
 
@@ -1271,6 +1239,9 @@ function resolveImageGroupLayout(row, prefix, count) {
   const layout = getImageGroupLayout(row, prefix);
   if (prefix === "product" && layout === "auto") {
     return getAutoProductLayout(row, count);
+  }
+  if (layout === "auto") {
+    return getImageGroupLayout({}, prefix);
   }
   return layout;
 }
@@ -2059,6 +2030,20 @@ function isTitleTemplateLatinChar(char) {
   return /^[A-Za-z0-9.,:;!?\'"()&+\-/%\s]$/.test(char);
 }
 
+function applyTitleFontToTemplateStyle(style, kind) {
+  if (kind !== "latin") {
+    return { ...(style || {}) };
+  }
+  const font = TITLE_FONT_RULE.latin;
+  return {
+    ...(style || {}),
+    fontPostScriptName: font.postScriptName,
+    fontName: font.fontName,
+    fontStyleName: font.fontStyleName || "Regular",
+    impliedFontPostScriptName: font.postScriptName,
+    impliedFontName: font.fontName
+  };
+}
 function buildTitleTemplateTextStyleRanges(text, styleByKind, baseStyle) {
   const chars = Array.from(toPhotoshopText(text));
   const ranges = [];
@@ -2087,7 +2072,7 @@ function buildTitleTemplateTextStyleRanges(text, styleByKind, baseStyle) {
     _obj: "textStyleRange",
     from: range.from,
     to: range.to,
-    textStyle: styleByKind[range.kind] || baseStyle
+    textStyle: applyTitleFontToTemplateStyle(styleByKind[range.kind] || baseStyle, range.kind)
   }));
 }
 
@@ -2592,6 +2577,15 @@ function getImageGroupGap(row, prefix, layout, itemWidth) {
   }
 
   if (layout === "stack" || layout === "overlap") {
+    const config = getCurrentTemplateConfig();
+    const configuredRatio = prefix === "product"
+      ? Number(config.productOverlapGapRatio)
+      : prefix === "giftLeft"
+        ? Number(config.giftLeftOverlapGapRatio)
+        : NaN;
+    if (Number.isFinite(configuredRatio)) {
+      return itemWidth * configuredRatio;
+    }
     return -itemWidth * 0.42;
   }
 
@@ -5094,7 +5088,13 @@ function resolveKnownProductAliasImage(name) {
   if (/帆布袋|canvasbag|canvas/.test(normalized)) {
     return "products/canvas-bag.png";
   }
-  if (/叮叮喷雾|驱蚊喷雾/.test(normalized) && hasSpec("100ml")) {
+  if (/\u9a71\u868a\u55b7\u96fe/.test(normalized)) {
+    return bySpec([
+      ["100ml", "products/baby-repellent-spray-bottle-100ml.png"],
+      ["30ml", "products/baby-repellent-spray-bottle-30ml.png"]
+    ]);
+  }
+  if (/\u53ee\u53ee\u55b7\u96fe/.test(normalized) && hasSpec("100ml")) {
     return "products/baby-floral-water-bottle-100ml.png";
   }
   if (/精油贴|精华贴片|贴片/.test(normalized)) {
@@ -5107,20 +5107,26 @@ function resolveProductNameToImage(name, options = {}) {
   const raw = String(name || "").trim();
   if (!raw) return "";
   if (/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(raw)) return raw;
+
+  if (state.productNameMap) {
+    const lookupKeys = getProductNameLookupKeys(raw);
+    for (const normalized of lookupKeys) {
+      const compact = compactSpecHyphenKey(normalized);
+      const matchKey = compactProductNameMatchKey(normalized);
+      const mapped = state.productNameMap.get(normalized)
+        || state.productNameMap.get(compact)
+        || state.productNameMap.get(matchKey);
+      if (mapped) return normalizeImagePathForTemplate(mapped);
+    }
+    if (options.allowRows !== false) {
+      const rowMapped = resolveProductNameByRows(raw);
+      if (rowMapped) return normalizeImagePathForTemplate(rowMapped);
+    }
+  }
+
   const knownAlias = resolveKnownProductAliasImage(raw);
   if (knownAlias) return normalizeImagePathForTemplate(knownAlias);
-  if (!state.productNameMap) return "";
-  const lookupKeys = getProductNameLookupKeys(raw);
-  for (const normalized of lookupKeys) {
-    const compact = compactSpecHyphenKey(normalized);
-    const matchKey = compactProductNameMatchKey(normalized);
-    const mapped = state.productNameMap.get(normalized)
-      || state.productNameMap.get(compact)
-      || state.productNameMap.get(matchKey);
-    if (mapped) return normalizeImagePathForTemplate(mapped);
-  }
-  if (options.allowRows === false) return "";
-  return normalizeImagePathForTemplate(resolveProductNameByRows(raw));
+  return "";
 }
 
 function normalizeImagePathForTemplate(filename) {
@@ -6598,11 +6604,7 @@ async function applyTitleAndProductNote(doc, row) {
     const secondLineInfo = getLongSecondTitleLineInfo(wrapped);
     const superscripts = shiftSuperscriptRanges(parsedTitle.superscripts, parsedTitle.text, wrapped);
     const titleLeadingRatio = getTitleLineHeightRatio(row, secondLineInfo.triggered);
-    if (getCurrentTemplateConfig().id === "pddDiffMain") {
-      await replaceTitleLayerKeepTemplateStyle(titleLayer, wrapped);
-    } else {
-      await applyTitleMixedFontRule(titleLayer, wrapped, row, superscripts, secondLineInfo.ranges, { leadingRatio: titleLeadingRatio });
-    }
+    await replaceTitleLayerKeepTemplateStyle(titleLayer, wrapped);
     titleLineCount = String(wrapped).split(/\r\n|\r|\n/).length;
     titleLongSecondLine = secondLineInfo.triggered;
     const titleAfterBox = await getLayerBox(titleLayer);

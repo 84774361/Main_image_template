@@ -5,22 +5,25 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260701-jddaily-merge-psd-cleanup";
+const SCRIPT_VERSION = "20260707-title-superscript-size100";
 
 const TITLE_FONT_RULE = {
   latin: {
     postScriptName: "LINESeedSansApp-Regular",
-    fontName: "LINE Seed Sans App Regular"
+    fontName: "LINE Seed Sans App Regular",
+    fontStyleName: "Regular"
   },
   chinese: {
     postScriptName: "FZLanTingHei_GBK",
-    fontName: "方正兰亭黑_GBK"
+    fontName: "\u65b9\u6b63\u5170\u4ead\u9ed1_GBK",
+    fontStyleName: "Regular"
   }
 };
 
 const TITLE_SUPERSCRIPT_FONT = {
   postScriptName: "LINESeedSansApp-Regular",
-  fontName: "LINE Seed Sans App Regular"
+  fontName: "LINE Seed Sans App Regular",
+  fontStyleName: "Regular"
 };
 
 const SUBTITLE_FONT_RULE = {
@@ -60,7 +63,9 @@ const BASE_TEMPLATE_CONFIG = {
   subtitleRectangle: null,
   bottomTextMixedStyle: null,
   productShadow: null,
-  dailyMechanismSwitch: null
+  dailyMechanismSwitch: null,
+  productOverlapGapRatio: -0.42,
+  giftLeftOverlapGapRatio: -0.18
 };
 
 const TEMPLATE_CONFIGS = {
@@ -278,6 +283,11 @@ TEMPLATE_CONFIGS.tianmao88 = {
       "358": ["img.giftMiddle.358"],
       "449": ["img.giftMiddle.449"]
     }
+  },
+  productAssetPriority: {
+    enabled: true,
+    useFolderFallback: false,
+    views: ["angle", "front"]
   }
 };
 let activeTemplateId = "jddaily750";
@@ -667,9 +677,41 @@ function getAgeCnCanonicalFromText(value) {
   return "";
 }
 
+function isUnprefixedKidsCleansingKey(key) {
+  const text = normalizeProductNameKey(key);
+  if (!/(?:\u6d01\u9762\u6ce1|\u6d01\u9762\u4e73|\u6d01\u9762)/.test(text)) return false;
+  return !/(?:612|1218|\u5b66\u9f84|\u9752\u6625|\u513f\u7ae5)/.test(text);
+}
+
+function chooseKidsCleansingProduct(items) {
+  const matched = Array.from(items || []).filter((item) => {
+    return /kids[-/]cleansing[-/]foam|kids-cleansing-foam/i.test(String(item || "").replace(/\\/g, "/"));
+  });
+  return matched.length === 1 ? matched[0] : "";
+}
+function isUnprefixedBathOilBottleKey(key) {
+  const text = normalizeProductNameKey(key);
+  if (!/\u6c90\u6d74\u6cb9/.test(text)) return false;
+  return !/(?:refill|\u8865\u5145\u88c5|\u888b\u88c5|\u888b)/.test(text);
+}
+
+function chooseBottleProduct(items) {
+  const matched = Array.from(items || []).filter((item) => {
+    return /[-/]bottle[-/]/i.test(String(item || "").replace(/\\/g, "/"));
+  });
+  return matched.length === 1 ? matched[0] : "";
+}
 function choosePreferredProductImageForKey(key, values) {
   const items = Array.from(values);
   const normalizedKey = normalizeProductNameKey(key);
+  if (isUnprefixedKidsCleansingKey(normalizedKey)) {
+    const kidsCleansing = chooseKidsCleansingProduct(items);
+    if (kidsCleansing) return kidsCleansing;
+  }
+  if (isUnprefixedBathOilBottleKey(normalizedKey)) {
+    const bottle = chooseBottleProduct(items);
+    if (bottle) return bottle;
+  }
   const specMatch = String(key || "").match(/(\d+(?:\.\d+)?(?:g|ml|kg|l))/i);
   if (specMatch) {
     const spec = specMatch[1].toLowerCase();
@@ -798,10 +840,16 @@ function getEnglishDerivedChineseProductAliases(row, fileName) {
   }
   if (/foaming[-\s]*(wash|body[-\s]*wash|shampoo)|body[-\s]*wash|cleansing[-\s]*foam/.test(combined)) {
     add("洁面泡");
+    add("洁面乳");
     add("泡泡沐浴露");
     add("沐浴露");
   }
-  if (/conditioner/.test(combined)) {
+  if (/repellent[-\s]*spray/.test(combined)) {
+    add("\u9a71\u868a\u55b7\u96fe");
+  }
+  if (/floral[-\s]*water|smoothing[-\s]*spray/.test(combined)) {
+    add("\u53ee\u53ee\u55b7\u96fe");
+  }  if (/conditioner/.test(combined)) {
     add("护发素");
   }
   if (/spray/.test(combined)) {
@@ -1676,12 +1724,13 @@ function applyDailyMechanismSwitch(doc, row) {
     setLayersVisibleByAnyName(doc, names, groupType === type, `daily mechanism ${groupType}`);
   });
 
-  const middleType = getDailyGiftMiddleType(row);
+  const requestedMiddleType = getDailyGiftMiddleType(row);
+  const middleType = type === "2" ? "" : requestedMiddleType;
   setDailyGiftMiddleLayerVisibility(doc, switchConfig, middleType);
 
   const showLeft298 = type === "4" || String(row && row["daily.left298"] || "").trim() === "1";
   setLayersVisibleByAnyName(doc, switchConfig.left298Layers || [], showLeft298, "img.giftLeft.298");
-  log(`  Daily switch: mechanism=${type}, middleGift=${middleType || "none"}.`);
+  log(`  Daily switch: mechanism=${type}, middleGift=${middleType || "none"}${type === "2" && requestedMiddleType ? `, ignoredMiddle=${requestedMiddleType}` : ""}.`);
 }
 
 function getPersonTemplateType(row) {
@@ -1788,9 +1837,35 @@ function parseTitleSuperscriptMarkup(value) {
   }
 
   output += input.slice(index);
-  return { text: output, superscripts };
+  return { text: output, superscripts: addAutoTitleFootnoteSuperscripts(output, superscripts) };
 }
 
+function isCjkTitleChar(char) {
+  return /[\u3400-\u9fff\uf900-\ufaff]/.test(String(char || ""));
+}
+
+function isTitleFootnoteChar(char) {
+  return /^[1-9*]$/.test(String(char || ""));
+}
+
+function addAutoTitleFootnoteSuperscripts(text, superscripts) {
+  const chars = Array.from(String(text || ""));
+  const ranges = (superscripts || []).slice();
+  const hasRangeAt = (index) => ranges.some((range) => index >= range.from && index < range.to);
+
+  chars.forEach((char, index) => {
+    if (!isTitleFootnoteChar(char) || hasRangeAt(index)) return;
+
+    const prev = chars[index - 1] || "";
+    const next = chars[index + 1] || "";
+    if (!isCjkTitleChar(prev)) return;
+    if (/^[0-9A-Za-z]$/.test(next)) return;
+
+    ranges.push({ from: index, to: index + 1 });
+  });
+
+  return ranges.sort((a, b) => a.from - b.from || a.to - b.to);
+}
 function shiftSuperscriptRanges(ranges, originalText, wrappedText) {
   if (!ranges || !ranges.length || originalText === wrappedText) return ranges || [];
 
@@ -1894,6 +1969,20 @@ function isSubtitleLatinChar(char) {
   return /^[A-Za-z0-9.,:;!?'"()&+\-/%\s]$/.test(char);
 }
 
+function applyTitleFontToTemplateStyle(style, kind) {
+  if (kind !== "latin") {
+    return { ...(style || {}) };
+  }
+  const font = TITLE_FONT_RULE.latin;
+  return {
+    ...(style || {}),
+    fontPostScriptName: font.postScriptName,
+    fontName: font.fontName,
+    fontStyleName: font.fontStyleName || "Regular",
+    impliedFontPostScriptName: font.postScriptName,
+    impliedFontName: font.fontName
+  };
+}
 function isTitleLatinStyleChar(char) {
   return /^[A-Za-z0-9.,:;!?'"()&+\-/\s]$/.test(char);
 }
@@ -2337,6 +2426,11 @@ function getTitleLineHeightRatio(row, hasScaledSecondLine) {
   return hasScaledSecondLine ? 0.6 : null;
 }
 
+function getTitleSuperscriptShift(baseSize) {
+  const size = Number(baseSize) || 0;
+  return Math.max(0, size * 0.96);
+}
+
 function makeTitleStyle(baseStyle, font, superscript, scale, options) {
   const titleTracking = options && Number.isFinite(options.tracking) ? options.tracking : 75;
   const style = {
@@ -2357,8 +2451,8 @@ function makeTitleStyle(baseStyle, font, superscript, scale, options) {
   }
 
   if (superscript) {
-    const supSize = baseSize * 0.56;
-    const supShift = baseSize * 0.25;
+    const supSize = baseSize;
+    const supShift = getTitleSuperscriptShift(baseSize);
     style.size = makePointValue(supSize);
     style.impliedFontSize = makePointValue(supSize);
     style.baseline = { _enum: "baseline", _value: "superScript" };
@@ -2458,7 +2552,7 @@ async function applyTitleMixedFontRule(layer, text, row, superscripts, scaledRan
     const supInfo = (superscripts || []).map((range) => `${range.from}-${range.to}`).join(",");
     const scaleInfo = (scaledRanges || []).map((range) => `${range.from}-${range.to}@${range.scale}`).join(",");
     const leadingInfo = options && Number.isFinite(options.leadingRatio) ? options.leadingRatio : "-";
-    log(`  Title mixed font applied: latin=${fontConfig.latin.fontName}, chinese=${fontConfig.chinese.fontName}, superscripts=${(superscripts || []).length}, ranges=${supInfo || "-"}, scaled=${scaleInfo || "-"}, leadingRatio=${leadingInfo}, baseSize=${Math.round(baseSize)}, supSize=${Math.round(baseSize * 0.56)}.`);
+    log(`  Title mixed font applied: latin=${fontConfig.latin.fontName}, chinese=${fontConfig.chinese.fontName}, superscripts=${(superscripts || []).length}, ranges=${supInfo || "-"}, scaled=${scaleInfo || "-"}, leadingRatio=${leadingInfo}, baseSize=${Math.round(baseSize)}, supSize=${Math.round(baseSize)}.`);
   } catch (error) {
     log(`  Title mixed font skipped: ${formatError(error)}`);
   }
@@ -4316,12 +4410,15 @@ async function replaceTextLayerKeepTemplateStyle(layer, value, options = {}) {
     const textLength = Array.from(textValue).length;
     const superscripts = Array.isArray(options.superscripts) ? options.superscripts : [];
     const preserveKindStyles = !!options.preserveKindStyles;
+    const enforceTitleFonts = !!options.enforceTitleFonts;
     const styleByKind = preserveKindStyles ? getTemplateTextStyleByKind(textKey, baseStyle) : null;
     const normalStyleForRange = (from, to) => {
       if (!preserveKindStyles || !styleByKind) return baseStyle;
       const chars = Array.from(textValue).slice(from, to);
       const firstLatin = chars.find((char) => isTitleLatinStyleChar(char));
-      return firstLatin ? styleByKind.latin || baseStyle : styleByKind.chinese || baseStyle;
+      const kind = firstLatin ? "latin" : "chinese";
+      const style = styleByKind[kind] || baseStyle;
+      return enforceTitleFonts ? applyTitleFontToTemplateStyle(style, kind) : style;
     };
     const pushNormalRange = (from, to) => {
       if (to <= from) return;
@@ -4345,7 +4442,7 @@ async function replaceTextLayerKeepTemplateStyle(layer, value, options = {}) {
             _obj: "textStyleRange",
             from: start,
             to: index,
-            textStyle: styleByKind[currentKind] || baseStyle
+            textStyle: enforceTitleFonts ? applyTitleFontToTemplateStyle(styleByKind[currentKind] || baseStyle, currentKind) : styleByKind[currentKind] || baseStyle
           });
           start = index;
           currentKind = kind;
@@ -4355,7 +4452,7 @@ async function replaceTextLayerKeepTemplateStyle(layer, value, options = {}) {
         _obj: "textStyleRange",
         from: start,
         to,
-        textStyle: styleByKind[currentKind] || baseStyle
+        textStyle: enforceTitleFonts ? applyTitleFontToTemplateStyle(styleByKind[currentKind] || baseStyle, currentKind) : styleByKind[currentKind] || baseStyle
       });
     };
     const textStyleRange = [];
@@ -4384,7 +4481,10 @@ async function replaceTextLayerKeepTemplateStyle(layer, value, options = {}) {
             _obj: "textStyleRange",
             from,
             to,
-            textStyle: makeSuperscriptTextStylePreserveFont(styleByKind && styleByKind.latin || baseStyle)
+            textStyle: makeSuperscriptTextStylePreserveFont(
+              enforceTitleFonts ? applyTitleFontToTemplateStyle(styleByKind && styleByKind.latin || baseStyle, "latin") : styleByKind && styleByKind.latin || baseStyle,
+              normalStyleForRange(Math.max(0, from - 1), from)
+            )
           });
         }
         cursor = to;
@@ -4779,12 +4879,12 @@ function makeSubscriptTextStyle(baseStyle) {
   return style;
 }
 
-function makeSuperscriptTextStylePreserveFont(baseStyle) {
+function makeSuperscriptTextStylePreserveFont(baseStyle, metricStyle = baseStyle) {
   const style = { ...(baseStyle || {}) };
-  const baseSize = getTextStylePointSize(style);
-  const supSize = baseSize * (28.8 / 54);
-  const supLeading = baseSize * (57.6 / 54);
-  const supShift = baseSize * 0.8;
+  const baseSize = Math.max(getTextStylePointSize(style), getTextStylePointSize(metricStyle || style));
+  const supSize = baseSize;
+  const supLeading = baseSize * 1.08;
+  const supShift = getTitleSuperscriptShift(baseSize);
   style.fontPostScriptName = TITLE_SUPERSCRIPT_FONT.postScriptName;
   style.fontName = TITLE_SUPERSCRIPT_FONT.fontName;
   style.size = makePointValue(supSize);
@@ -4808,18 +4908,33 @@ function makeBeforeSuperscriptTightStyle(baseStyle) {
 function makePriceTailSmallTextStyle(baseStyle) {
   const style = { ...(baseStyle || {}) };
   const baseSize = getTextStylePointSize(style);
-  const smallSize = baseSize * 0.58;
+  const smallSize = baseSize * 0.7;
   style.size = makePointValue(smallSize);
   style.impliedFontSize = makePointValue(smallSize);
   return style;
+}
+function getPriceSmallTailSplit(chars) {
+  const dotIndex = chars.indexOf(".");
+  if (dotIndex >= 0 && dotIndex + 1 < chars.length) {
+    return dotIndex;
+  }
+
+  const slashIndex = chars.indexOf("/");
+  if (slashIndex >= 0 && slashIndex + 1 < chars.length) {
+    const unit = chars.slice(slashIndex + 1).join("");
+    if (/^[\u3400-\u9fff\uf900-\ufaff]+$/.test(unit)) {
+      return slashIndex;
+    }
+  }
+
+  return -1;
 }
 
 async function replacePriceLayerWithDecimalTailStyle(layer, value) {
   if (!layer || value === undefined || value === null) return;
   const textValue = toPhotoshopText(value);
   const chars = Array.from(textValue);
-  const dotIndex = chars.indexOf(".");
-  const split = dotIndex >= 0 ? dotIndex + 1 : -1;
+  const split = getPriceSmallTailSplit(chars);
   if (split <= 0 || split >= chars.length) {
     await replaceTextLayer(layer, value);
     return;
@@ -4885,13 +5000,12 @@ async function replacePriceLayerWithDecimalTailStyle(layer, value) {
       ],
       { synchronousExecution: false, modalBehavior: "execute" }
     );
-    log("  Price decimal tail small style applied.");
+    log("  Price tail small style applied.");
   } catch (error) {
-    log(`  Price decimal tail style skipped: ${formatError(error)}`);
+    log(`  Price tail style skipped: ${formatError(error)}`);
     await replaceTextLayer(layer, value);
   }
 }
-
 async function replaceTextLayerWithSubscriptSuffix(layer, value, suffixes) {
   if (!layer || value === undefined || value === null) return;
   const textValue = toPhotoshopText(value);
@@ -5458,6 +5572,7 @@ function getDailyProductAssetCandidates(normalized) {
   if (!config || !config.enabled) return [];
 
   const folder = config.folder || "babyproduct_icefrosteffect";
+  const useFolderFallback = config.useFolderFallback !== false;
   const raw = String(normalized || "").replace(/\\/g, "/");
   if (!raw || !/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(raw)) return [];
   if (/^(?:front|angle|gifts?)\//i.test(raw)) return [];
@@ -5472,26 +5587,41 @@ function getDailyProductAssetCandidates(normalized) {
     if (value && !candidates.includes(value)) candidates.push(value);
   };
 
+  const views = Array.isArray(config.views) ? config.views.map((view) => String(view || "").trim().toLowerCase()).filter(Boolean) : [];
   bases.forEach((item) => {
-    const countMatch = item.match(/^(.*?)-(\d+)x$/i);
-    if (countMatch) {
-      push(`${folder}/${item}-stack-ice${ext}`);
-      push(`${folder}/${item}-stack-water${ext}`);
-      push(`${folder}/${item}${ext}`);
+    views.forEach((view) => {
+      if (view === "angle") {
+        push(`angle/${item}-angle${ext}`);
+        push(`products/angle/${item}-angle${ext}`);
+      }
+      if (view === "front") {
+        push(`front/${item}-front${ext}`);
+        push(`products/front/${item}-front${ext}`);
+      }
+    });
+  });
+
+  if (useFolderFallback) {
+    bases.forEach((item) => {
+      const countMatch = item.match(/^(.*?)-(\d+)x$/i);
+      if (countMatch) {
+        push(`${folder}/${item}-stack-ice${ext}`);
+        push(`${folder}/${item}-stack-water${ext}`);
+        push(`${folder}/${item}${ext}`);
+        push(`${folder}/${item}-ice${ext}`);
+        push(`${folder}/${item}-water${ext}`);
+        return;
+      }
+
       push(`${folder}/${item}-ice${ext}`);
       push(`${folder}/${item}-water${ext}`);
-      return;
-    }
-
-    push(`${folder}/${item}-ice${ext}`);
-    push(`${folder}/${item}-water${ext}`);
-    push(`${folder}/${item}${ext}`);
-  });
+      push(`${folder}/${item}${ext}`);
+    });
+  }
 
   push(raw);
   return candidates;
 }
-
 async function getDailyProductAssetEntry(normalized) {
   const candidates = getDailyProductAssetCandidates(normalized);
   for (const candidate of candidates) {
@@ -5514,29 +5644,33 @@ function getUnifiedAssetFallbackCandidates(normalized, options = {}) {
 
   const config = getCurrentTemplateConfig().productAssetPriority || {};
   const folder = config.folder || "babyproduct_icefrosteffect";
+  const useFolderFallback = config.useFolderFallback !== false;
   const relative = removeProductAssetFolders(raw);
   const ext = getAssetExtension(relative);
   const base = stripAssetExtension(relative).replace(/-(?:angle|front)$/i, "");
   const bases = getProductSpecUnitAliasBases(base);
+  const folderCandidates = (item) => useFolderFallback ? [
+    `${folder}/${item}-ice${ext}`,
+    `${folder}/${item}-water${ext}`,
+    `${folder}/${item}${ext}`
+  ] : [];
+
   if (!options.productFallbackPriority) {
     if (!/^(?:front|angle)\//i.test(raw)) return [];
     return Array.from(new Set(bases.flatMap((item) => [
       raw,
       `products/angle/${item}-angle${ext}`,
       `products/front/${item}-front${ext}`,
-      `${folder}/${item}-ice${ext}`,
-      `${folder}/${item}-water${ext}`,
-      `${folder}/${item}${ext}`,
+      ...folderCandidates(item),
       `angle/${item}-angle${ext}`,
       `front/${item}-front${ext}`,
       `products/${item}${ext}`,
       `${item}${ext}`
     ])));
   }
+
   const candidates = bases.flatMap((item) => [
-    `${folder}/${item}-ice${ext}`,
-    `${folder}/${item}-water${ext}`,
-    `${folder}/${item}${ext}`,
+    ...folderCandidates(item),
     `angle/${item}-angle${ext}`,
     `front/${item}-front${ext}`,
     `products/angle/${item}-angle${ext}`,
@@ -5547,7 +5681,6 @@ function getUnifiedAssetFallbackCandidates(normalized, options = {}) {
   ]);
   return Array.from(new Set(candidates));
 }
-
 async function getUnifiedAssetFallbackEntry(normalized, options = {}) {
   const candidates = getUnifiedAssetFallbackCandidates(normalized, options);
   for (const candidate of candidates) {
@@ -5673,18 +5806,24 @@ function resolveProductNameToImage(name, options = {}) {
   const raw = String(name || "").trim();
   if (!raw) return "";
   if (/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(raw)) return raw;
+
+  if (state.productNameMap) {
+    const normalized = normalizeProductNameKey(raw);
+    const compact = compactSpecHyphenKey(normalized);
+    const matchKey = compactProductNameMatchKey(normalized);
+    const mapped = state.productNameMap.get(normalized)
+      || state.productNameMap.get(compact)
+      || state.productNameMap.get(matchKey);
+    if (mapped) return mapped;
+    if (options.allowRows !== false) {
+      const rowMapped = resolveProductNameByRows(raw);
+      if (rowMapped) return rowMapped;
+    }
+  }
+
   const explicitDaily = resolveExplicitJdDailyProductName(raw);
   if (explicitDaily) return explicitDaily;
-  if (!state.productNameMap) return resolveJdDailyProductNameFallback(raw);
-  const normalized = normalizeProductNameKey(raw);
-  const compact = compactSpecHyphenKey(normalized);
-  const matchKey = compactProductNameMatchKey(normalized);
-  const mapped = state.productNameMap.get(normalized)
-    || state.productNameMap.get(compact)
-    || state.productNameMap.get(matchKey);
-  if (mapped) return mapped;
-  if (options.allowRows === false) return "";
-  return resolveProductNameByRows(raw) || resolveJdDailyProductNameFallback(raw);
+  return resolveJdDailyProductNameFallback(raw);
 }
 
 function resolveExplicitJdDailyProductName(name) {
@@ -5725,7 +5864,7 @@ function resolveJdDailyProductNameFallback(name) {
       { pattern: /安心霜|学龄霜|修护霜|舒缓霜/, base: "612-repairing-cream", category: Number(specMatch[1]) >= 30 ? "jar" : "tube" },
       { pattern: /冰沙霜/, base: "612-cooling-cream", category: Number(specMatch[1]) >= 30 ? "jar" : "tube" },
       { pattern: /身体乳|保湿修护身体乳/, base: "612-body-lotion", category: /g$/i.test(spec) ? "tube" : "bottle" },
-      { pattern: /柔净洁面泡|洁面泡|洁面/, base: /儿童/.test(text) ? "kids-cleansing-foam" : "612-cleansing-foam", category: "bottle" },
+      { pattern: /\u67d4\u51c0\u6d01\u9762\u6ce1|\u6d01\u9762\u6ce1|\u6d01\u9762\u4e73|\u6d01\u9762/, base: /(?:612|\u5b66\u9f84)/.test(text) ? "612-cleansing-foam" : "kids-cleansing-foam", category: "bottle" },
       { pattern: /泡泡沐浴露|沐浴露/, base: "612-body-wash-foam", category: "bottle" },
       { pattern: /洗发水/, base: "612-shampoo", category: "bottle" },
       { pattern: /护发素/, base: "612-conditioner", category: "tube" },
@@ -5737,6 +5876,7 @@ function resolveJdDailyProductNameFallback(name) {
   }
 
   const rules = [
+    { pattern: /\u6d01\u9762\u6ce1|\u6d01\u9762\u4e73|\u6d01\u9762/, base: "kids-cleansing-foam", category: "bottle" },
     { pattern: /安心霜|舒缓霜/, base: "baby-soothing-cream", category: Number(specMatch[1]) >= 30 ? "jar" : "tube" },
     { pattern: /冰沙霜/, base: "baby-cooling-cream", category: Number(specMatch[1]) >= 30 ? "jar" : "tube" },
     { pattern: /身体乳/, base: "baby-moisturing-body-lotion", category: /g$/i.test(spec) ? "tube" : "bottle" },
@@ -5755,7 +5895,7 @@ function resolveJdDailyProductNameFallback(name) {
 
 function makeDailyProductComboImageFromToken(token) {
   const config = getCurrentTemplateConfig().productAssetPriority;
-  if (!config || !config.enabled) return "";
+  if (!config || !config.enabled || config.useFolderFallback === false) return "";
 
   const normalized = String(token || "")
     .replace(/×/g, "x")
@@ -5780,7 +5920,7 @@ function makeDailyProductComboImageFromToken(token) {
 
 function makeDailyProductStackComboImage(value) {
   const config = getCurrentTemplateConfig().productAssetPriority;
-  if (!config || !config.enabled) return "";
+  if (!config || !config.enabled || config.useFolderFallback === false) return "";
 
   const text = String(value || "")
     .replace(/夏霜/g, "冰沙霜")
@@ -5810,14 +5950,18 @@ async function resolveProductNameTokenToImages(token) {
     log(`  Product combo image not found, expanding token: ${token} -> ${comboImage}`);
   }
 
-  const directImage = resolveProductNameToImage(token, { allowRows: false });
-  if (directImage) {
-    return { images: [directImage], missing: [] };
+  const repeatedNames = expandRepeatedProductNameToken(token);
+  const isRepeatedToken = repeatedNames.length > 1 || String(repeatedNames[0] || "").trim() !== String(token || "").trim();
+  if (!isRepeatedToken) {
+    const directImage = resolveProductNameToImage(token, { allowRows: false });
+    if (directImage) {
+      return { images: [directImage], missing: [] };
+    }
   }
 
   const images = [];
   const missing = [];
-  expandRepeatedProductNameToken(token).forEach((name) => {
+  repeatedNames.forEach((name) => {
     const image = resolveProductNameToImage(name);
     if (image) {
       images.push(image);
@@ -5827,7 +5971,6 @@ async function resolveProductNameTokenToImages(token) {
   });
   return { images, missing };
 }
-
 const PRODUCT_VIEW_COLUMNS = [
   "product.view",
   "product.imageView",
@@ -6527,7 +6670,8 @@ async function applyTitleAndProductNote(doc, row) {
     const parsedTitle = parseTitleSuperscriptMarkup(titleText);
     await replaceTextLayerKeepTemplateStyle(activeTitleLayer, parsedTitle.text, {
       superscripts: parsedTitle.superscripts,
-      preserveKindStyles: true
+      preserveKindStyles: true,
+      enforceTitleFonts: true
     });
     titleLineCount = String(parsedTitle.text).split(/\r\n|\r|\n/).length;
     handled["txt.title"] = true;
