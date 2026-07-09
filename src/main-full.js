@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260703-title-chinese-template-font";
+const SCRIPT_VERSION = "20260709-promotitle-superscript-ps-tool";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -55,6 +55,7 @@ const BASE_TEMPLATE_CONFIG = {
   bottomTextShortFitRatio: 0.88,
   productShadow: null,
   productBottomShadow: null,
+  addOnCoupon: null,
   dailyMechanismSwitch: null,
   giftDescImageSource: {
     enabled: true,
@@ -95,11 +96,11 @@ const TEMPLATE_CONFIGS = {
       variants: {
         cuiyutao: {
           names: ["img.person.cuiyutao", "img.personCuiyutao"],
-          tokens: ["cuiyutao", "cui", "崔玉涛"]
+          tokens: ["cuiyutao", "cui", "\\u5d14\\u7389\\u6d9b"]
         },
         zhangziyi: {
           names: ["img.person.zhangziyi", "img.personZhangziyi"],
-          tokens: ["zhangziyi", "zhang", "章子怡"]
+          tokens: ["zhangziyi", "zhang", "\\u7ae0\\u5b50\\u6021"]
         }
       }
     }
@@ -206,7 +207,7 @@ const TEMPLATE_CONFIGS = {
     productShadow: {
       enabled: true,
       sourceGroupName: "PRODUCT",
-      sourceMode: "group",
+      sourceMode: "items",
       targetGroupName: "PRODUCT.PROJECT",
       name: "PRODUCT.shadow",
       top: 665,
@@ -236,7 +237,7 @@ const TEMPLATE_CONFIGS = {
       variants: {
         egg: {
           names: ["EGG_BG"],
-          tokens: ["egg", "eggbg", "egg_bg", "鸡蛋", "蛋"]
+          tokens: ["egg", "eggbg", "egg_bg", "\\u9e21\\u86cb", "\\u86cb"]
         },
         spray: {
           names: ["SPRAY_BG"],
@@ -302,7 +303,7 @@ const TEMPLATE_CONFIGS = {
       variants: {
         egg: {
           names: ["EGG_BG"],
-          tokens: ["egg", "eggbg", "egg_bg", "鸡蛋", "蛋"]
+          tokens: ["egg", "eggbg", "egg_bg", "\\u9e21\\u86cb", "\\u86cb"]
         },
         spray: {
           names: ["SPRAY_BG"],
@@ -342,11 +343,11 @@ const TEMPLATE_CONFIGS = {
       variants: {
         cuiyutao: {
           names: ["img.person.cuiyutao", "img.personCuiyutao"],
-          tokens: ["cuiyutao", "cui", "崔玉涛"]
+          tokens: ["cuiyutao", "cui", "\\u5d14\\u7389\\u6d9b"]
         },
         zhangziyi: {
           names: ["img.person.zhangziyi", "img.personZhangziyi"],
-          tokens: ["zhangziyi", "zhang", "章子怡"]
+          tokens: ["zhangziyi", "zhang", "\\u7ae0\\u5b50\\u6021"]
         }
       }
     },
@@ -357,17 +358,24 @@ const TEMPLATE_CONFIGS = {
       groups: {
         "1": ["mechanism.1", "daily.mechanism.1"],
         "2": ["mechanism.2", "daily.mechanism.2"],
-        "3": ["mechanism.3", "daily.mechanism.3"]
+        "3": ["mechanism.3", "daily.mechanism.3"],
+        "4": ["mechanism.4", "daily.mechanism.4"]
       },
       productAreas: {
         "1": { withPerson: "product.area.1", withoutPerson: "product.area.2" },
         "2": { withPerson: "product.area.1", withoutPerson: "product.area.2" },
-        "3": { default: "product.area.3" }
+        "3": { default: "product.area.3" },
+        "4": { default: "product.area.4" }
       },
       giftAreaName: "gift.area",
       giftImageGroupNames: ["giftimage", "giftImage", "gift.image", "giftLeftimage", "giftLeftImage", "giftLeft.image"]
     },
-    bottomTextFromProductName: null,
+    bottomTextFromProductName: {
+      enabled: true,
+      sourceColumn: "product.name.cn",
+      targetColumn: "txt.bottomText",
+      mechanisms: ["4"]
+    },
     finalProductBottomAlign: true,
     productBottomShadow: {
       enabled: true,
@@ -383,6 +391,42 @@ const TEMPLATE_CONFIGS = {
     bottomTextShortFitRatio: 0.88,
     productOverlapGapRatio: -0.5,
     giftLeftOverlapGapRatio: -0.18
+  }
+};
+TEMPLATE_CONFIGS.tmallAddOn = {
+  ...TEMPLATE_CONFIGS.pddSkuGift,
+  id: "tmallAddOn",
+  label: "TMall AddOn",
+  filePrefixPlaceholder: "tmall_addon_",
+  paths: {
+    template: "F:\\NEWPAGE\\AI\u751f\u56fe\\\u6279\u91cf\u751f\u56fe\u6d4b\u8bd5\\TIANMAO\\ADDONE\\TMall_AddOn_MAIN_Template.psd",
+    csv: "F:\\NEWPAGE\\AI\u751f\u56fe\\\u6279\u91cf\u751f\u56fe\u6d4b\u8bd5\\TIANMAO\\ADDONE\\TMADDONE0709.csv",
+    assets: TEMPLATE_CONFIGS.pddSkuGift.paths.assets,
+    output: "F:\\NEWPAGE\\AI\u751f\u56fe\\\u6279\u91cf\u751f\u56fe\u6d4b\u8bd5\\TIANMAO\\ADDONE\\export"
+  },
+  exportNameColumns: ["exportName", "TMall_AddOn", "tmallAddOn", "tmall_addon", "tmallAddOnMain", "tmall_addon_main", "sku", "id", "goodsId"],
+  skuGiftCompatible: true,
+  addOnCoupon: {
+    enabled: true,
+    layerName: "img.coupon",
+    typeColumn: "coupon.type",
+    defaultType: "contact",
+    imageColumns: ["img.coupon", "img.repurchaseCoupon", "img.buybackCoupon"],
+    variants: {
+      contact: {
+        tokens: ["contact", "manual", "service", "claim", "lingqu", "\u8054\u7cfb\u9886\u53d6", "\u8054\u7cfb", "\u5ba2\u670d"],
+        image: "F:\\NEWPAGE\\AI\u751f\u56fe\\\u6279\u91cf\u751f\u56fe\u6d4b\u8bd5\\TIANMAO\\\u65b0\u589e\u7d20\u6750\u56fe\\30\u5143\u56de\u8d2d\u5238-\u8054\u7cfb\u9886\u53d6.png"
+      },
+      auto: {
+        tokens: ["auto", "automatic", "send", "issue", "\u81ea\u52a8\u53d1\u653e", "\u81ea\u52a8", "\u7269\u6d41"],
+        image: "F:\\NEWPAGE\\AI\u751f\u56fe\\\u6279\u91cf\u751f\u56fe\u6d4b\u8bd5\\TIANMAO\\\u65b0\u589e\u7d20\u6750\u56fe\\30\u5143\u56de\u8d2d\u5238-\u81ea\u52a8\u53d1\u653e.png"
+      }
+    }
+  },
+  productShadow: {
+    ...TEMPLATE_CONFIGS.pddSkuGift.productShadow,
+    sourceMode: "items",
+    excludeLayerNames: ["img.coupon"]
   }
 };
 
@@ -402,6 +446,55 @@ const state = {
   productNameRows: [],
   exportedPsdEntries: []
 };
+
+function isSkuGiftTemplateConfig(config = getCurrentTemplateConfig()) {
+  return !!(config && (config.id === "pddSkuGift" || config.skuGiftCompatible));
+}
+
+function getAddOnCouponConfig() {
+  const config = getCurrentTemplateConfig();
+  if (!config || config.id !== "tmallAddOn") return null;
+  const couponConfig = config.addOnCoupon;
+  if (!couponConfig || couponConfig.enabled === false) return null;
+  return couponConfig;
+}
+
+function getAddOnCouponType(row, config) {
+  const typeColumn = config && config.typeColumn || "coupon.type";
+  return String(row && (row[typeColumn] || row.couponType || row.coupon || "") || config && config.defaultType || "").trim().toLowerCase();
+}
+
+function resolveAddOnCouponImage(row) {
+  const config = getAddOnCouponConfig();
+  if (!config) return "";
+  const disabled = String(row && (row["coupon.enabled"] || row["addOnCoupon.enabled"] || "") || "").trim().toLowerCase();
+  if (/^(0|false|no|n|off)$/.test(disabled)) return "";
+
+  for (const column of config.imageColumns || ["img.coupon"]) {
+    if (hasValue(row, column)) return String(row[column]).trim();
+  }
+
+  const type = getAddOnCouponType(row, config);
+  const variants = config.variants || {};
+  for (const variant of Object.values(variants)) {
+    const tokens = (variant.tokens || []).map((token) => String(token || "").trim().toLowerCase()).filter(Boolean);
+    if (tokens.includes(type)) return variant.image || "";
+  }
+
+  const fallback = variants[config.defaultType] || Object.values(variants)[0];
+  return fallback && fallback.image || "";
+}
+
+function isAddOnCouponProductIndex(row, index) {
+  if (!getAddOnCouponConfig()) return false;
+  const couponIndex = parseCount(row && row["product.couponIndex"]);
+  return couponIndex > 0 && Number(index) === couponIndex;
+}
+
+function isAddOnCouponColumn(column) {
+  if (!getAddOnCouponConfig()) return false;
+  return /^coupon\./.test(String(column || "")) || /^addOnCoupon\./.test(String(column || "")) || column === "img.coupon" || column === "img.repurchaseCoupon" || column === "img.buybackCoupon" || column === "product.couponIndex";
+}
 
 function ensureModules() {
   if (!photoshop) {
@@ -651,7 +744,7 @@ async function loadProductNameMap() {
   const put = (key, value) => {
     const normalized = normalizeProductNameKey(key);
     if (!normalized || !value) return;
-    if (/body-lotion/i.test(String(value)) && normalized.includes("安心霜")) return;
+    if (/body-lotion/i.test(String(value)) && normalized.includes("\\u5b89\\u5fc3")) return;
     addProductNameMapBucket(buckets, normalized, value);
 
     const compact = compactSpecHyphenKey(normalized);
@@ -669,9 +762,9 @@ async function loadProductNameMap() {
     const fileName = String(row.file || row.filename || row["文件"] || "").trim();
     if (!fileName) return;
     const imagePath = fileName.includes("/") || fileName.includes("\\") ? fileName : `products/${fileName}`;
-    const fullName = row.standard_cn || row["标准中文名"] || row["中文标准名"];
-    const age = row.age_cn || row["年龄段"];
-    const product = row.product_cn || row["产品名"];
+    const fullName = row.standard_cn || "";
+    const age = row.age_cn || "";
+    const product = row.product_cn || "";
     const category = row.category_cn || row["品类"];
     const spec = row.spec || row["规格"];
     const productEn = row.product_en || row["product_en"] || "";
@@ -904,52 +997,47 @@ function getChineseProductAliases({ age, product, standardProduct, productEn }) 
   const aliases = new Set();
   const add = (value) => {
     const text = String(value || "").trim();
-    if (!text) return;
-    aliases.add(text);
-    if (age && text.startsWith(age)) {
-      aliases.add(text.slice(String(age).length));
-    }
+    if (text) aliases.add(text);
   };
 
+  getAgeCnAliases(age).forEach(add);
   add(product);
   add(standardProduct);
 
   const english = String(productEn || "").toLowerCase();
   const combined = `${product || ""} ${standardProduct || ""} ${english}`;
 
-  if (/repairing\s*cream/i.test(combined) || /修护霜|学龄霜|安心霜/.test(combined)) {
-    add("修护霜");
-    add("安心霜");
-    add("学龄霜");
+  if (/repairing\s*cream|\u4fee\u62a4\u971c|\u5b66\u9f84\u971c|\u5b89\u5fc3\u971c/i.test(combined)) {
+    add("\u4fee\u62a4\u971c");
+    add("\u5b89\u5fc3\u971c");
+    add("\u5b66\u9f84\u971c");
   }
 
-  if (/soothing\s*cream/i.test(combined) || /舒缓霜|安心霜/.test(combined)) {
-    add("舒缓霜");
-    add("安心霜");
+  if (/soothing\s*cream|\u8212\u7f13\u971c/i.test(combined)) {
+    add("\u8212\u7f13\u971c");
+    add("\u5b89\u5fc3\u971c");
   }
 
-  if (/body\s*lotion/i.test(combined) || /身体乳|保湿乳|高保湿乳/.test(combined)) {
-    add("身体乳");
-    add("保湿乳");
-    add("高保湿乳");
-    aliases.delete("安心霜");
+  if (/body\s*lotion|\u8eab\u4f53\u4e73|\u4fdd\u6e7f\u4e73/i.test(combined)) {
+    add("\u8eab\u4f53\u4e73");
+    add("\u4fdd\u6e7f\u4e73");
+    aliases.delete("\u5b89\u5fc3\u971c");
   }
 
-  if (/foaming\s*(wash|body\s*wash|shampoo)|body\s*wash|cleansing\s*foam/i.test(combined) || /泡泡洗沐|泡泡沐浴露|沐浴露/.test(combined)) {
-    add("泡泡洗沐");
-    add("泡泡沐浴露");
-    add("沐浴露");
+  if (/foaming\s*(wash|body\s*wash|shampoo)|body\s*wash|cleansing\s*foam|\u6ce1\u6ce1\u6d17\u6c90|\u6ce1\u6ce1\u6c90\u6d74/i.test(combined)) {
+    add("\u6ce1\u6ce1\u6d17\u6c90");
+    add("\u6ce1\u6ce1\u6c90\u6d74\u9732");
+    add("\u6c90\u6d74\u9732");
   }
 
-  if (/essential\s*oil|stickers?|patch/i.test(combined) || /精华贴片|精油贴|贴片/.test(combined)) {
-    add("精华贴片");
-    add("精油贴");
-    add("贴片");
+  if (/essential\s*oil|stickers?|patch|\u7cbe\u6cb9\u8d34|\u8d34\u7247/i.test(combined)) {
+    add("\u7cbe\u6cb9\u8d34\u7247");
+    add("\u7cbe\u6cb9\u8d34");
+    add("\u8d34\u7247");
   }
 
   return Array.from(aliases).filter(Boolean);
 }
-
 function getEnglishDerivedChineseProductAliases(row, fileName) {
   const ageEn = String(row.age_en || row["age_en"] || "").toLowerCase();
   const categoryEn = String(row.category_en || row["category_en"] || "").toLowerCase();
@@ -1210,6 +1298,12 @@ function cleanPddMainProductNameForBottomText(value) {
 function applyBottomTextFromProductName(row) {
   const config = getCurrentTemplateConfig().bottomTextFromProductName;
   if (!config || !config.enabled || !row) return row;
+
+  if (Array.isArray(config.mechanisms) && config.mechanisms.length) {
+    const switchConfig = getCurrentTemplateConfig().dailyMechanismSwitch || {};
+    const mechanism = getDailyMechanismType(row, switchConfig);
+    if (!config.mechanisms.map(String).includes(String(mechanism))) return row;
+  }
 
   const sourceColumn = config.sourceColumn || "product.name.cn";
   const targetColumn = config.targetColumn || "txt.bottomText";
@@ -2159,7 +2253,34 @@ function parseTitleSuperscriptMarkup(value) {
   }
 
   output += input.slice(index);
-  return { text: output, superscripts };
+  return { text: output, superscripts: addAutoTitleFootnoteSuperscripts(output, superscripts) };
+}
+
+function isCjkTitleChar(char) {
+  return /[\u3400-\u9fff\uf900-\ufaff]/.test(String(char || ""));
+}
+
+function isTitleFootnoteChar(char) {
+  return /^[1-9*]$/.test(String(char || ""));
+}
+
+function addAutoTitleFootnoteSuperscripts(text, superscripts) {
+  const chars = Array.from(String(text || ""));
+  const ranges = (superscripts || []).slice();
+  const hasRangeAt = (index) => ranges.some((range) => index >= range.from && index < range.to);
+
+  chars.forEach((char, index) => {
+    if (!isTitleFootnoteChar(char) || hasRangeAt(index)) return;
+
+    const prev = chars[index - 1] || "";
+    const next = chars[index + 1] || "";
+    if (!isCjkTitleChar(prev)) return;
+    if (/^[0-9A-Za-z]$/.test(next)) return;
+
+    ranges.push({ from: index, to: index + 1 });
+  });
+
+  return ranges.sort((a, b) => a.from - b.from || a.to - b.to);
 }
 
 function shiftSuperscriptRanges(ranges, originalText, wrappedText) {
@@ -2485,7 +2606,6 @@ async function replaceTitleLayerKeepTemplateStyle(layer, value) {
     }
 
     const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle, { symbolsAsLatin: true });
-    const textLength = Array.from(textValue).length;
     await photoshop.action.batchPlay(
       [
         {
@@ -2762,6 +2882,11 @@ function getTitleLineHeightRatio(row, hasScaledSecondLine) {
   return hasScaledSecondLine ? 0.6 : null;
 }
 
+function getTitleSuperscriptShift(baseSize) {
+  const size = Number(baseSize) || 0;
+  return Math.max(0, size * 0.96);
+}
+
 function makeTitleStyle(baseStyle, font, superscript, scale, options) {
   const titleTracking = options && Number.isFinite(options.tracking) ? options.tracking : 75;
   const appliedFont = superscript ? TITLE_SUPERSCRIPT_FONT : font;
@@ -2786,8 +2911,8 @@ function makeTitleStyle(baseStyle, font, superscript, scale, options) {
   }
 
   if (superscript) {
-    const supSize = baseSize * 0.56;
-    const supShift = baseSize * 0.25;
+    const supSize = baseSize;
+    const supShift = getTitleSuperscriptShift(baseSize);
     style.size = makePointValue(supSize);
     style.impliedFontSize = makePointValue(supSize);
     style.baseline = { _enum: "baseline", _value: "superScript" };
@@ -2801,6 +2926,66 @@ function makeTitleStyle(baseStyle, font, superscript, scale, options) {
   }
 
   return style;
+}
+
+function makeSuperscriptTextStylePreserveFont(baseStyle) {
+  const style = { ...(baseStyle || {}) };
+  style.baseline = { _enum: "baseline", _value: "superScript" };
+  style.tracking = baseStyle && baseStyle.tracking !== undefined ? baseStyle.tracking : 0;
+  return style;
+}
+
+function applySuperscriptsToTextStyleRanges(textStyleRanges, superscripts, options = {}) {
+  const baseRanges = Array.isArray(textStyleRanges) ? textStyleRanges.filter((range) => range && range.textStyle) : [];
+  const supRanges = Array.isArray(superscripts)
+    ? superscripts
+      .map((range) => ({ from: Number(range && range.from), to: Number(range && range.to) }))
+      .filter((range) => Number.isFinite(range.from) && Number.isFinite(range.to) && range.to > range.from)
+      .sort((a, b) => a.from - b.from || a.to - b.to)
+    : [];
+  if (!baseRanges.length || !supRanges.length) return baseRanges;
+
+  const total = Math.max(
+    ...baseRanges.map((range) => Number(range.to) || 0),
+    ...supRanges.map((range) => Number(range.to) || 0),
+    0
+  );
+  const points = new Set([0, total]);
+  baseRanges.forEach((range) => {
+    points.add(Math.max(0, Number(range.from) || 0));
+    points.add(Math.max(0, Number(range.to) || 0));
+  });
+  supRanges.forEach((range) => {
+    points.add(Math.max(0, range.from));
+    points.add(Math.max(0, range.to));
+  });
+
+  const sortedPoints = Array.from(points).filter((point) => Number.isFinite(point)).sort((a, b) => a - b);
+  const styleForIndex = (index) => {
+    return baseRanges.find((range) => index >= (Number(range.from) || 0) && index < (Number(range.to) || 0)) || baseRanges[0];
+  };
+  const isSuperscriptSegment = (from, to) => supRanges.some((range) => from >= range.from && to <= range.to);
+  const styleByKind = options && options.styleByKind || {};
+  const result = [];
+
+  for (let i = 0; i < sortedPoints.length - 1; i += 1) {
+    const from = sortedPoints[i];
+    const to = sortedPoints[i + 1];
+    if (to <= from) continue;
+    const source = styleForIndex(from);
+    const baseStyle = source && source.textStyle || baseRanges[0].textStyle;
+    const textStyle = isSuperscriptSegment(from, to)
+      ? makeSuperscriptTextStylePreserveFont(baseStyle)
+      : baseStyle;
+    const last = result[result.length - 1];
+    if (last && last.to === from && last.textStyle === textStyle) {
+      last.to = to;
+    } else {
+      result.push({ _obj: "textStyleRange", from, to, textStyle });
+    }
+  }
+
+  return result;
 }
 
 function getLongSecondTitleLineInfo(text) {
@@ -2887,7 +3072,7 @@ async function applyTitleMixedFontRule(layer, text, row, superscripts, scaledRan
     const supInfo = (superscripts || []).map((range) => `${range.from}-${range.to}`).join(",");
     const scaleInfo = (scaledRanges || []).map((range) => `${range.from}-${range.to}@${range.scale}`).join(",");
     const leadingInfo = options && Number.isFinite(options.leadingRatio) ? options.leadingRatio : "-";
-    log(`  Title mixed font applied: latin=${fontConfig.latin.fontName}, chinese=${fontConfig.chinese.fontName}, superscripts=${(superscripts || []).length}, ranges=${supInfo || "-"}, scaled=${scaleInfo || "-"}, leadingRatio=${leadingInfo}, baseSize=${Math.round(baseSize)}, supSize=${Math.round(baseSize * 0.56)}.`);
+    log(`  Title mixed font applied: latin=${fontConfig.latin.fontName}, chinese=${fontConfig.chinese.fontName}, superscripts=${(superscripts || []).length}, ranges=${supInfo || "-"}, scaled=${scaleInfo || "-"}, leadingRatio=${leadingInfo}, baseSize=${Math.round(baseSize)}, supSize=${Math.round(baseSize)}.`);
   } catch (error) {
     log(`  Title mixed font skipped: ${formatError(error)}`);
   }
@@ -3792,6 +3977,7 @@ function getImageGroupAreaLayer(doc, prefix, count, row) {
     const area1 = findLayerByName(doc, "product.area.1");
     const area2 = findLayerByName(doc, "product.area.2");
     const area3 = findLayerByName(doc, "product.area.3");
+    const area4 = findLayerByName(doc, "product.area.4");
     const fallback = findLayerByName(doc, "product.area");
     return count > 2 ? area2 || fallback || area1 || area3 : area1 || fallback || area2 || area3;
   }
@@ -3807,7 +3993,7 @@ function getImageGroupAreaLayer(doc, prefix, count, row) {
 
 function hideImageGroupAreaLayers(doc, prefix) {
   if (prefix === "product") {
-    ["product.area", "product.area.1", "product.area.2", "product.area.3"].forEach((name) => {
+    ["product.area", "product.area.1", "product.area.2", "product.area.3", "product.area.4"].forEach((name) => {
       const layer = findLayerByName(doc, name);
       if (layer) layer.visible = false;
     });
@@ -4008,10 +4194,11 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
         : targetBoxes[i - 1];
 
     const sourceForFit = getImageSourceForIndex(row, prefix, i);
-    const fitByHeight = (prefix === "product" && shouldFitProductByHeight(row, i, sourceForFit)) ||
+    const isCoupon = prefix === "product" && isAddOnCouponProductIndex(row, i);
+    const fitByHeight = !isCoupon && ((prefix === "product" && shouldFitProductByHeight(row, i, sourceForFit)) ||
       prefix === "giftLeft" ||
       prefix === "giftRight" ||
-      prefix === "gift";
+      prefix === "gift");
     await fitLayerToBox(layer, targetBox, {
       alignY: prefix === "product" ? "bottom" : "center",
       fitBy: fitByHeight ? "height" : "contain"
@@ -4019,13 +4206,10 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     if (prefix === "product" && areaBox) {
       log(`  Product height rule: ${layer.name}, mode=${getProductHeightMode(row, count)}, category=${getProductCategory(row, i)}, ratio=${getProductHeightRatio(row, i, count)}, targetH=${Math.round(targetBox.height)}`);
     }
-    await scaleLayerByFactor(layer, getLayerScaleForInitialPlacement(row, prefix), {
-      anchor: prefix === "product" ? "bottomCenter" : "center"
-    });
     if (areaBox) {
       await clampLayerToBox(layer, areaBox);
     }
-    if (prefix === "product" && areaBox) {
+    if (prefix === "product" && areaBox && !isCoupon) {
       await alignLayerBottomToBox(layer, areaBox);
     }
     if (prefix === "giftLeft") {
@@ -4039,6 +4223,11 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
 
   if (baseLayer) {
     baseLayer.visible = false;
+  }
+
+  if (prefix === "product" && getAddOnCouponConfig()) {
+    const couponLayer = findLayerByName(doc, getAddOnCouponConfig().layerName || "img.coupon");
+    if (couponLayer) couponLayer.visible = false;
   }
 
   if (prefix === "product") {
@@ -4144,21 +4333,23 @@ async function alignGiftImageGroupToArea(doc) {
   log(`  Gift align: area=${areaName}, moved=${childBoxes.length ? childBoxes.map((item) => item.layer.name).join("+") : targetLayer.name}, dx=${Math.round(dx)}, dy=${Math.round(dy)}, targetRightBottom=${Math.round(areaBox.right)},${Math.round(areaBox.bottom)}.`);
 }
 
-function collectProductItems(doc, count, row = null) {
+function collectProductItems(doc, count, row = null, options = {}) {
   const items = [];
   for (let i = 1; i <= count; i += 1) {
+    const fixedSize = isAddOnCouponProductIndex(row || {}, i);
+    if (options.excludeCoupon && fixedSize) continue;
     const layer = findCurrentProductLayer(doc, row, `img.product.${i}`);
     const box = layer && layer.visible !== false && getBoundsBox(layer.boundsNoEffects || layer.bounds);
     if (layer && box) {
-      items.push({ layer, box });
+      items.push({ layer, box, fixedSize, source: getImageSourceForIndex(row || {}, "product", i) });
     }
   }
   return items;
 }
 
-function collectProductGroupItems(doc, row) {
+function collectProductGroupItems(doc, row, options = {}) {
   const count = Math.max(getGiftCount(row, "product") || 1, 1);
-  const items = collectProductItems(doc, count, row);
+  const items = collectProductItems(doc, count, row, options);
   if (items.length) return items;
 
   const layer = findCurrentProductLayer(doc, row, "img.product");
@@ -4169,6 +4360,10 @@ function collectProductGroupItems(doc, row) {
 async function scaleProductItemsToHeight(items, row, areaBox) {
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
+    if (item.fixedSize) {
+      log(`  Product height rule skipped for fixed-size layer: ${item.layer.name}.`);
+      continue;
+    }
     const ratio = getProductHeightRatio(row, i + 1, items.length);
     const targetHeight = areaBox.height * ratio;
     if (targetHeight > 0 && item.box.height > 0) {
@@ -4181,6 +4376,7 @@ async function scaleProductItemsToHeight(items, row, areaBox) {
 async function scaleProductItemsByFactor(items, factor) {
   if (!Number.isFinite(factor) || factor <= 0 || factor >= 1) return;
   for (const item of items) {
+    if (item.fixedSize) continue;
     await scaleLayerByFactor(item.layer, factor, { anchor: "bottomCenter" });
   }
 }
@@ -4220,6 +4416,7 @@ async function applyProductGroupScale(doc, row) {
   const anchorPoint = { x: areaBox.centerX, y: areaBox.bottom };
   log(`  Product group scale layers: ${items.map((item) => item.layer.name).join(", ")}.`);
   for (const item of items) {
+    if (item.fixedSize) continue;
     await scaleLayerAroundPoint(item.layer, factor, anchorPoint);
   }
 
@@ -4250,6 +4447,8 @@ function getItemsGroupBox(items) {
 function refreshProductItems(items) {
   return items.map((item) => ({
     layer: item.layer,
+    fixedSize: !!item.fixedSize,
+    source: item.source,
     box: getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds)
   })).filter((item) => item.box);
 }
@@ -4837,15 +5036,36 @@ async function duplicateLayerBestEffort(layer, name, label) {
   return null;
 }
 
+async function cleanupProductShadowTempGroups(doc, config = {}) {
+  const sourceName = String(config.sourceGroupName || "PRODUCT").trim().toLowerCase();
+  const shadowName = String(config.name || "PRODUCT.shadow").trim().toLowerCase();
+  const copyMarkers = ["copy", "\u62f7\u8d1d", "\u526f\u672c"];
+  const layers = getAllLayers(doc.layers).filter((layer) => {
+    const name = String(layer && layer.name || "").trim().toLowerCase();
+    if (!name || name === sourceName || name === shadowName) return false;
+    return copyMarkers.some((marker) => name === `${sourceName} ${marker}` || name.startsWith(`${sourceName} ${marker} `));
+  });
+  let removed = 0;
+  for (const layer of layers) {
+    if (await deleteLayerBestEffort(layer, `Product shadow temp group ${layer.name}`)) {
+      removed += 1;
+    }
+  }
+  if (removed) log(`  Product shadow cleanup: removed ${removed} temp PRODUCT copy group(s).`);
+}
+
 async function createProductShadowSourceLayer(doc, productGroup, config) {
   const shadowName = config.name || "PRODUCT.shadow";
   const sourceMode = String(config.sourceMode || "").trim().toLowerCase();
-  const groupCopy = await duplicateLayerBestEffort(productGroup, shadowName, "Product shadow PRODUCT group");
-  if (groupCopy) {
-    const merged = await mergeActiveLayerBestEffort(groupCopy);
-    if (merged) {
-      merged.name = shadowName;
-      return merged;
+  const useItemSource = ["items", "item", "layers", "productitems", "product-items"].includes(sourceMode);
+  if (!useItemSource) {
+    const groupCopy = await duplicateLayerBestEffort(productGroup, shadowName, "Product shadow PRODUCT group");
+    if (groupCopy) {
+      const merged = await mergeActiveLayerBestEffort(groupCopy);
+      if (merged) {
+        merged.name = shadowName;
+        return merged;
+      }
     }
   }
 
@@ -4854,7 +5074,7 @@ async function createProductShadowSourceLayer(doc, productGroup, config) {
     return null;
   }
 
-  const productItems = collectProductGroupItems(doc, state.currentRow || {});
+  const productItems = collectProductGroupItems(doc, state.currentRow || {}, { excludeCoupon: true });
   if (!productItems.length) {
     log("  Product shadow item fallback skipped: no visible product image layers.");
     return null;
@@ -5150,6 +5370,7 @@ async function applyProductShadow(doc) {
 
   try {
     await removeExistingProductShadowLayers(doc, config);
+    await cleanupProductShadowTempGroups(doc, config);
     const shadowLayer = await createProductShadowSourceLayer(doc, productGroup, config);
     if (!shadowLayer) {
       log("  Product shadow skipped: could not duplicate product source.");
@@ -5198,6 +5419,7 @@ async function applyProductShadow(doc) {
       }
     }
 
+    await cleanupProductShadowTempGroups(doc, config);
     shadowBox = getBoundsBox(shadowLayer.boundsNoEffects || shadowLayer.bounds);
     log(`  Product shadow applied: top=${shadowBox ? Math.round(shadowBox.top) : "?"}, opacity=${opacity}, target=${projectGroup ? projectGroup.name : "none"}.`);
   } catch (error) {
@@ -5738,6 +5960,14 @@ async function replaceSmartObjectLayer(layer, file) {
 async function getAssetEntry(filename, options = {}) {
   if (!filename) return null;
 
+  ensureModules();
+  const rawFilename = String(filename).trim();
+  if (/^file:\/\//i.test(rawFilename) && fs.getEntryWithUrl) {
+    return fs.getEntryWithUrl(rawFilename);
+  }
+  if (/^[a-zA-Z]:[\\/]/.test(rawFilename) && fs.getEntryWithUrl) {
+    return fs.getEntryWithUrl(pathToFileUrl(rawFilename));
+  }
   const normalized = normalizeImagePathForTemplate(String(filename).replace(/\\/g, "/"));
   const productViewFallbacks = getProductImageViewFallbacks(normalized);
   for (const fallback of productViewFallbacks) {
@@ -5852,7 +6082,7 @@ function normalizeExportFormats(value) {
 function getExportFormats(row) {
   const rowFormat = row && (row["export.format"] || row.exportFormat || row["导出格式"]);
   const uiFormat = $("exportFormat") && $("exportFormat").value;
-  if (getCurrentTemplateConfig().id === "pddSkuGift") {
+  if (isSkuGiftTemplateConfig()) {
     return normalizeExportFormats(uiFormat || rowFormat || "jpg");
   }
   return normalizeExportFormats(rowFormat || uiFormat || "jpg");
@@ -6396,7 +6626,7 @@ function expandLabelToImageSet(row, prefix, labelColumns, targetNameColumn) {
 
 function applySkuGiftLabelSources(row) {
   let expanded = { ...row };
-  if (getCurrentTemplateConfig().id === "pddSkuGift" && !hasValue(expanded, "product.view")) {
+  if (isSkuGiftTemplateConfig() && !hasValue(expanded, "product.view")) {
     expanded["product.view"] = "front";
   }
 
@@ -6477,7 +6707,7 @@ function getGiftCount(row, prefix) {
   const setCount = Math.max(setSpec.count || 0, setSpec.images ? setSpec.images.length : 0);
   const labelCount = countItemsFromLabel(extractCountLabelText(row, prefix));
 
-  if (getCurrentTemplateConfig().id === "pddSkuGift") {
+  if (isSkuGiftTemplateConfig()) {
     return Math.max(labelCount, setCount, 0);
   }
 
@@ -6562,6 +6792,46 @@ function expandGiftImageSet(row, prefix) {
     }
   }
 
+  return expanded;
+}
+
+function applyAddOnCouponToProductSet(row) {
+  const couponImage = resolveAddOnCouponImage(row);
+  if (!couponImage) return row;
+
+  const expanded = { ...row };
+  const setSpec = parseImageSpec(expanded["img.productSet"] || "");
+  let images = setSpec.images.slice();
+  if (!images.length && expanded["img.product"]) {
+    images = splitImageList(expanded["img.product"]);
+  }
+  if (!images.length) {
+    for (let i = 1; i <= 6; i += 1) {
+      if (expanded[`img.product.${i}`]) images.push(expanded[`img.product.${i}`]);
+    }
+  }
+
+  const normalize = (value) => String(value || "").replace(/\\/g, "/").trim().toLowerCase();
+  let couponIndex = images.findIndex((image) => normalize(image) === normalize(couponImage));
+  if (couponIndex < 0) {
+    images.push(couponImage);
+    couponIndex = images.length - 1;
+  }
+
+  expanded["img.coupon"] = couponImage;
+  expanded["img.productSet"] = images.join(" | ");
+  expanded["product.count"] = String(images.length);
+  expanded["product.couponIndex"] = String(couponIndex + 1);
+  if (!hasValue(expanded, `product.category.${couponIndex + 1}`)) {
+    expanded[`product.category.${couponIndex + 1}`] = "coupon";
+  }
+  if (setSpec.layout && !hasValue(expanded, "product.layout")) {
+    expanded["product.layout"] = setSpec.layout;
+  } else if (!hasValue(expanded, "product.layout")) {
+    expanded["product.layout"] = "line";
+  }
+
+  log(`  AddOn coupon appended to product layout: index=${couponIndex + 1}, image=${couponImage}`);
   return expanded;
 }
 
@@ -6691,6 +6961,7 @@ function expandRow(row) {
   expanded = expandProductNamesToSet(expanded);
   expanded = applyGiftDescImageSource(expanded);
   expanded = applyProductImageView(expanded);
+  expanded = applyAddOnCouponToProductSet(expanded);
   expanded = expandGiftImageSet(expanded, "giftLeft");
   expanded = expandGiftImageSet(expanded, "giftRight");
   expanded = expandGiftImageSet(expanded, "gift");
@@ -6796,26 +7067,29 @@ function getProductCategoryHint(value) {
 }
 
 function isPromoTitleName(name) {
-  return /^txt\.(promoTitle|bottomText)(?:\.\d+)?$/.test(String(name || ""));
+  return /^txt\.(promoTitle|promoText|bottomText)(?:\.\d+)?$/.test(String(name || ""));
 }
 
 function findTextLayerForColumn(doc, column) {
   if (isPromoTitleName(column)) {
-    return findLayerByAnyName(doc, getPromoTitleLayerNames());
+    return findLayerByAnyName(doc, getPromoTitleLayerNames(null, column));
   }
   return findLayerByName(doc, column);
 }
 
-function getPromoTitleLayerNames(variant = null) {
+function getPromoTitleLayerNames(variant = null, column = "") {
   const suffix = variant ? `.${variant}` : "";
-  if (variant) return [`txt.promoTitle${suffix}`, `txt.bottomText${suffix}`];
+  const wantsPromo = /^txt\.promo(?:Title|Text)/.test(String(column || ""));
+  const primary = wantsPromo ? "txt.promoTitle" : "txt.bottomText";
+  const secondary = wantsPromo ? "txt.bottomText" : "txt.promoTitle";
+  if (variant) return [`${primary}${suffix}`, `${secondary}${suffix}`];
   return [
-    "txt.promoTitle.1",
-    "txt.bottomText.1",
-    "txt.promoTitle",
-    "txt.bottomText",
-    "txt.promoTitle.2",
-    "txt.bottomText.2"
+    `${primary}.1`,
+    `${secondary}.1`,
+    primary,
+    secondary,
+    `${primary}.2`,
+    `${secondary}.2`
   ];
 }
 
@@ -6872,24 +7146,35 @@ function getBottomTextShortFitRatio(row) {
   return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
 }
 
-async function applyBottomTextLayerTemplateContents(doc, layer, value) {
-  await replaceTextLayerPreserveTemplateParagraph(layer, value, doc);
+async function applyBottomTextLayerTemplateContents(doc, layer, value, options = {}) {
+  const parsed = parseTitleSuperscriptMarkup(value);
+  await replaceTextLayerPreserveTemplateParagraph(layer, parsed.text, doc, {
+    superscripts: parsed.superscripts,
+    justificationSourceLayer: options.justificationSourceLayer || null
+  });
+  if (parsed.superscripts.length) {
+    log(`  Promo title superscripts applied: ${parsed.superscripts.length}.`);
+  }
 }
 
-async function applyBottomTextVariantRules(doc, value, row = {}) {
+async function applyBottomTextVariantRules(doc, value, row = {}, column = "txt.bottomText") {
   const config = getCurrentTemplateConfig();
   const areaLayer = findLayerByName(doc, config.bottomTextAreaName || "bottomText.area") || findPromoTitleAreaLayer(doc);
   const areaBox = getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
-  const baseLayers = findLayersByName(doc, "txt.bottomText").filter((layer) => layer && layer.textItem);
-  const shortLayers = findLayersByName(doc, "txt.bottomText.1").filter((layer) => layer && layer.textItem);
-  const longLayers = findLayersByName(doc, "txt.bottomText.2").filter((layer) => layer && layer.textItem);
+  const wantsPromo = /^txt\.promo(?:Title|Text)/.test(String(column || ""));
+  const primaryName = wantsPromo ? "txt.promoTitle" : "txt.bottomText";
+  const secondaryName = wantsPromo ? "txt.bottomText" : "txt.promoTitle";
+  const collectLayers = (names) => names.flatMap((name) => findLayersByName(doc, name)).filter((layer) => layer && layer.textItem);
+  const baseLayers = collectLayers([primaryName, secondaryName]);
+  const shortLayers = collectLayers([`${primaryName}.1`, `${secondaryName}.1`]);
+  const longLayers = collectLayers([`${primaryName}.2`, `${secondaryName}.2`]);
   const shortLayer = shortLayers.find((layer) => layer.visible !== false) || shortLayers[0] || null;
   const longLayer = longLayers.find((layer) => layer.visible !== false) || longLayers[0] || null;
 
   if (!shortLayer && !longLayer) {
     const fallbackLayer = baseLayers.find((layer) => layer.visible !== false) || baseLayers[0] || null;
     if (!fallbackLayer) return false;
-    await applyBottomTextLayerTemplateContents(doc, fallbackLayer, value);
+    await applyBottomTextLayerTemplateContents(doc, fallbackLayer, value, { justificationSourceLayer: wantsPromo ? shortLayer || fallbackLayer : null });
     await fitPromoTitleLayerToArea(doc, fallbackLayer);
     await alignPromoTitleLayerToArea(doc, fallbackLayer);
     return true;
@@ -6899,30 +7184,38 @@ async function applyBottomTextVariantRules(doc, value, row = {}) {
     layer.visible = false;
   });
 
-  let selectedLayer = shortLayer || longLayer;
-  if (shortLayer) {
+  const parsedForLineCount = parseTitleSuperscriptMarkup(value);
+  const promoTitleLineCount = String(parsedForLineCount.text || "").split(/\r\n|\r|\n/).length;
+  const forceCompactLayer = wantsPromo && promoTitleLineCount >= 3 && longLayer;
+
+  let selectedLayer = forceCompactLayer ? longLayer : shortLayer || longLayer;
+  if (forceCompactLayer) {
+    log(`  Promo title line count=${promoTitleLineCount}; using ${longLayer.name}.`);
+  } else if (shortLayer) {
     shortLayer.visible = true;
-    await applyBottomTextLayerTemplateContents(doc, shortLayer, value);
+    await applyBottomTextLayerTemplateContents(doc, shortLayer, value, { justificationSourceLayer: wantsPromo ? shortLayer : null });
     const shortBox = await getLayerBox(shortLayer);
-    const shortMaxUnits = getBottomTextShortMaxUnits(row);
+    const shortMaxUnits = wantsPromo ? 0 : getBottomTextShortMaxUnits(row);
     const visualUnits = getBottomTextVisualUnits(value);
-    const fitRatio = getBottomTextShortFitRatio(row);
+    const fitRatio = wantsPromo
+      ? readNumber(row || {}, "promoTitle.shortFitRatio", readNumber(row || {}, "txt.promoTitle.shortFitRatio", 1))
+      : getBottomTextShortFitRatio(row);
     const safeWidth = areaBox && Number.isFinite(areaBox.width) ? areaBox.width * fitRatio : null;
     const fitsWidth = !safeWidth || !shortBox || shortBox.width <= safeWidth;
-    const fitsUnits = !Number.isFinite(shortMaxUnits) || shortMaxUnits <= 0 || visualUnits <= shortMaxUnits;
+    const fitsUnits = wantsPromo || !Number.isFinite(shortMaxUnits) || shortMaxUnits <= 0 || visualUnits <= shortMaxUnits;
     if (fitsWidth && fitsUnits || !longLayer) {
       selectedLayer = shortLayer;
-      log(`  Bottom text variant selected: txt.bottomText.1${areaBox && shortBox ? `, width=${Math.round(shortBox.width)}/${Math.round(safeWidth || areaBox.width)}` : ""}, units=${visualUnits.toFixed(1)}/${shortMaxUnits || "auto"}.`);
+      log(`  Promo/bottom variant selected: ${shortLayer.name}${areaBox && shortBox ? `, width=${Math.round(shortBox.width)}/${Math.round(safeWidth || areaBox.width)}` : ""}${wantsPromo ? "" : `, units=${visualUnits.toFixed(1)}/${shortMaxUnits || "auto"}`}.`);
     } else {
       shortLayer.visible = false;
       selectedLayer = longLayer;
-      log(`  Bottom text variant overflow: txt.bottomText.1${areaBox && shortBox ? ` width=${Math.round(shortBox.width)}/${Math.round(safeWidth || areaBox.width)}` : ""}, units=${visualUnits.toFixed(1)}/${shortMaxUnits || "auto"}, using txt.bottomText.2.`);
+      log(`  Promo/bottom variant overflow: ${shortLayer.name}${areaBox && shortBox ? ` width=${Math.round(shortBox.width)}/${Math.round(safeWidth || areaBox.width)}` : ""}${wantsPromo ? "" : `, units=${visualUnits.toFixed(1)}/${shortMaxUnits || "auto"}`}, using ${longLayer.name}.`);
     }
   }
 
   if (selectedLayer && selectedLayer !== shortLayer) {
     selectedLayer.visible = true;
-    await applyBottomTextLayerTemplateContents(doc, selectedLayer, value);
+    await applyBottomTextLayerTemplateContents(doc, selectedLayer, value, { justificationSourceLayer: wantsPromo ? shortLayer || selectedLayer : null });
     log(`  Bottom text variant selected: ${selectedLayer.name}.`);
   }
 
@@ -7025,7 +7318,7 @@ async function applyGeneratedBottomTextIfNeeded(doc, row) {
   }
 
   if (isPromoTitleName(targetColumn)) {
-    if (await applyBottomTextVariantRules(doc, value, row)) {
+    if (await applyBottomTextVariantRules(doc, value, row, targetColumn)) {
       log(`  Generated bottom text applied: ${value}`);
       return;
     }
@@ -7041,7 +7334,7 @@ function shouldKeepTemplateTextBox(layerName) {
   if (isPromoTitleName(layerName)) return true;
   const config = getCurrentTemplateConfig();
   if (config.preserveTemplateTextOnly && /^txt\./.test(String(layerName || ""))) return true;
-  if (config.id !== "pddSkuGift") return false;
+  if (!isSkuGiftTemplateConfig(config)) return false;
   return isPromoTitleName(layerName) || [
     "txt.mainProductLabel",
     "txt.giftProductLabel"
@@ -7049,14 +7342,14 @@ function shouldKeepTemplateTextBox(layerName) {
 }
 
 function shouldUseLineSeedForSymbols(layerName) {
-  return getCurrentTemplateConfig().id === "pddSkuGift" && [
+  return isSkuGiftTemplateConfig() && [
     "txt.mainProductLabel",
     "txt.giftProductLabel"
   ].includes(layerName);
 }
 
 function getPddSkuGiftLabelWrapConfig(layerName) {
-  if (getCurrentTemplateConfig().id !== "pddSkuGift") return null;
+  if (!isSkuGiftTemplateConfig()) return null;
   if (layerName === "txt.mainProductLabel") {
     return { displayLength: 22, fallbackWidth: 360, fontSize: 13 };
   }
@@ -7228,7 +7521,90 @@ async function centerTextLayerParagraph(layer) {
   }
 }
 
-async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = null) {
+function clonePlainObject(value) {
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((item) => clonePlainObject(item));
+  return Object.keys(value).reduce((copy, key) => {
+    copy[key] = clonePlainObject(value[key]);
+    return copy;
+  }, {});
+}
+
+function getParagraphStyleForTextIndex(sourceRanges, index) {
+  if (!Array.isArray(sourceRanges) || !sourceRanges.length) return null;
+  return sourceRanges.find((range) => {
+    const from = Number(range && range.from) || 0;
+    const to = Number(range && range.to);
+    return index >= from && (!Number.isFinite(to) || index < to);
+  }) || sourceRanges[0] || null;
+}
+
+function buildTemplateParagraphStyleRanges(textKey, textValue) {
+  const sourceRanges = Array.isArray(textKey && textKey.paragraphStyleRange)
+    ? textKey.paragraphStyleRange.filter((range) => range && range.paragraphStyle)
+    : [];
+  if (!sourceRanges.length) return undefined;
+
+  const chars = Array.from(String(textValue || ""));
+  const textLength = chars.length;
+  if (textLength <= 0) {
+    return [
+      {
+        _obj: "paragraphStyleRange",
+        from: 0,
+        to: 0,
+        paragraphStyle: clonePlainObject(sourceRanges[0].paragraphStyle || { _obj: "paragraphStyle" })
+      }
+    ];
+  }
+
+  const ranges = [];
+  let start = 0;
+  chars.forEach((char, index) => {
+    if (char !== "\r" && char !== "\n") return;
+    const source = getParagraphStyleForTextIndex(sourceRanges, Math.min(start, Math.max(0, (textKey.textKey || "").length - 1))) || sourceRanges[0];
+    ranges.push({
+      _obj: "paragraphStyleRange",
+      from: start,
+      to: index + 1,
+      paragraphStyle: clonePlainObject(source.paragraphStyle || sourceRanges[0].paragraphStyle || { _obj: "paragraphStyle" })
+    });
+    start = index + 1;
+  });
+
+  if (start <= textLength) {
+    const source = getParagraphStyleForTextIndex(sourceRanges, Math.min(start, Math.max(0, (textKey.textKey || "").length - 1))) || sourceRanges[0];
+    ranges.push({
+      _obj: "paragraphStyleRange",
+      from: start,
+      to: textLength,
+      paragraphStyle: clonePlainObject(source.paragraphStyle || sourceRanges[0].paragraphStyle || { _obj: "paragraphStyle" })
+    });
+  }
+
+  return ranges;
+}
+
+function getTextLayerJustificationValue(layer) {
+  try {
+    const value = layer && layer.textItem && layer.textItem.justification;
+    return value === undefined || value === null ? null : value;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function restoreTextLayerJustification(layer, justification) {
+  if (!layer || justification === undefined || justification === null) return;
+  try {
+    layer.textItem.justification = justification;
+    log(`  Text paragraph justification restored from template: ${layer.name}.`);
+  } catch (error) {
+    log(`  Text paragraph justification restore skipped for ${layer.name}: ${formatError(error)}`);
+  }
+}
+
+async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = null, options = {}) {
   if (!layer || value === undefined || value === null) return;
   if (!layer.textItem) {
     throw new Error(`Layer "${layer.name}" is not a text layer`);
@@ -7236,6 +7612,7 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
 
   ensureModules();
   photoshop.app.activeDocument.activeLayers = [layer];
+  const originalJustification = getTextLayerJustificationValue(options.justificationSourceLayer || layer);
 
   try {
     const result = await photoshop.action.batchPlay(
@@ -7254,7 +7631,6 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
 
     const textKey = result && result[0] && result[0].textKey;
     const baseStyle = textKey && textKey.textStyleRange && textKey.textStyleRange[0] && textKey.textStyleRange[0].textStyle;
-    const baseParagraph = textKey && textKey.paragraphStyleRange && textKey.paragraphStyleRange[0] && textKey.paragraphStyleRange[0].paragraphStyle;
     if (!textKey || !baseStyle) {
       await replaceTextLayerPreserveFirstStyle(layer, value);
       return;
@@ -7262,8 +7638,13 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
 
     const textValue = toPhotoshopText(wrapPddSkuGiftLabelIfNeeded(doc, layer, value, textKey));
     const textLength = Array.from(textValue).length;
+    const paragraphStyleRange = buildTemplateParagraphStyleRanges(textKey, textValue);
     const symbolsAsLatin = shouldUseLineSeedForSymbols(layer.name);
     const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle, { symbolsAsLatin });
+    let textStyleRange = buildMixedTextTemplateStyleRanges(textValue, styleByKind, { symbolsAsLatin });
+    if (Array.isArray(options.superscripts) && options.superscripts.length) {
+      textStyleRange = applySuperscriptsToTextStyleRanges(textStyleRange, options.superscripts, { styleByKind });
+    }
 
     await photoshop.action.batchPlay(
       [
@@ -7276,21 +7657,15 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
             _obj: "textLayer",
             ...textKey,
             textKey: textValue,
-            textStyleRange: buildMixedTextTemplateStyleRanges(textValue, styleByKind, { symbolsAsLatin }),
-            paragraphStyleRange: [
-              {
-                _obj: "paragraphStyleRange",
-                from: 0,
-                to: textLength,
-                paragraphStyle: baseParagraph || { _obj: "paragraphStyle" }
-              }
-            ]
+            textStyleRange,
+            ...(paragraphStyleRange ? { paragraphStyleRange } : {})
           },
           _options: { dialogOptions: "dontDisplay" }
         }
       ],
       { synchronousExecution: true, modalBehavior: "execute" }
     );
+    await restoreTextLayerJustification(layer, originalJustification);
   } catch (error) {
     log(`  Preserve template paragraph skipped for ${layer.name}: ${formatError(error)}`);
     await replaceTextLayerPreserveFirstStyle(layer, value);
@@ -7312,7 +7687,6 @@ async function alignTextLayerToArea(doc, layer) {
   const areaBox = getBoundsBox(areaLayer.boundsNoEffects || areaLayer.bounds);
   if (!areaBox) return;
 
-  await centerTextLayerParagraph(layer);
   const textBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
   if (!textBox) return;
   await layer.translate(areaBox.centerX - textBox.centerX, areaBox.top - textBox.top);
@@ -7576,6 +7950,44 @@ function hideAlternateSubtitleRectangleLayers(doc, activeLayer) {
   });
 }
 
+function getTitleNoteLayerNames() {
+  return ["txt.titleNote", "txt.titleNote.1", "txt.titleNote.2", "txt.titleNote.3"];
+}
+
+function getTitleNoteVariantLayer(doc, variantIndex) {
+  const variant = Math.min(Math.max(Number(variantIndex) || 1, 1), 3);
+  const preferred = findLayerByName(doc, `txt.titleNote.${variant}`);
+  return preferred || findLayerByName(doc, "txt.titleNote") || getTitleNoteLayerNames()
+    .map((name) => findLayerByName(doc, name))
+    .find(Boolean);
+}
+
+async function applyTitleNoteLayer(doc, row, titleLineCount) {
+  const keys = ["txt.titleNote.1", "txt.titleNote.2", "txt.titleNote.3", "txt.titleNote"];
+  const hasTitleNoteColumn = keys.some((key) => Object.prototype.hasOwnProperty.call(row || {}, key));
+  if (!hasTitleNoteColumn) return false;
+
+  const variantIndex = Math.min(Math.max(Number(titleLineCount) || 1, 1), 3);
+  const titleNoteText = firstTextValue(row, [`txt.titleNote.${variantIndex}`, "txt.titleNote"]);
+  const layers = getTitleNoteLayerNames().map((name) => findLayerByName(doc, name)).filter(Boolean);
+  if (!layers.length) return false;
+
+  if (titleNoteText === undefined || titleNoteText === null || titleNoteText === "") {
+    layers.forEach((layer) => { layer.visible = false; });
+    log("  Title note hidden: empty txt.titleNote.");
+    return true;
+  }
+
+  const selectedLayer = getTitleNoteVariantLayer(doc, variantIndex);
+  layers.forEach((layer) => {
+    layer.visible = layer === selectedLayer;
+  });
+  selectedLayer.visible = true;
+  await replaceTextLayerPreserveTemplateParagraph(selectedLayer, titleNoteText, doc);
+  log(`  Title note applied: ${selectedLayer.name}, titleLines=${titleLineCount}.`);
+  return true;
+}
+
 async function applyTitleAndProductNote(doc, row) {
   const handled = {};
   const titleLayer = findLayerByName(doc, "txt.title");
@@ -7611,6 +8023,13 @@ async function applyTitleAndProductNote(doc, row) {
         log(`  Title second line scaled: chars=${secondLineInfo.secondLineChars}, scale=0.5.`);
       }
     }
+  }
+
+  if (await applyTitleNoteLayer(doc, row, titleLineCount)) {
+    handled["txt.titleNote"] = true;
+    handled["txt.titleNote.1"] = true;
+    handled["txt.titleNote.2"] = true;
+    handled["txt.titleNote.3"] = true;
   }
 
   const noteText = firstTextValue(row, ["txt.productNote", "txt.note", "txt.description", "txt.subtitle"]);
@@ -7680,6 +8099,7 @@ function isGiftControlColumn(column) {
     /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
     /^productShadow\.(top|opacity)$/.test(column) ||
     /^productBottomShadow\.(opacity|widthRatio|heightRatio|offsetXRatio|bottomOffsetRatio)$/.test(column) ||
+    isAddOnCouponColumn(column) ||
     /^pdd\.(background|icon\.[a-zA-Z0-9.+_-]+)$/.test(column) ||
     /^daily\.(mechanism|giftMiddleType|left298)$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
@@ -7930,6 +8350,7 @@ async function applyRowToDocument(doc, row) {
       column.startsWith("imag.") ||
       column.startsWith("image.") ||
       column === "img.person" ||
+      isAddOnCouponColumn(column) ||
       column === "img.giftRight" ||
       /^img\.giftRight\.\d+$/.test(column) ||
       /^img\.giftLeft\.\d+$/.test(column) ||
@@ -7958,7 +8379,7 @@ async function applyRowToDocument(doc, row) {
 
     if (column.startsWith("txt.")) {
       if (isPromoTitleName(column)) {
-        if (await applyBottomTextVariantRules(doc, value, expandedRow)) {
+        if (await applyBottomTextVariantRules(doc, value, expandedRow, column)) {
           continue;
         }
       }
