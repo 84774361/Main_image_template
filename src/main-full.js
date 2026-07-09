@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260709-promotitle-superscript-ps-tool";
+const SCRIPT_VERSION = "20260709-superscript-ps-tool-global";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -18,12 +18,6 @@ const TITLE_FONT_RULE = {
     fontName: "\u65b9\u6b63\u5170\u4ead\u9ed1_GBK",
     fontStyleName: "Regular"
   }
-};
-
-const TITLE_SUPERSCRIPT_FONT = {
-  postScriptName: "LINESeedSansApp-Regular",
-  fontName: "LINE Seed Sans App Regular",
-  fontStyleName: "Regular"
 };
 
 const BASE_TEMPLATE_CONFIG = {
@@ -2882,14 +2876,9 @@ function getTitleLineHeightRatio(row, hasScaledSecondLine) {
   return hasScaledSecondLine ? 0.6 : null;
 }
 
-function getTitleSuperscriptShift(baseSize) {
-  const size = Number(baseSize) || 0;
-  return Math.max(0, size * 0.96);
-}
-
 function makeTitleStyle(baseStyle, font, superscript, scale, options) {
   const titleTracking = options && Number.isFinite(options.tracking) ? options.tracking : 75;
-  const appliedFont = superscript ? TITLE_SUPERSCRIPT_FONT : font;
+  const appliedFont = font;
   const style = {
     _obj: "textStyle",
     ...baseStyle,
@@ -2911,14 +2900,7 @@ function makeTitleStyle(baseStyle, font, superscript, scale, options) {
   }
 
   if (superscript) {
-    const supSize = baseSize;
-    const supShift = getTitleSuperscriptShift(baseSize);
-    style.size = makePointValue(supSize);
-    style.impliedFontSize = makePointValue(supSize);
     style.baseline = { _enum: "baseline", _value: "superScript" };
-    style.baselineShift = makePointValue(supShift);
-    style.baseLineShift = makePointValue(supShift);
-    style.impliedBaselineShift = makePointValue(supShift);
   } else if (scale && scale !== 1) {
     const scaledSize = baseSize * scale;
     style.size = makePointValue(scaledSize);
@@ -2931,7 +2913,6 @@ function makeTitleStyle(baseStyle, font, superscript, scale, options) {
 function makeSuperscriptTextStylePreserveFont(baseStyle) {
   const style = { ...(baseStyle || {}) };
   style.baseline = { _enum: "baseline", _value: "superScript" };
-  style.tracking = baseStyle && baseStyle.tracking !== undefined ? baseStyle.tracking : 0;
   return style;
 }
 
@@ -3072,7 +3053,7 @@ async function applyTitleMixedFontRule(layer, text, row, superscripts, scaledRan
     const supInfo = (superscripts || []).map((range) => `${range.from}-${range.to}`).join(",");
     const scaleInfo = (scaledRanges || []).map((range) => `${range.from}-${range.to}@${range.scale}`).join(",");
     const leadingInfo = options && Number.isFinite(options.leadingRatio) ? options.leadingRatio : "-";
-    log(`  Title mixed font applied: latin=${fontConfig.latin.fontName}, chinese=${fontConfig.chinese.fontName}, superscripts=${(superscripts || []).length}, ranges=${supInfo || "-"}, scaled=${scaleInfo || "-"}, leadingRatio=${leadingInfo}, baseSize=${Math.round(baseSize)}, supSize=${Math.round(baseSize)}.`);
+    log(`  Title mixed font applied: latin=${fontConfig.latin.fontName}, chinese=${fontConfig.chinese.fontName}, superscripts=${(superscripts || []).length}, ranges=${supInfo || "-"}, scaled=${scaleInfo || "-"}, leadingRatio=${leadingInfo}, baseSize=${Math.round(baseSize)}, superscript=ps-tool.`);
   } catch (error) {
     log(`  Title mixed font skipped: ${formatError(error)}`);
   }
