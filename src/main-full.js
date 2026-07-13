@@ -420,8 +420,22 @@ TEMPLATE_CONFIGS.tmallAddOn = {
   },
   productShadow: {
     ...TEMPLATE_CONFIGS.pddSkuGift.productShadow,
+    style: "mirror",
     sourceMode: "items",
     excludeLayerNames: ["img.coupon", "img.coupon.contact", "img.coupon.auto"]
+  },
+  productBottomShadow: {
+    enabled: true,
+    style: "right",
+    layerName: "img.productshadow",
+    generateIfMissing: true,
+    excludeCoupon: true,
+    opacity: 38,
+    widthRatio: 0.88,
+    heightRatio: 0.055,
+    offsetXRatio: 0.22,
+    bottomOffsetRatio: 0.12,
+    blur: 9
   }
 };
 
@@ -5362,6 +5376,110 @@ function findCurrentProductBottomShadowLayer(doc, row, config) {
   return current || all[0] || null;
 }
 
+function normalizeProductShadowStyle(row, config = getCurrentTemplateConfig()) {
+  const raw = String(
+    row && (row["productShadow.style"] || row["shadow.style"] || row.shadowStyle || row.shadow) ||
+    config && config.productShadow && config.productShadow.style ||
+    ""
+  ).trim().toLowerCase();
+
+  if (/^(0|none|off|false|no|n|hide|hidden|无|关闭)$/.test(raw)) return "none";
+  if (/^(2|right|black|drop|bottom|pdd|pdddaily|投影2|黑色|右侧|右侧投影)$/.test(raw)) return "right";
+  if (/^(1|mirror|reflection|reflect|image|current|default|投影1|镜像|镜像投影)$/.test(raw)) return "mirror";
+  return "";
+}
+
+async function rasterizeLayerBestEffort(layer, label) {
+  if (!layer) return;
+  ensureModules();
+  try {
+    photoshop.app.activeDocument.activeLayers = [layer];
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "rasterizeLayer",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+  } catch (error) {
+    log(`  ${label || layer.name} rasterize skipped: ${formatError(error)}`);
+  }
+}
+
+async function gaussianBlurLayerBestEffort(layer, radius, label) {
+  if (!layer || !Number.isFinite(radius) || radius <= 0) return;
+  ensureModules();
+  try {
+    photoshop.app.activeDocument.activeLayers = [layer];
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "gaussianBlur",
+          radius: { _unit: "pixelsUnit", _value: radius },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+  } catch (error) {
+    log(`  ${label || layer.name} blur skipped: ${formatError(error)}`);
+  }
+}
+
+async function createGeneratedProductBottomShadowLayer(targetBox, name, opacity, blurRadius) {
+  if (!targetBox) return null;
+  ensureModules();
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "make",
+          _target: [
+            { _ref: "contentLayer" }
+          ],
+          using: {
+            _obj: "contentLayer",
+            type: {
+              _obj: "solidColorLayer",
+              color: { _obj: "RGBColor", red: 0, grain: 0, blue: 0 }
+            },
+            shape: {
+              _obj: "ellipse",
+              top: { _unit: "pixelsUnit", _value: targetBox.top },
+              left: { _unit: "pixelsUnit", _value: targetBox.left },
+              bottom: { _unit: "pixelsUnit", _value: targetBox.bottom },
+              right: { _unit: "pixelsUnit", _value: targetBox.right }
+            }
+          },
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    const layer = photoshop.app.activeDocument.activeLayers[0];
+    if (!layer) return null;
+    layer.name = name;
+    layer.visible = true;
+    if (Number.isFinite(opacity) && opacity >= 0 && opacity <= 100) {
+      try {
+        layer.opacity = opacity;
+      } catch (error) {
+        log(`  Generated product shadow opacity skipped: ${formatError(error)}`);
+      }
+    }
+    await rasterizeLayerBestEffort(layer, name);
+    await gaussianBlurLayerBestEffort(layer, blurRadius, name);
+    return layer;
+  } catch (error) {
+    log(`  Generated product bottom shadow skipped: ${formatError(error)}`);
+    return null;
+  }
+}
 async function resizeLayerToBox(layer, targetBox) {
   const box = getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
   if (!box || !targetBox || box.width <= 0 || box.height <= 0) return false;
@@ -5381,11 +5499,14 @@ async function resizeLayerToBox(layer, targetBox) {
 
 async function prepareProductBottomShadowLayers(doc, row, config, count) {
   const baseLayer = findCurrentProductBottomShadowLayer(doc, row, config);
-  if (!baseLayer) return [];
+  const baseName = config.layerName || "img.productshadow";
+  if (!baseLayer) {
+    return config.generateIfMissing ? Array.from({ length: count }, () => null) : [];
+  }
 
   const layers = [baseLayer];
   for (let i = 2; i <= count; i += 1) {
-    const layerName = `img.productshadow.${i}`;
+    const layerName = `${baseName}.${i}`;
     let layer = findCurrentMechanismLayerByName(doc, row, layerName);
     if (!layer) {
       layer = await baseLayer.duplicate();
@@ -5397,7 +5518,7 @@ async function prepareProductBottomShadowLayers(doc, row, config, count) {
 
   let extraIndex = count + 1;
   while (true) {
-    const extra = findCurrentMechanismLayerByName(doc, row, `img.productshadow.${extraIndex}`);
+    const extra = findCurrentMechanismLayerByName(doc, row, `${baseName}.${extraIndex}`);
     if (!extra) break;
     extra.visible = false;
     extraIndex += 1;
@@ -5439,7 +5560,7 @@ async function applyProductBottomShadow(doc, row) {
   const config = getCurrentTemplateConfig().productBottomShadow;
   if (!config || !config.enabled) return;
 
-  const items = collectProductGroupItems(doc, row || state.currentRow || {});
+  const items = collectProductGroupItems(doc, row || state.currentRow || {}, { excludeCoupon: !!config.excludeCoupon });
   if (!items.length) {
     log("  Product bottom shadow skipped: no current product layer found.");
     return;
@@ -5456,19 +5577,27 @@ async function applyProductBottomShadow(doc, row) {
   const heightRatio = readNumber(row || {}, "productBottomShadow.heightRatio", Number(config.heightRatio) || 0.07);
   const offsetXRatio = readNumber(row || {}, "productBottomShadow.offsetXRatio", Number(config.offsetXRatio) || 0.18);
   const bottomOffsetRatio = readNumber(row || {}, "productBottomShadow.bottomOffsetRatio", Number(config.bottomOffsetRatio) || 0.14);
+  const blurRadius = readNumber(row || {}, "productBottomShadow.blur", Number(config.blur) || 0);
+  const baseName = config.layerName || "img.productshadow";
 
   const summaries = [];
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
     const productBox = getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds) || item.box;
-    const shadowLayer = shadowLayers[i];
-    if (!productBox || !shadowLayer) continue;
+    if (!productBox) continue;
 
     const width = Math.max(8, productBox.width * widthRatio);
     const height = Math.max(4, productBox.height * heightRatio);
     const centerX = productBox.centerX + productBox.width * offsetXRatio;
     const bottom = productBox.bottom + height * bottomOffsetRatio;
     const targetBox = makeBox(centerX - width / 2, bottom - height, width, height);
+
+    let shadowLayer = shadowLayers[i];
+    if (!shadowLayer && config.generateIfMissing) {
+      shadowLayer = await createGeneratedProductBottomShadowLayer(targetBox, `${baseName}.${i + 1}`, opacity, blurRadius);
+      if (shadowLayer) shadowLayers[i] = shadowLayer;
+    }
+    if (!shadowLayer) continue;
 
     shadowLayer.visible = true;
     if (Number.isFinite(opacity) && opacity >= 0 && opacity <= 100) {
@@ -5478,7 +5607,9 @@ async function applyProductBottomShadow(doc, row) {
         log(`  Product bottom shadow opacity skipped: ${formatError(error)}`);
       }
     }
-    await resizeLayerToBox(shadowLayer, targetBox);
+    if (!config.generateIfMissing || shadowLayer !== shadowLayers[i] || !String(shadowLayer.name || "").startsWith(`${baseName}.`)) {
+      await resizeLayerToBox(shadowLayer, targetBox);
+    }
     summaries.push(`${shadowLayer.name}->${item.layer.name}:${Math.round(width)}x${Math.round(height)}@${Math.round(centerX)},${Math.round(bottom)}`);
   }
 
@@ -8302,8 +8433,9 @@ function isGiftControlColumn(column) {
     /^product\.gap\.[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
     /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
-    /^productShadow\.(top|opacity)$/.test(column) ||
-    /^productBottomShadow\.(opacity|widthRatio|heightRatio|offsetXRatio|bottomOffsetRatio)$/.test(column) ||
+    /^productShadow\.(top|opacity|style)$/.test(column) ||
+    /^productBottomShadow\.(opacity|widthRatio|heightRatio|offsetXRatio|bottomOffsetRatio|blur)$/.test(column) ||
+    /^(shadow\.style|shadowStyle)$/.test(column) ||
     isAddOnCouponColumn(column) ||
     /^pdd\.(background|icon\.[a-zA-Z0-9.+_-]+)$/.test(column) ||
     /^daily\.(mechanism|giftMiddleType|left298)$/.test(column) ||
@@ -8526,6 +8658,30 @@ async function closeDocWithoutSaving(doc) {
   await doc.close(photoshop.constants.SaveOptions.DONOTSAVECHANGES);
 }
 
+async function applyConfiguredProductShadows(doc, row) {
+  const config = getCurrentTemplateConfig();
+  const style = normalizeProductShadowStyle(row, config);
+
+  if (style === "none") {
+    log("  Product shadow skipped: style=none.");
+    return;
+  }
+
+  if (style === "right") {
+    await applyProductBottomShadow(doc, row);
+    log("  Product shadow style applied: right.");
+    return;
+  }
+
+  if (style === "mirror") {
+    await applyProductShadow(doc);
+    log("  Product shadow style applied: mirror.");
+    return;
+  }
+
+  await applyProductBottomShadow(doc, row);
+  await applyProductShadow(doc);
+}
 async function applyRowToDocument(doc, row) {
   const expandedRow = expandRow(row);
   state.currentRow = expandedRow;
@@ -8555,6 +8711,7 @@ async function applyRowToDocument(doc, row) {
       column.startsWith("imag.") ||
       column.startsWith("image.") ||
       column === "img.person" ||
+      /^(shadow\.style|shadowStyle)$/.test(column) ||
       isAddOnCouponColumn(column) ||
       column === "img.giftRight" ||
       /^img\.giftRight\.\d+$/.test(column) ||
@@ -8626,8 +8783,7 @@ async function applyRowToDocument(doc, row) {
   log("  After product arrange.");
   await applyProductGroupScale(doc, expandedRow);
   await alignCurrentProductLayersToArea(doc, expandedRow);
-  await applyProductBottomShadow(doc, expandedRow);
-  await applyProductShadow(doc);
+  await applyConfiguredProductShadows(doc, expandedRow);
   await alignGiftImageGroupToArea(doc);
   if (getCurrentTemplateConfig().keepPersonOnTop) {
     await keepPersonOnTop(doc);
