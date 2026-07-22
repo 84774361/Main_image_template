@@ -1,0 +1,9 @@
+template.profile,exportName,daily.mechanism,txt.title,txt.titleNote,txt.mainProductLabel,txt.giftProductLabel,img.product,img.gift,img.person,product.name.cn,gift.name.cn,pdd.background,pdd.icon.baby0,pdd.icon.612,pdd.icon.cosmetic,pdd.icon.youth12,gift.tag,export.format
+tmallFlashSaleMain,TMALL_FLASHSALE_GIFT,1,"强韧加乘 倍润保湿
+闪退痒红干",限时秒杀,主品：一页婴童舒润特护精华霜50g,赠品：特护霜10g,product/example-product.png,gifts/example-gift.png,zhangziyi,一页婴童舒润特护精华霜50g,特护霜10g,egg,1,0,1,0,1,jpg
+tmallFlashSaleMain,TMALL_FLASHSALE_NO_PERSON,2,"舒缓屏障 呵护敏感
+买正装赠小样",限时秒杀,主品：一页婴童舒缓精华露,赠品：精华露小样,product/example-product.png,gifts/example-gift.png,,一页婴童舒缓精华露,精华露小样,spray,0,1,0,0,1,jpg
+tmallFlashSaleMain,TMALL_FLASHSALE_MAIN_ONLY,4,"全天高保湿
+肌肤嫩出水",限时秒杀,主品：一页婴童高保湿乳液,,product/example-product.png,,,一页婴童高保湿乳液,,egg,1,0,1,0,0,jpg
+tmallFlashSaleMain,TMALL_FLASHSALE_PERSON_ONLY,3,"全天高保湿
+肌肤嫩出水",限时秒杀,主品：一页婴童高保湿乳液,,product/example-product.png,,zhangziyi,一页婴童高保湿乳液,,egg,1,0,1,0,0,jpg

@@ -1,4 +1,4 @@
-# Product heightRatio Rules - 2026-06-08
+﻿# Product heightRatio Rules - 2026-06-08
 
 Default priority:
 
@@ -37,16 +37,101 @@ Line-layout placement order:
 4. If the group exceeds either dimension, the whole group is scaled down just enough to fit.
 5. The whole group is aligned to the bottom center of `product.area`.
 
+## 1218 / Youth Product Gap
+
+When both adjacent products are from the 1218/youth series (`1218`, `youth`, or `闈掓槬` in the product image path), automatic category gaps use a PDF-derived youth table before the generic table.
+
+Manual priority is unchanged:
+
+1. `product.gap.leftKey.rightKey` / reverse key
+2. `product.gap.N`
+3. 1218/youth automatic category gap
+4. Generic product gap table
+
+`auto` first resolves through the normal product layout rule, then uses the resolved `line` or `overlap` table below. The resolved ratio is multiplied by `min(leftWidth, rightWidth)` to produce the pixel gap. In `line`, negative-like PDF overlaps are normalized to tight `0` gaps. In `overlap`/`stack`, negative values are allowed.
+
+### 1218 line / auto->line
+
+| Pair group | ratio |
+|---|---:|
+| jar + jar | 0.03 |
+| bottle + bottle | 0.02 |
+| bottle + small bottle | 0.03 |
+| tube + tube | 0.03 |
+| small tube + small tube | 0.05 |
+| ampoule set + ampoule set | 0.02 |
+| refill + refill | 0.02 |
+| sachet + sachet | 0.03 |
+| mask box + mask box | 0.03 |
+| jar + bottle | 0.21 |
+| jar + tube | 0.02 |
+| jar + small tube | 0 |
+| jar + ampoule set | 0.03 |
+| jar + sachet | 0.08 |
+| bottle + tube | 0.02 |
+| bottle + small tube | 0.01 |
+| ampoule set + bottle | 0.07 |
+| ampoule set + tube | 0 |
+| refill + bottle | 0.03 |
+| refill + tube/sachet | 0 |
+| mask box + tube | 0.11 |
+| mask box + bottle | 0.14 |
+| sachet + bottle/tube | 0.01 |
+
+### 1218 overlap / stack / auto->overlap
+
+| Pair group | ratio |
+|---|---:|
+| jar + jar | 0.03 |
+| bottle + bottle | -0.08 |
+| large bottle + large bottle | -0.02 |
+| small bottle + small bottle | -0.05 |
+| tube + tube | -0.08 |
+| small tube + small tube | -0.10 |
+| ampoule set + ampoule set | -0.12 |
+| refill + refill | -0.02 |
+| sachet + sachet | -0.05 |
+| mask box + mask box | 0.03 |
+| jar + bottle | 0.12 |
+| jar + tube | -0.05 |
+| jar + ampoule set | 0.03 |
+| jar + sachet | 0.08 |
+| bottle + tube | -0.02 |
+| ampoule set + bottle | -0.03 |
+| ampoule set + small bottle | -0.27 |
+| ampoule set + tube | -0.03 |
+| ampoule set + sachet | -0.11 |
+| ampoule bag + ampoule set | -0.20 |
+| ampoule set 30x + large bottle | -0.21 |
+| ampoule set 30x + small bottle | -0.42 |
+| refill + large bottle | -0.02 |
+| refill + tube/small tube | -0.05 |
+| refill + sachet | -0.12 |
+| mask box + tube | 0.11 |
+| mask box + bottle | 0.14 |
+| sachet + bottle/tube | 0.01 |
 ## Bottle and Pump
 
 Pump products use the bottle table with a `+0.04` default boost, capped by the normal heightRatio clamp.
+
+`bottle200g` has its own product-level default before the generic `>=200ml/g` bottle bucket:
+
+| Spec | same | mixed | Override field |
+|---|---:|---:|---|
+| `bottle 200g` | `0.92` | `0.88` | `product.bottle200gHeightRatio` |
+
+`bottle50g` has its own product-level default before the generic bottle bucket:
+
+| Spec | same | mixed | Override field |
+|---|---:|---:|---|
+| `bottle 50g` | `0.58` | `0.46` | `product.bottle50gHeightRatio` |
 
 | Spec | same | mixed | Override field |
 |---|---:|---:|---|
 | `>=500ml/g` | `0.98` | `0.95` | `product.bottle500HeightRatio` |
 | `>=400ml/g` | `0.94` | `0.90` | `product.bottle400HeightRatio` |
 | `>=300ml/g` | `0.91` | `0.86` | `product.bottle300HeightRatio` |
-| `>=200ml/g` | `0.88` | `0.82` | `product.bottle200HeightRatio` |
+| `>=200ml/g` | `0.64` | `0.61` | `product.bottle200HeightRatio` |
 | `>=150ml/g` | `0.86` | `0.80` | `product.bottle150HeightRatio` |
 | `>=100ml/g` | `0.80` | `0.72` | `product.bottle100HeightRatio` |
 | `>=60ml/g` | `0.72` | `0.66` | `product.bottle60HeightRatio` |

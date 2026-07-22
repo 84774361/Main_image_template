@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260709-superscript-explicit-only";
+const SCRIPT_VERSION = "20260721-pddsku-promotitle-sku-front";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -439,6 +439,60 @@ TEMPLATE_CONFIGS.tmallAddOn = {
   }
 };
 
+TEMPLATE_CONFIGS.tmallFlashSaleMain = {
+  ...TEMPLATE_CONFIGS.pddDailyMain,
+  id: "tmallFlashSaleMain",
+  label: "TMall FlashSale",
+  filePrefixPlaceholder: "tmall_flashsale_",
+  paths: {
+    template: "F:\\NEWPAGE\\AI\u751f\u56fe\\\u6279\u91cf\u751f\u56fe\u6d4b\u8bd5\\TIANMAO\\FlashSale\\Tmall_FlashSale_MAIN_Template-800.psd",
+    csv: "F:\\SOFT\\CODEX\\PROJECT\\Main_image_template\\sample-data-tmall-flashsale.csv",
+    assets: TEMPLATE_CONFIGS.pddDailyMain.paths.assets,
+    output: "F:\\NEWPAGE\\AI\u751f\u56fe\\\u6279\u91cf\u751f\u56fe\u6d4b\u8bd5\\TIANMAO\\FlashSale\\export"
+  },
+  exportNameColumns: ["exportName", "TMall_FlashSale", "tmallFlashSale", "tmall_flashsale", "tmallFlashSaleMain", "tmall_flashsale_main", "sku", "id", "goodsId"],
+  skuGiftCompatible: true,
+  finalProductBottomAlign: false,
+  personTemplateSwitch: {
+    ...TEMPLATE_CONFIGS.pddDailyMain.personTemplateSwitch,
+    scopeCurrentMechanism: true
+  },
+  dailyMechanismSwitch: {
+    ...TEMPLATE_CONFIGS.pddDailyMain.dailyMechanismSwitch,
+    byGiftAndPerson: true,
+    autoOverridesExplicit: true,
+    giftPresenceColumns: ["txt.giftProductLabel", "txt.giftLabel", "txt.giftDesc", "gift.name.cn", "img.gift", "img.giftSet", "img.gift.1"],
+    personPresenceColumns: ["img.person"],
+    defaultMechanism: "4",
+    productAreas: {
+      "1": { default: "product.area.1" },
+      "2": { default: "product.area.2" },
+      "3": { default: "product.area.3" },
+      "4": { default: "product.area.4" }
+    },
+    giftAreas: {
+      "1": { default: "gift.area.1" },
+      "2": { default: "gift.area.2" },
+      "3": { default: "gift.area.3" },
+      "4": { default: "gift.area.4" }
+    },
+    giftMechanisms: ["1", "2"],
+    giftAlign: {
+      layerName: "img.gift",
+      alignX: "center",
+      alignY: "center"
+    },
+    giftImageGroupNames: ["GIFT", "giftimage", "giftImage", "gift.image"]
+  },
+  giftTagSwitch: {
+    enabled: true,
+    names: ["gifttag", "gift.tag", "giftTag"],
+    columns: ["gift.tag", "gifttag", "showGiftTag"],
+    anchorToGift: true,
+    offsetX: -20,
+    offsetY: -36
+  }
+};
 let activeTemplateId = "pddSkuGift";
 let rowTemplateOverrideId = "";
 
@@ -1292,9 +1346,8 @@ function setLayersVisibleByAnyName(doc, names, visible, label) {
   for (const name of names || []) {
     const layers = findLayersByName(doc, name);
     for (const layer of layers) {
-      const key = layer.id || layer.name;
-      if (!layer || seen.has(key)) continue;
-      seen.add(key);
+      if (!layer || seen.has(layer)) continue;
+      seen.add(layer);
       setLayerVisibleRecursive(layer, visible);
       count += 1;
     }
@@ -1373,6 +1426,40 @@ function applyLayerVisibilitySwitches(doc, row) {
   }
 }
 
+function hasGiftContent(row) {
+  return !!row && (
+    hasGiftLeftContent(row) ||
+    hasValue(row, "img.gift") ||
+    hasValue(row, "img.giftSet") ||
+    hasValue(row, "img.gift.1") ||
+    hasValue(row, "txt.giftProductLabel") ||
+    hasValue(row, "gift.name.cn")
+  );
+}
+
+function applyGiftTagVisibility(doc, row) {
+  const switchConfig = getCurrentTemplateConfig().giftTagSwitch;
+  if (!switchConfig || !switchConfig.enabled) return;
+
+  const names = switchConfig.names || ["gifttag"];
+  const columns = switchConfig.columns || [];
+  const explicitColumn = columns.find((column) => hasValue(row, column));
+  const defaultVisible = hasGiftContent(row) || getGiftCount(row || {}, "gift") > 0;
+  const visible = explicitColumn
+    ? parseVisibilityValue(row && row[explicitColumn], defaultVisible)
+    : defaultVisible;
+
+  setLayersVisibleByAnyName(doc, names, false, "gifttag");
+  if (visible) {
+    const currentTag = findLayerByAnyNameInCurrentMechanismOnly(doc, row, names);
+    if (currentTag) {
+      currentTag.visible = true;
+    } else {
+      log("  Skip: layer not found: gifttag");
+    }
+  }
+  log("  Gift tag switch: " + (visible ? "on" : "off") + ".");
+}
 function cleanPddMainProductNameForBottomText(value) {
   return String(value || "")
     .trim()
@@ -2150,14 +2237,42 @@ function normalizeDailyMechanism(value) {
   return "";
 }
 
+function hasAnyConfiguredValue(row, columns) {
+  return (columns || []).some((column) => hasValue(row, column));
+}
+
+function getGiftAndPersonMechanismType(row, switchConfig) {
+  const giftColumns = switchConfig.giftPresenceColumns || [];
+  const personColumns = switchConfig.personPresenceColumns || [];
+  const hasGift = giftColumns.length
+    ? hasAnyConfiguredValue(row, giftColumns)
+    : hasGiftContent(row) || getGiftCount(row || {}, "gift") > 0;
+  const hasPerson = personColumns.length
+    ? hasAnyConfiguredValue(row, personColumns)
+    : hasPersonContent(row);
+
+  if (hasGift && hasPerson) return "1";
+  if (hasGift) return "2";
+  if (hasPerson) return "3";
+  return "4";
+}
+
 function getDailyMechanismType(row, switchConfig) {
   if (!switchConfig || !switchConfig.enabled) return "";
+  if (switchConfig.byGiftAndPerson && switchConfig.autoOverridesExplicit) {
+    return getGiftAndPersonMechanismType(row, switchConfig);
+  }
+
   const column = switchConfig.column || "daily.mechanism";
   const explicit = normalizeDailyMechanism(row && row[column]);
   if (explicit) return explicit;
 
   const sheet = normalizeDailyMechanism(row && row.sheet);
   if (sheet) return sheet;
+
+  if (switchConfig.byGiftAndPerson) {
+    return getGiftAndPersonMechanismType(row, switchConfig);
+  }
 
   if (hasGiftLeftContent(row) || hasValue(row, "img.gift") || hasValue(row, "img.gift.1")) return "1";
   return String(switchConfig.defaultMechanism || "3");
@@ -2273,16 +2388,25 @@ function applyPersonTemplateSwitch(doc, row) {
   if (!switchConfig || !switchConfig.enabled) return;
 
   const type = getPersonTemplateType(row);
-  const legacyLayer = findLayerByName(doc, switchConfig.legacyName || "img.person");
+  const scoped = switchConfig.scopeCurrentMechanism && config.dailyMechanismSwitch && config.dailyMechanismSwitch.enabled;
+  const legacyLayer = scoped
+    ? findLayerByNameInCurrentMechanismOnly(doc, row, switchConfig.legacyName || "img.person")
+    : findLayerByName(doc, switchConfig.legacyName || "img.person");
   const variantLayers = {};
 
   for (const [variantType, variant] of Object.entries(switchConfig.variants || {})) {
-    variantLayers[variantType] = findLayerByAnyName(doc, variant.names || []);
+    const names = variant.names || [];
+    if (scoped) setLayersVisibleByAnyName(doc, names, false, `person ${variantType}`);
+    variantLayers[variantType] = scoped
+      ? findLayerByAnyNameInCurrentMechanismOnly(doc, row, names)
+      : findLayerByAnyName(doc, names);
   }
 
-  Object.values(variantLayers).forEach((layer) => {
-    if (layer) layer.visible = false;
-  });
+  if (!scoped) {
+    Object.values(variantLayers).forEach((layer) => {
+      if (layer) layer.visible = false;
+    });
+  }
 
   if (type && variantLayers[type]) {
     if (legacyLayer) legacyLayer.visible = false;
@@ -4048,8 +4172,15 @@ function getImageGroupAreaLayer(doc, prefix, count, row) {
 
   const config = getCurrentTemplateConfig();
   const switchConfig = config.dailyMechanismSwitch || {};
-  if (prefix === "gift" && switchConfig.enabled && switchConfig.giftAreaName) {
-    return findLayerByName(doc, switchConfig.giftAreaName) || findLayerByName(doc, `${prefix}.area`);
+  if (prefix === "gift" && switchConfig.enabled) {
+    const type = getDailyMechanismType(row || state.currentRow || {}, switchConfig);
+    const areaConfig = switchConfig.giftAreas && switchConfig.giftAreas[type];
+    const desiredName = typeof areaConfig === "string" ? areaConfig : areaConfig && areaConfig.default;
+    const desiredLayer = desiredName ? findLayerByName(doc, desiredName) : null;
+    if (desiredLayer) return desiredLayer;
+    if (switchConfig.giftAreaName) {
+      return findLayerByName(doc, switchConfig.giftAreaName) || findLayerByName(doc, `${prefix}.area`);
+    }
   }
 
   return findLayerByName(doc, `${prefix}.area`);
@@ -4064,8 +4195,13 @@ function hideImageGroupAreaLayers(doc, prefix) {
     return;
   }
 
-  const layer = findLayerByName(doc, `${prefix}.area`);
-  if (layer) layer.visible = false;
+  const areaNames = prefix === "gift"
+    ? ["gift.area", "gift.area.1", "gift.area.2", "gift.area.3", "gift.area.4"]
+    : [`${prefix}.area`];
+  areaNames.forEach((name) => {
+    const layer = findLayerByName(doc, name);
+    if (layer) layer.visible = false;
+  });
 }
 
 function hideAreaHelperLayers(doc) {
@@ -4373,6 +4509,24 @@ async function alignCurrentProductLayersToArea(doc, row) {
   log(`  Final product center-bottom aligned to ${state.groupAreaNames.product || "product.area"}: ${aligned}, areaCenterBottom=${Math.round(areaBox.centerX)},${Math.round(areaBox.bottom)}.`);
 }
 
+async function alignGiftTagToGiftLayer(doc, row, giftLayer) {
+  const tagConfig = getCurrentTemplateConfig().giftTagSwitch || {};
+  if (!tagConfig.enabled || !tagConfig.anchorToGift || !giftLayer) return;
+
+  const tagLayer = findLayerByAnyNameInCurrentMechanismOnly(doc, row, tagConfig.names || ["gifttag"]);
+  if (!tagLayer || tagLayer.visible === false) return;
+
+  const giftBox = getBoundsBox(giftLayer.boundsNoEffects || giftLayer.bounds);
+  const tagBox = getBoundsBox(tagLayer.boundsNoEffects || tagLayer.bounds);
+  if (!giftBox || !tagBox) return;
+
+  const offsetX = readNumber(row || {}, "gift.tag.offsetX", Number(tagConfig.offsetX));
+  const offsetY = readNumber(row || {}, "gift.tag.offsetY", Number(tagConfig.offsetY));
+  const dx = giftBox.left + (Number.isFinite(offsetX) ? offsetX : 0) - tagBox.left;
+  const dy = giftBox.top + (Number.isFinite(offsetY) ? offsetY : 0) - tagBox.top;
+  await moveLayerByOffset(tagLayer, dx, dy, tagLayer.name);
+  log(`  Gift tag anchored: dx=${Math.round(dx)}, dy=${Math.round(dy)}.`);
+}
 async function alignGiftImageGroupToArea(doc) {
   const config = getCurrentTemplateConfig();
   const switchConfig = config.dailyMechanismSwitch || {};
@@ -4380,16 +4534,21 @@ async function alignGiftImageGroupToArea(doc) {
 
   const row = state.currentRow || {};
   const type = getDailyMechanismType(row, switchConfig);
-  if (type !== "1") return;
+  const giftMechanisms = switchConfig.giftMechanisms || ["1"];
+  const hasGift = hasGiftContent(row) || getGiftCount(row || {}, "gift") > 0;
+  if (!hasGift || !giftMechanisms.includes(type)) return;
 
   const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.gift;
-  const areaName = state.groupAreaNames && state.groupAreaNames.gift || switchConfig.giftAreaName || "gift.area";
+  const areaName = state.groupAreaNames && state.groupAreaNames.gift || switchConfig.giftAreaName || (type ? `gift.area.${type}` : "gift.area");
   if (!areaBox) {
     log("  Gift group align skipped: gift.area not found.");
     return;
   }
 
-  const targetLayer = findCurrentGiftImageGroup(doc, row) || findCurrentMechanismLayerByName(doc, row, "img.gift");
+  const alignConfig = switchConfig.giftAlign || {};
+  const targetLayer = alignConfig.layerName
+    ? findCurrentMechanismLayerByName(doc, row, alignConfig.layerName)
+    : findCurrentGiftImageGroup(doc, row) || findCurrentMechanismLayerByName(doc, row, "img.gift");
   if (!targetLayer) {
     log("  Gift group align skipped: giftimage/img.gift not found.");
     return;
@@ -4397,7 +4556,7 @@ async function alignGiftImageGroupToArea(doc) {
 
   const collectVisibleChildBoxes = (layer, result = []) => {
     if (!layer || layer.visible === false) return result;
-    if (layer.layers && layer.layers.length) {
+    if (!alignConfig.layerName && layer.layers && layer.layers.length) {
       layer.layers.forEach((child) => collectVisibleChildBoxes(child, result));
       return result;
     }
@@ -4419,8 +4578,10 @@ async function alignGiftImageGroupToArea(doc) {
     return;
   }
 
-  const dx = areaBox.right - box.right;
-  const dy = areaBox.bottom - box.bottom;
+  const alignX = alignConfig.alignX || "right";
+  const alignY = alignConfig.alignY || "bottom";
+  const dx = alignX === "center" ? areaBox.centerX - box.centerX : areaBox.right - box.right;
+  const dy = alignY === "center" ? areaBox.centerY - box.centerY : areaBox.bottom - box.bottom;
   if (childBoxes.length) {
     for (const item of childBoxes) {
       await moveLayerByOffset(item.layer, dx, dy, item.layer.name);
@@ -4428,7 +4589,11 @@ async function alignGiftImageGroupToArea(doc) {
   } else {
     await moveLayerByOffset(targetLayer, dx, dy, targetLayer.name);
   }
-  log(`  Gift align: area=${areaName}, moved=${childBoxes.length ? childBoxes.map((item) => item.layer.name).join("+") : targetLayer.name}, dx=${Math.round(dx)}, dy=${Math.round(dy)}, targetRightBottom=${Math.round(areaBox.right)},${Math.round(areaBox.bottom)}.`);
+  await alignGiftTagToGiftLayer(doc, row, targetLayer);
+  const targetPoint = alignX === "center" || alignY === "center"
+    ? `${Math.round(areaBox.centerX)},${Math.round(areaBox.centerY)}`
+    : `${Math.round(areaBox.right)},${Math.round(areaBox.bottom)}`;
+  log(`  Gift align: area=${areaName}, mode=${alignX}/${alignY}, moved=${childBoxes.length ? childBoxes.map((item) => item.layer.name).join("+") : targetLayer.name}, dx=${Math.round(dx)}, dy=${Math.round(dy)}, target=${targetPoint}.`);
 }
 
 function collectProductItems(doc, count, row = null, options = {}) {
@@ -6594,9 +6759,9 @@ function toProductViewAssetPath(filename, view) {
   return `${view}/${match[1]}-${view}${match[2]}`;
 }
 
-function resolveProductNameTokenToImages(token) {
+function resolveProductNameTokenToImages(token, options = {}) {
   if (!shouldExpandProductRepeatBeforeDirectLookup(token)) {
-    const directImage = resolveProductNameToImage(token, { allowRows: false });
+    const directImage = resolveProductNameToImage(token, { allowRows: false, view: options.view });
     if (directImage) {
       return { images: [directImage], missing: [] };
     }
@@ -6605,7 +6770,7 @@ function resolveProductNameTokenToImages(token) {
   const images = [];
   const missing = [];
   expandRepeatedProductNameToken(token).forEach((name) => {
-    const image = resolveProductNameToImage(name);
+    const image = resolveProductNameToImage(name, { view: options.view });
     if (image) {
       images.push(image);
     } else {
@@ -6635,12 +6800,15 @@ const PRODUCT_VIEW_NOTE_COLUMNS = [
 ];
 
 function getProductImageView(row) {
+  const config = getCurrentTemplateConfig();
+  const defaultView = getDefaultProductImageViewForTemplate() || "angle";
+  if (config && (config.id === "pddSku" || config.id === "pddSkuGift")) return defaultView;
+
   const explicit = String(firstTextValue(row, PRODUCT_VIEW_COLUMNS) || "").toLowerCase();
   if (/^(front|face|f|正面|正面图)$/.test(explicit)) return "front";
   if (/^(angle|angled|tilt|tilted|side|a|斜侧|倾斜|斜侧图|倾斜图)$/.test(explicit)) return "angle";
 
   const note = firstTextValue(row, PRODUCT_VIEW_NOTE_COLUMNS);
-  const defaultView = getDefaultProductImageViewForTemplate() || "angle";
   if (!note) return defaultView;
   if (/front|face|正面|正面图/i.test(note)) return "front";
   if (/angle|angled|tilt|tilted|side|斜侧|倾斜|斜侧图|倾斜图/i.test(note)) return "angle";
@@ -6768,12 +6936,14 @@ function expandProductNamesToSet(row) {
   const tokens = splitProductNameList(source.value);
   if (!tokens.length) return expanded;
 
-  const resolvedSet = resolveProductNameTokensToImages(tokens);
+  const productView = getProductImageView(expanded);
+  const resolvedSet = resolveProductNameTokensToImages(tokens, { view: productView });
   images.push(...resolvedSet.images);
   missing.push(...resolvedSet.missing);
 
   if (images.length) {
     expanded["img.productSet"] = images.join(" | ");
+    expanded["product.view"] = productView;
     if (!expanded["product.count"]) {
       expanded["product.count"] = String(images.length);
     }
@@ -6803,19 +6973,19 @@ function preferProductNameImages(row) {
   return expanded;
 }
 
-function resolveProductNameTokensToImages(tokens) {
+function resolveProductNameTokensToImages(tokens, options = {}) {
   const sourceText = tokens.join("+");
   const images = [];
   const missing = [];
 
   tokens.forEach((token) => {
-    const resolved = resolveProductNameTokenToImages(token);
+    const resolved = resolveProductNameTokenToImages(token, options);
     images.push(...resolved.images);
 
     resolved.missing.forEach((name) => {
       const contextualName = buildContextualProductNameToken(name, sourceText);
       const contextualImage = contextualName && contextualName !== name
-        ? resolveProductNameToImage(contextualName)
+        ? resolveProductNameToImage(contextualName, { view: options.view })
         : "";
       if (contextualImage) {
         images.push(contextualImage);
@@ -7385,13 +7555,18 @@ function findPromoTitleAreaLayer(doc) {
 }
 
 function hideAlternatePromoTitleLayers(doc, activeLayer) {
-  const activeName = activeLayer && activeLayer.name;
-  getPromoTitleLayerNames().forEach((name) => {
-    const layer = findLayerByName(doc, name);
-    if (layer && layer.name !== activeName) {
-      layer.visible = false;
-    }
+  const activeId = activeLayer && activeLayer.id;
+  const names = [
+    ...getPromoTitleLayerNames(null, "txt.promoTitle"),
+    ...getPromoTitleLayerNames(null, "txt.bottomText")
+  ];
+  Array.from(new Set(names)).forEach((name) => {
+    findLayersByName(doc, name).forEach((layer) => {
+      const isActive = layer && ((activeId && layer.id === activeId) || layer === activeLayer);
+      if (layer && !isActive) layer.visible = false;
+    });
   });
+  if (activeLayer) activeLayer.visible = true;
 }
 
 function getBottomTextVisualUnits(value) {
@@ -7606,6 +7781,9 @@ async function applyGeneratedBottomTextIfNeeded(doc, row) {
   log(`  Generated bottom text applied: ${value}`);
 }
 
+function shouldReplaceTextOnlyWithoutMove(layerName) {
+  return String(layerName || "").trim() === "txt.mainProductLabel";
+}
 function shouldKeepTemplateTextBox(layerName) {
   if (isPromoTitleName(layerName)) return true;
   const config = getCurrentTemplateConfig();
@@ -8155,18 +8333,19 @@ function getSubtitleRectangleTextWidth(textValue, fontSize, variant) {
 }
 
 function getSubtitleRectangleWidthScaleByLength(variant, charCount) {
-  if (variant <= 1) return 1.28;
-  if (charCount >= 39) return 1.08;
-  if (charCount >= 36) return 0.98;
-  return 0.88;
+  if (variant <= 1) return charCount >= 22 ? 1.38 : 1.32;
+  if (charCount >= 39) return 1.18;
+  if (charCount >= 36) return 1.12;
+  if (charCount >= 30) return 1.06;
+  return 0.98;
 }
 
 function getDefaultSubtitleRectangleMaxWidth(variant, textValue = "") {
   const charCount = getSubtitleCharCount(textValue);
   if (variant <= 1) return 760;
   if (charCount >= 39) return 760;
-  if (charCount >= 36) return 720;
-  return 660;
+  if (charCount >= 36) return 740;
+  return 700;
 }
 
 function getSubtitleLayerVariant(textValue) {
@@ -8366,6 +8545,21 @@ async function applyTitleAndProductNote(doc, row) {
     handled["txt.titleNote.1"] = true;
     handled["txt.titleNote.2"] = true;
     handled["txt.titleNote.3"] = true;
+  }
+
+  const promoTitleKey = ["txt.promoTitle", "txt.promoText"].find((key) => hasValue(row, key));
+  if (promoTitleKey) {
+    if (await applyBottomTextVariantRules(doc, row[promoTitleKey], row, promoTitleKey)) {
+      handled["txt.promoTitle"] = true;
+      handled["txt.promoTitle.1"] = true;
+      handled["txt.promoTitle.2"] = true;
+      handled["txt.promoText"] = true;
+      handled["txt.promoText.1"] = true;
+      handled["txt.promoText.2"] = true;
+      log(`  Promo title applied from ${promoTitleKey}.`);
+    } else {
+      log(`  Promo title layer not found: ${promoTitleKey}.`);
+    }
   }
 
   const noteText = firstTextValue(row, ["txt.productNote", "txt.note", "txt.description", "txt.subtitle"]);
@@ -8701,6 +8895,7 @@ async function applyRowToDocument(doc, row) {
   await prepareImageGroupLayers(doc, expandedRow, "gift");
   applyBackgroundSwitch(doc, expandedRow);
   applyLayerVisibilitySwitches(doc, expandedRow);
+  applyGiftTagVisibility(doc, expandedRow);
   applyGiftRightTemplateSwitch(doc, expandedRow);
   applyPersonTemplateSwitch(doc, expandedRow);
 
@@ -8745,6 +8940,11 @@ async function applyRowToDocument(doc, row) {
           continue;
         }
       }
+      if (shouldReplaceTextOnlyWithoutMove(layer.name) || shouldReplaceTextOnlyWithoutMove(column)) {
+        await replaceTextLayer(layer, value);
+        log(`  Text content replaced only; position kept: ${column}.`);
+        continue;
+      }
       if (shouldKeepTemplateTextBox(layer.name) || shouldKeepTemplateTextBox(column)) {
         await replaceTextLayerPreserveTemplateParagraphWithSuperscripts(layer, value, doc);
         if (isPromoTitleName(layer.name) || isPromoTitleName(column)) {
@@ -8777,6 +8977,7 @@ async function applyRowToDocument(doc, row) {
 
   hideUnusedTemplateImageLayers(doc, expandedRow);
   applyDailyMechanismSwitch(doc, expandedRow);
+  applyGiftTagVisibility(doc, expandedRow);
   await applyGeneratedBottomTextIfNeeded(doc, expandedRow);
   log("  Before product arrange.");
   await arrangeProductLineAfterReplace(doc, expandedRow);

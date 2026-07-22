@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260720-giftleft-soothing-prefer";
+const SCRIPT_VERSION = "20260720-cleansing-foam-kids-map";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -818,12 +818,20 @@ function chooseNonSampleProduct(items) {
   return matched.length === 1 ? matched[0] : "";
 }
 function getDefaultProductAgeForQuery(value) {
+  const normalized = normalizeProductNameKey(value);
+  if (isUnprefixedKidsCleansingKey(normalized)) {
+    return "\u513f\u7ae5";
+  }
   return getAgeCnCanonicalFromText(value) || "\u5a74\u7ae5";
 }
 
 function choosePreferredProductImageForKey(key, values) {
   const items = Array.from(values || []);
   const normalizedKey = normalizeProductNameKey(key);
+  if (isUnprefixedKidsCleansingKey(normalizedKey)) {
+    const cleansing = chooseKidsCleansingProduct(items);
+    if (cleansing) return cleansing;
+  }
   if (isUnprefixedBathOilBottleKey(normalizedKey)) {
     const bottle = chooseBottleProduct(items);
     if (bottle) return bottle;
@@ -923,6 +931,9 @@ function getChineseProductAliases({ age, product, standardProduct, productEn }) 
   if (/body\s*lotion|\u8eab\u4f53\u4e73|\u4fdd\u6e7f\u4e73/i.test(combined)) {
     add("\u8eab\u4f53\u4e73"); add("\u4fdd\u6e7f\u4e73"); aliases.delete("\u5b89\u5fc3\u971c");
   }
+  if (/cleansing\s*foam|\u6d01\u9762\u6ce1/i.test(combined)) {
+    add("\u6d01\u9762\u6ce1");
+  }
   if (/foaming\s*(wash|body\s*wash|shampoo)|body\s*wash|cleansing\s*foam|\u6ce1\u6ce1\u6d17\u6c90|\u6ce1\u6ce1\u6c90\u6d74/i.test(combined)) {
     add("\u6ce1\u6ce1\u6d17\u6c90"); add("\u6ce1\u6ce1\u6c90\u6d74\u9732"); add("\u6c90\u6d74\u9732");
   }
@@ -954,6 +965,7 @@ function getEnglishDerivedChineseProductAliases(row, fileName) {
   if (/cooling[-\s]*cream/.test(combined)) { add("\u590f\u5b63\u5b89\u5fc3\u971c"); add("\u5b89\u5fc3\u971c"); add("\u51b0\u6c99\u971c"); }
   if (/body[-\s]*lotion/.test(combined)) { add("\u8eab\u4f53\u4e73"); add("\u4fdd\u6e7f\u4e73"); add("\u9ad8\u4fdd\u6e7f\u4e73"); }
   if (/sunscreen[-\s]*lotion|sunscreen/.test(combined)) add("\u9632\u6652\u4e73");
+  if (/cleansing[-\s]*foam/.test(combined)) add("\u6d01\u9762\u6ce1");
   if (/foaming[-\s]*(wash|body[-\s]*wash|shampoo)|body[-\s]*wash|cleansing[-\s]*foam/.test(combined)) { add("\u6ce1\u6ce1\u6d17\u6c90"); add("\u6ce1\u6ce1\u6c90\u6d74\u9732"); add("\u6c90\u6d74\u9732"); }
   if (/repellent[-\s]*spray/.test(combined)) add("\u9a71\u868a\u55b7\u96fe");
   if (/floral[-\s]*water|smoothing[-\s]*spray/.test(combined)) add("\u53ee\u53ee\u55b7\u96fe");
@@ -3578,6 +3590,27 @@ async function moveLayerNearTemplateLayer(layer, templateLayer, placement) {
   }
 }
 
+async function moveLayerBesideReferenceBestEffort(layer, referenceLayer, label) {
+  if (!layer || !referenceLayer) return false;
+  const placements = [
+    photoshop.constants.ElementPlacement.PLACEBEFORE,
+    photoshop.constants.ElementPlacement.PLACEAFTER
+  ].filter(Boolean);
+
+  let lastError = null;
+  for (const placement of placements) {
+    try {
+      await layer.move(referenceLayer, placement);
+      return true;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  log(`  ${label || "Layer"} group placement skipped: ${formatError(lastError)}`);
+  return false;
+}
+
 async function moveLayerInsideGroup(layer, groupLayer, label) {
   if (!layer || !groupLayer) return false;
   const placements = [
@@ -3660,6 +3693,9 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     const layer = await placeAssetAsLayer(asset);
     layer.name = `img.${prefix}.${i}`;
     layer.visible = true;
+    if (prefix === "product") {
+      await moveLayerBesideReferenceBestEffort(layer, baseLayer, `${layer.name} -> ${baseLayer.name}`);
+    }
     if (prefix === "giftLeft") {
       const giftLeftImageGroup = findCurrentGiftLeftImageGroup(doc, row);
       const movedInside = await moveLayerInsideGroup(layer, giftLeftImageGroup, "current giftLeftimage");
@@ -4348,7 +4384,10 @@ async function groupSelectedLayersBestEffort(layers, groupName, label) {
 }
 
 async function packDocumentLayersForMerge(doc, groupName, keepBg) {
-  await activateDocumentBestEffort(doc);
+  if (!await activateDocumentBestEffort(doc)) {
+    log(`  Merge skipped ${groupName}: document is no longer available.`);
+    return null;
+  }
   await removeAreaGroups(doc);
   if (keepBg) {
     await moveBgToBottom(doc);
@@ -4373,15 +4412,28 @@ async function packDocumentLayersForMerge(doc, groupName, keepBg) {
 async function duplicateLayerToDocumentBestEffort(layer, targetDoc, name) {
   if (!layer || !targetDoc) return null;
   ensureModules();
+  const placement = photoshop.constants.ElementPlacement.PLACEATBEGINNING;
+
+  try {
+    const duplicated = await layer.duplicate(targetDoc, placement);
+    if (duplicated) {
+      duplicated.name = name;
+      duplicated.visible = true;
+      return duplicated;
+    }
+  } catch (error) {
+    log(`  Merge DOM duplicate to master skipped: ${formatError(error)}`);
+  }
+
   try {
     const duplicated = await layer.duplicate(targetDoc);
     if (duplicated) {
       duplicated.name = name;
       duplicated.visible = true;
+      return duplicated;
     }
-    return duplicated;
   } catch (error) {
-    log(`  Merge duplicate skipped for ${name}: ${formatError(error)}`);
+    log(`  Merge DOM duplicate target-only skipped: ${formatError(error)}`);
   }
 
   try {
@@ -4397,25 +4449,26 @@ async function duplicateLayerToDocumentBestEffort(layer, targetDoc, name) {
             _ref: "document",
             _id: targetDoc.id
           },
+          name,
+          version: 5,
           _options: { dialogOptions: "dontDisplay" }
         }
       ],
       { synchronousExecution: true, modalBehavior: "execute" }
     );
     await activateDocumentBestEffort(targetDoc);
-    const duplicated = photoshop.app.activeDocument.activeLayers[0];
+    const duplicated = targetDoc.activeLayers && targetDoc.activeLayers[0] || photoshop.app.activeDocument.activeLayers[0];
     if (duplicated) {
       duplicated.name = name;
       duplicated.visible = true;
+      return duplicated;
     }
-    return duplicated;
   } catch (error) {
-    log(`  Merge action duplicate skipped for ${name}: ${formatError(error)}`);
+    log(`  Merge action duplicate to master skipped: ${formatError(error)}`);
   }
 
   return null;
 }
-
 async function flipLayerVertical(layer) {
   if (!layer) return;
   try {
@@ -6237,13 +6290,32 @@ async function expandProductNamesToSet(row) {
   if (!tokens.length) return expanded;
 
   for (const token of tokens) {
-    const resolved = await resolveProductNameTokenToImages(token);
-    images.push(...resolved.images);
-    missing.push(...resolved.missing);
+    const repeatedNames = expandRepeatedProductNameToken(token);
+    const hasExplicitQuantity = repeatedNames.length > 1 || repeatedNames[0] !== token;
+
+    if (!hasExplicitQuantity) {
+      const directImage = resolveProductNameToImage(token);
+      if (directImage) {
+        images.push(directImage);
+        continue;
+      }
+    }
+
+    repeatedNames.forEach((name) => {
+      const image = resolveProductNameToImage(name);
+      if (image) {
+        images.push(image);
+      } else {
+        missing.push(name);
+      }
+    });
   }
 
   if (images.length) {
     expanded["img.productSet"] = images.join(" | ");
+    images.forEach((image, index) => {
+      expanded[`img.product.${index + 1}`] = image;
+    });
     const usesSingleComboImage = images.length === 1 && /(?:-\d+x|--stack|-stack-ice|-stack-water)\./i.test(images[0]);
     if (usesSingleComboImage) {
       expanded["product.count"] = "1";
@@ -6917,10 +6989,20 @@ function isGiftControlColumn(column) {
 }
 
 async function pruneNonDisplayedLayersForPsd(doc, label = "PSD export") {
-  // Keep PSD export stable; hidden-layer pruning is intentionally disabled for this template run.
-  log(`  PSD layer cleanup skipped: ${label}.`);
-}
+  if (!doc || !doc.layers) return;
+  if (!await activateDocumentBestEffort(doc)) {
+    log(`  ${label} cleanup skipped: document is no longer available.`);
+    return;
+  }
 
+  const removed = await pruneLayerCollectionForPsd(doc.layers, true);
+  const total = removed.hidden + removed.empty;
+  if (total) {
+    log(`  ${label} cleanup: removed ${removed.hidden} hidden/non-displayed layer(s), ${removed.empty} empty group(s).`);
+  } else {
+    log(`  ${label} cleanup: no hidden/non-displayed layers found.`);
+  }
+}
 async function restoreNonDisplayedLayersForPsd(doc, label = "PSD export") {
   await pruneNonDisplayedLayersForPsd(doc, label);
 }
@@ -7061,7 +7143,10 @@ async function mergeExportedPsdsAsGroups(entries) {
   const first = psdEntries[0];
   const master = await photoshop.app.open(first.file);
   const firstGroupName = sanitizeFileBaseName(String(first.name || first.file.name || "1").replace(/\.psd$/i, ""), `jddaily_${first.index || 1}`);
-  await packDocumentLayersForMerge(master, firstGroupName, true);
+  const firstGroup = await packDocumentLayersForMerge(master, firstGroupName, true);
+  if (!firstGroup) {
+    throw new Error("Merge master PSD could not be packed.");
+  }
 
   let imported = 1;
   for (let i = 1; i < psdEntries.length; i += 1) {
@@ -7084,11 +7169,15 @@ async function mergeExportedPsdsAsGroups(entries) {
       if (srcDoc) {
         await closeDocWithoutSaving(srcDoc);
       }
-      await activateDocumentBestEffort(master);
+      if (!await activateDocumentBestEffort(master)) {
+        throw new Error("Merge master document was closed or is no longer available.");
+      }
     }
   }
 
-  await activateDocumentBestEffort(master);
+  if (!await activateDocumentBestEffort(master)) {
+    throw new Error("Merge master document was closed or is no longer available before save.");
+  }
   await moveBgToBottom(master);
   const outputName = `merged_psd_groups_${makeTimestampForFileName()}.psd`;
   const mergedFile = await outputFolder.createFile(outputName, { overwrite: true });
@@ -7112,6 +7201,20 @@ async function exportDocument(doc, row, index) {
 }
 
 async function closeDocWithoutSaving(doc) {
+  if (!doc) return;
+
+  let docName = "";
+  try {
+    docName = doc.name || "";
+  } catch (error) {
+    docName = "";
+  }
+
+  if (!await activateDocumentBestEffort(doc)) {
+    log(`  Close skipped: document is no longer available${docName ? ` (${docName})` : ""}.`);
+    return;
+  }
+
   if (doc.closeWithoutSaving) {
     await doc.closeWithoutSaving();
     return;
