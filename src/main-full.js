@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260721-pddsku-promotitle-sku-front";
+const SCRIPT_VERSION = "20260723-title-symbols-line-seed";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -2515,7 +2515,7 @@ function shiftSuperscriptRanges(ranges, originalText, wrappedText) {
 }
 
 function isTitleLatinChar(char) {
-  return /^[A-Za-z0-9¹²³⁴⁵⁶⁷⁸⁹⁰]$/.test(char);
+  return !isCjkTextChar(char);
 }
 
 function isIndexInRanges(index, ranges) {
@@ -2722,7 +2722,7 @@ function getTemplateTextStyleByKind(textKey, fallbackStyle, options = {}) {
 }
 
 function isTitleTemplateLatinChar(char) {
-  return /^[A-Za-z0-9.,:;!?\'"()&+\-/%\s]$/.test(char);
+  return !isCjkTextChar(char);
 }
 
 function applyTitleFontToTemplateStyle(style, kind) {
@@ -5078,6 +5078,65 @@ function isLayerGroup(layer) {
   return !!(layer && layer.layers && layer.layers.length !== undefined);
 }
 
+function countLayerTree(layer) {
+  if (!isLayerGroup(layer)) return 1;
+  return 1 + Array.from(layer.layers || []).reduce((total, child) => total + countLayerTree(child), 0);
+}
+
+function isLayerDisplayedForFinalPsd(layer) {
+  if (!layer || layer.visible === false) return false;
+  const opacity = Number(layer.opacity);
+  return !Number.isFinite(opacity) || opacity > 0;
+}
+
+async function pruneLayerCollectionForPsd(layers, ancestorsVisible) {
+  const result = { hidden: 0, empty: 0 };
+  const snapshot = Array.from(layers || []);
+
+  for (const layer of snapshot) {
+    if (!layer) continue;
+    const effectivelyVisible = ancestorsVisible && isLayerDisplayedForFinalPsd(layer);
+
+    if (!effectivelyVisible) {
+      const removedCount = countLayerTree(layer);
+      if (await deleteLayerBestEffort(layer, `PSD hidden layer ${layer.name}`)) {
+        result.hidden += removedCount;
+        continue;
+      }
+    }
+
+    if (isLayerGroup(layer)) {
+      const childResult = await pruneLayerCollectionForPsd(layer.layers, effectivelyVisible);
+      result.hidden += childResult.hidden;
+      result.empty += childResult.empty;
+
+      if (effectivelyVisible && Array.from(layer.layers || []).length === 0) {
+        if (await deleteLayerBestEffort(layer, `PSD empty group ${layer.name}`)) {
+          result.empty += 1;
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+async function pruneNonDisplayedLayersForPsd(doc, label = "PSD export") {
+  if (!doc || !doc.layers) return;
+  if (!await activateDocumentBestEffort(doc)) {
+    log(`  ${label} cleanup skipped: document is no longer available.`);
+    return;
+  }
+
+  const removed = await pruneLayerCollectionForPsd(doc.layers, true);
+  const total = removed.hidden + removed.empty;
+  if (total) {
+    log(`  ${label} cleanup: removed ${removed.hidden} hidden/non-displayed layer(s), ${removed.empty} empty group(s).`);
+  } else {
+    log(`  ${label} cleanup: no hidden/non-displayed layers found.`);
+  }
+}
+
 function isBgLayerName(name) {
   return String(name || "").trim().toLowerCase() === "bg";
 }
@@ -5212,8 +5271,81 @@ async function groupSelectedLayersBestEffort(layers, groupName, label) {
   return null;
 }
 
+function collectLayerGroups(layers, result = []) {
+  for (const layer of layers || []) {
+    if (layer && layer.layers && layer.layers.length) {
+      result.push(layer);
+      collectLayerGroups(layer.layers, result);
+    }
+  }
+  return result;
+}
+
+async function collapseLayerGroupBestEffort(layer) {
+  if (!layer) return false;
+  ensureModules();
+
+  const layerTarget = layer.id
+    ? { _ref: "layer", _id: layer.id }
+    : { _ref: "layer", _name: layer.name };
+
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "set",
+          _target: [
+            { _ref: "property", _property: "layerSectionExpanded" },
+            layerTarget
+          ],
+          to: false,
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function collapseAllLayerGroupsBestEffort(doc, label = "Merge PSD") {
+  if (!await activateDocumentBestEffort(doc)) return false;
+  ensureModules();
+
+  let eventCollapsed = false;
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "collapseAllGroupsEvent",
+          _isCommand: true,
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    eventCollapsed = true;
+  } catch (error) {
+    log(`  ${label} collapse-all event skipped: ${formatError(error)}`);
+  }
+
+  const groups = collectLayerGroups(doc.layers).reverse();
+  let collapsed = 0;
+  for (const group of groups) {
+    if (await collapseLayerGroupBestEffort(group)) collapsed += 1;
+  }
+  if (collapsed) {
+    log(`  ${label} groups collapsed: ${collapsed}.`);
+  } else if (eventCollapsed) {
+    log(`  ${label} groups collapsed by Photoshop command.`);
+  }
+  return eventCollapsed || collapsed > 0;
+}
 async function packDocumentLayersForMerge(doc, groupName, keepBg) {
   await activateDocumentBestEffort(doc);
+  await pruneNonDisplayedLayersForPsd(doc, `Merge source ${groupName}`);
   await removeAreaGroups(doc);
   if (keepBg) {
     await moveBgToBottom(doc);
@@ -8419,6 +8551,33 @@ function getTitleNoteLayerNames() {
   return ["txt.titleNote", "txt.titleNote.1", "txt.titleNote.2", "txt.titleNote.3"];
 }
 
+function getUniqueLayersByNames(doc, names) {
+  const seen = new Set();
+  const layers = [];
+  (names || []).forEach((name) => {
+    findLayersByName(doc, name).forEach((layer) => {
+      const key = layer.id || layer;
+      if (seen.has(key)) return;
+      seen.add(key);
+      layers.push(layer);
+    });
+  });
+  return layers;
+}
+
+function findPreferredLayerByNames(doc, row, names) {
+  for (const name of names || []) {
+    const layer = findLayerByNameInCurrentMechanismOnly(doc, row, name);
+    if (layer) return layer;
+  }
+  for (const name of names || []) {
+    const layer = findLayersByName(doc, name)[0];
+    if (layer) return layer;
+  }
+  return null;
+}
+
+
 function getTitleNoteVariantLayer(doc, variantIndex, row = null) {
   const variant = Math.min(Math.max(Number(variantIndex) || 1, 1), 3);
   const names = [`txt.titleNote.${variant}`, "txt.titleNote", ...getTitleNoteLayerNames()];
@@ -8434,12 +8593,13 @@ async function applyTitleNoteLayer(doc, row, titleLineCount) {
 
   const variantIndex = Math.min(Math.max(Number(titleLineCount) || 1, 1), 3);
   const titleNoteText = firstTextValue(row, [`txt.titleNote.${variantIndex}`, "txt.titleNote"]);
-  const layers = getTitleNoteLayerNames().map((name) => findLayerByNameInCurrentMechanismOnly(doc, row, name) || findLayerByName(doc, name)).filter(Boolean);
+  const layerNames = getTitleNoteLayerNames();
+  const layers = getUniqueLayersByNames(doc, layerNames);
   if (!layers.length) return false;
 
   if (titleNoteText === undefined || titleNoteText === null || titleNoteText === "") {
     layers.forEach((layer) => { layer.visible = false; });
-    log("  Title note hidden: empty txt.titleNote.");
+    log(`  Title note hidden: empty txt.titleNote, hiddenAlternates=${layers.length}.`);
     return true;
   }
 
@@ -8449,7 +8609,7 @@ async function applyTitleNoteLayer(doc, row, titleLineCount) {
   });
   selectedLayer.visible = true;
   await replaceTextLayerPreserveTemplateParagraphWithSuperscripts(selectedLayer, titleNoteText, doc);
-  log(`  Title note applied: ${selectedLayer.name}, titleLines=${titleLineCount}.`);
+  log(`  Title note applied: ${selectedLayer.name}, hiddenAlternates=${Math.max(layers.length - 1, 0)}, titleLines=${titleLineCount}.`);
   return true;
 }
 
@@ -8476,22 +8636,19 @@ function getTitleVariantInfo(row, text) {
 
 function findTitleLayerForRow(doc, row, text) {
   const variantInfo = getTitleVariantInfo(row, text);
-  const preferredName = `txt.title.${variantInfo.variant}`;
-  const titleLayer1 = findLayerByNameInCurrentMechanismOnly(doc, row, "txt.title.1") || findLayerByName(doc, "txt.title.1");
-  const titleLayer2 = findLayerByNameInCurrentMechanismOnly(doc, row, "txt.title.2") || findLayerByName(doc, "txt.title.2");
-  const titleBaseLayer = findLayerByNameInCurrentMechanismOnly(doc, row, "txt.title") || findLayerByName(doc, "txt.title");
-  const selectedLayer = variantInfo.variant === 2 && titleLayer2
-    ? titleLayer2
-    : variantInfo.variant === 1 && titleLayer1
-      ? titleLayer1
-      : titleBaseLayer || titleLayer1 || titleLayer2;
+  const titleLayerNames = ["txt.title.1", "txt.title.2", "txt.title"];
+  const titleLayers = getUniqueLayersByNames(doc, titleLayerNames);
+  const preferredNames = variantInfo.variant === 2
+    ? ["txt.title.2", "txt.title", "txt.title.1"]
+    : ["txt.title.1", "txt.title", "txt.title.2"];
+  const selectedLayer = findPreferredLayerByNames(doc, row, preferredNames);
 
-  [titleLayer1, titleLayer2, titleBaseLayer].forEach((layer) => {
+  titleLayers.forEach((layer) => {
     if (layer && layer !== selectedLayer) layer.visible = false;
   });
   if (selectedLayer) {
     selectedLayer.visible = true;
-    log(`  Title layer selected: ${selectedLayer.name}, ${variantInfo.reason}.`);
+    log(`  Title layer selected: ${selectedLayer.name}, hiddenAlternates=${Math.max(titleLayers.length - 1, 0)}, ${variantInfo.reason}.`);
   }
   return selectedLayer;
 }
@@ -8684,6 +8841,7 @@ async function exportPsd(doc, row, index) {
   const outputName = getExportName(row, index, "psd");
   log(`  Saving PSD as: ${outputName}`);
   const psdFile = await outputFolder.createFile(outputName, { overwrite: true });
+  await pruneNonDisplayedLayersForPsd(doc, `PSD export ${outputName}`);
 
   if (doc.saveAs && doc.saveAs.psd) {
     await doc.saveAs.psd(psdFile, { maximizeCompatibility: true }, true);
@@ -8732,7 +8890,12 @@ function makeTimestampForFileName() {
   ].join("");
 }
 
-async function savePsdDocumentAsFile(doc, file) {
+async function savePsdDocumentAsFile(doc, file, options = {}) {
+  await pruneNonDisplayedLayersForPsd(doc, file && file.name ? `PSD save ${file.name}` : "PSD save");
+  if (options.collapseGroups) {
+    await collapseAllLayerGroupsBestEffort(doc, "Merge PSD");
+  }
+
   if (doc.saveAs && doc.saveAs.psd) {
     await doc.saveAs.psd(file, { maximizeCompatibility: true }, true);
     return;
@@ -8807,7 +8970,7 @@ async function mergeExportedPsdsAsGroups(entries) {
   await moveBgToBottom(master);
   const outputName = `merged_psd_groups_${makeTimestampForFileName()}.psd`;
   const mergedFile = await outputFolder.createFile(outputName, { overwrite: true });
-  await savePsdDocumentAsFile(master, mergedFile);
+  await savePsdDocumentAsFile(master, mergedFile, { collapseGroups: true });
   log(`Merge PSD saved: ${outputName}, groups=${imported}.`);
   return outputName;
 }

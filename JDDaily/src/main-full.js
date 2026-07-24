@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260720-cleansing-foam-kids-map";
+const SCRIPT_VERSION = "20260723-title-symbols-line-seed";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -30,7 +30,7 @@ const SUBTITLE_FONT_RULE = {
   preserveFontSize: true,
   chinese: {
     postScriptName: "FZLanTingHei_GBK",
-    fontName: "鏂规鍏颁涵榛慱GBK"
+    fontName: "方正兰亭黑_GBK"
   },
   latin: {
     postScriptName: "LINESeedSansApp-Regular",
@@ -49,7 +49,7 @@ const BASE_TEMPLATE_CONFIG = {
     output: ""
   },
   exportNameColumns: ["exportName", "sku", "id", "goodsId"],
-  ignoredDataColumns: ["export.format", "exportFormat", "瀵煎嚭鏍煎紡"],
+  ignoredDataColumns: ["export.format", "exportFormat", "导出格式"],
   giftRightBox: {
     left: 390,
     top: 595,
@@ -77,10 +77,10 @@ const TEMPLATE_CONFIGS = {
     label: "JDDaily 750",
     filePrefixPlaceholder: "jd_daily_750_",
     paths: {
-      template: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\JDDAILY\\JD_DAILY_750_ALL_MECHANISM.psd",
+      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\JDDAILY\\JD_DAILY_750_ALL_MECHANISM.psd",
       csv: "F:\\SOFT\\CODEX\\PROJECT\\Main_image_template\\JDDaily\\sample-data-jddaily750.csv",
-      assets: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\assets",
-      output: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\JDDAILY\\export"
+      assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\assets",
+      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\JDDAILY\\export"
     },
     exportNameColumns: ["exportName", "SKU", "sku", "id", "goodsId"],
     ignoredDataColumns: ["sheet", "daily.mechanism", "daily.giftMiddleType", "daily.giftRightType", "img.giftMiddle", "template.profile", "templateProfile"],
@@ -104,10 +104,10 @@ const TEMPLATE_CONFIGS = {
       column: "daily.mechanism",
       defaultMechanism: "2",
       groups: {
-        "1": ["daily.mechanism.1", "鏈哄埗-1"],
-        "2": ["daily.mechanism.2", "鏈哄埗-2"],
-        "3": ["daily.mechanism.3", "鏈哄埗-3"],
-        "4": ["daily.mechanism.4", "鏈哄埗-4"]
+        "1": ["daily.mechanism.1", "机制-1"],
+        "2": ["daily.mechanism.2", "机制-2"],
+        "3": ["daily.mechanism.3", "机制-3"],
+        "4": ["daily.mechanism.4", "机制-4"]
       },
       middleGiftLayers: {
         "178": ["img.giftMiddle.178"],
@@ -135,7 +135,7 @@ const TEMPLATE_CONFIGS = {
     bottomTextStyle: {
       chinese: {
         postScriptName: "FZLanTingHei_GBK",
-        fontName: "鏂规鍏颁涵榛慱GBK",
+        fontName: "方正兰亭黑_GBK",
         fontSize: 47
       },
       latin: {
@@ -155,10 +155,10 @@ const TEMPLATE_CONFIGS = {
     label: "JDDaily POP",
     filePrefixPlaceholder: "jd_daily_",
     paths: {
-      template: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\浜笢pop612\\sample\\jingdongpop612sample.psd",
-      csv: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\浜笢pop612\\sample\\sample-data.csv",
-      assets: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\浜笢pop612\\sample",
-      output: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\浜笢pop612\\sample\\export"
+      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\jingdongpop612sample.psd",
+      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\sample-data.csv",
+      assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample",
+      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\export"
     },
     giftRightTemplateSwitch: {
       enabled: true,
@@ -188,10 +188,10 @@ const TEMPLATE_CONFIGS = {
     label: "JD618 POP",
     filePrefixPlaceholder: "jd_618_",
     paths: {
-      template: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\浜笢pop612\\sample\\jingdongpop612sample.psd",
-      csv: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\浜笢pop612\\sample\\sample-data.csv",
-      assets: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\浜笢pop612\\sample",
-      output: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\浜笢pop612\\sample\\export"
+      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\jingdongpop612sample.psd",
+      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\sample-data.csv",
+      assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample",
+      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\京东pop612\\sample\\export"
     },
     giftRightTemplateSwitch: {
       enabled: true,
@@ -221,10 +221,10 @@ const TEMPLATE_CONFIGS = {
     label: "PDD SKU",
     filePrefixPlaceholder: "pdd_sku_",
     paths: {
-      template: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\PDDSKU\\PDD_SKU_Template.psd",
-      csv: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\PDDSKU\\sample-data-pdd-sku.csv",
-      assets: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\assets",
-      output: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\PDDSKU\\export"
+      template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\PDD_SKU_Template.psd",
+      csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\sample-data-pdd-sku.csv",
+      assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\assets",
+      output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDDSKU\\export"
     },
     exportNameColumns: ["exportName", "PDD_SKU", "pddSku", "pdd_sku", "sku", "id", "goodsId"],
     ignoredDataColumns: ["template.profile", "templateProfile"],
@@ -248,7 +248,7 @@ const TEMPLATE_CONFIGS = {
       preserveFontSize: true,
       chinese: {
         postScriptName: "FZLanTingHei_GBK",
-        fontName: "鏂规鍏颁涵榛慱GBK",
+        fontName: "方正兰亭黑_GBK",
         color: { red: 0, green: 0, blue: 0 }
       },
       latin: {
@@ -275,8 +275,8 @@ TEMPLATE_CONFIGS.tianmao88 = {
   filePrefixPlaceholder: "tmall_88_",
   paths: {
     ...TEMPLATE_CONFIGS.jddaily750.paths,
-    template: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\TIANMAO\\澶╃尗88涓诲浘.psd",
-    output: "F:\\NEWPAGE\\AI鐢熷浘\\鎵归噺鐢熷浘娴嬭瘯\\TIANMAO\\export"
+    template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\TIANMAO\\天猫88主图.psd",
+    output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\TIANMAO\\export"
   },
   dailyMechanismSwitch: {
     ...TEMPLATE_CONFIGS.jddaily750.dailyMechanismSwitch,
@@ -747,7 +747,7 @@ function compactSpecHyphenKey(key) {
 
 function compactProductNameMatchKey(key) {
   return String(key || "")
-    .replace(/[閿?鑴抽敍闈╃稅]/g, "x")
+    .replace(/[×✕＊*]/g, "x")
     .replace(/((?:kg|ml|g|l))x(?=\d)/gi, "$1")
     .replace(/[\\/_\-\s]+/g, "")
     .toLowerCase();
@@ -986,11 +986,20 @@ function getAllLayers(layers, result = []) {
 }
 
 function findLayerByName(doc, name) {
-  return getAllLayers(doc.layers).find((layer) => layer.name === name);
+  const layers = getAllLayers(doc.layers);
+  const exact = layers.find((layer) => layer.name === name);
+  if (exact) return exact;
+
+  const normalized = String(name || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return layers.find((layer) => String(layer.name || "").trim().toLowerCase() === normalized) || null;
 }
 
 function findLayersByName(doc, name) {
-  return getAllLayers(doc.layers).filter((layer) => layer.name === name);
+  const normalized = String(name || "").trim().toLowerCase();
+  return getAllLayers(doc.layers).filter((layer) => {
+    return layer.name === name || String(layer.name || "").trim().toLowerCase() === normalized;
+  });
 }
 
 function findVisiblePreferredLayerByName(doc, name) {
@@ -2102,7 +2111,7 @@ function shiftSuperscriptRanges(ranges, originalText, wrappedText) {
 }
 
 function isTitleLatinChar(char) {
-  return /^[A-Za-z0-9]$/.test(char);
+  return !isCjkTextChar(char);
 }
 
 function isIndexInRanges(index, ranges) {
@@ -2213,7 +2222,7 @@ function applyTitleFontToTemplateStyle(style, kind) {
   };
 }
 function isTitleLatinStyleChar(char) {
-  return /^[A-Za-z0-9.,:;!?'"()&+\-/\s]$/.test(char);
+  return !isCjkTextChar(char);
 }
 
 function buildMixedTextStyleRanges(text, baseStyle, styleConfig) {
@@ -2868,7 +2877,7 @@ function hasProductCategoryGap(row) {
 
 function isProductCategoryGapEnabled(row) {
   const mode = String(row && (row["product.categoryGapMode"] || row["product.categoryGap"] || "") || "").trim().toLowerCase();
-  return !/^(0|false|no|off|disable|disabled|鍏抽棴)$/.test(mode);
+  return !/^(0|false|no|off|disable|disabled|关闭)$/.test(mode);
 }
 
 function getProductCategoryPairGapRatio(leftCategory, rightCategory, layout = "overlap") {
@@ -4383,6 +4392,78 @@ async function groupSelectedLayersBestEffort(layers, groupName, label) {
   return null;
 }
 
+function collectLayerGroups(layers, result = []) {
+  for (const layer of layers || []) {
+    if (layer && layer.layers && layer.layers.length) {
+      result.push(layer);
+      collectLayerGroups(layer.layers, result);
+    }
+  }
+  return result;
+}
+
+async function collapseLayerGroupBestEffort(layer) {
+  if (!layer) return false;
+  ensureModules();
+
+  const layerTarget = layer.id
+    ? { _ref: "layer", _id: layer.id }
+    : { _ref: "layer", _name: layer.name };
+
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "set",
+          _target: [
+            { _ref: "property", _property: "layerSectionExpanded" },
+            layerTarget
+          ],
+          to: false,
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function collapseAllLayerGroupsBestEffort(doc, label = "Merge PSD") {
+  if (!await activateDocumentBestEffort(doc)) return false;
+  ensureModules();
+
+  let eventCollapsed = false;
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "collapseAllGroupsEvent",
+          _isCommand: true,
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    eventCollapsed = true;
+  } catch (error) {
+    log(`  ${label} collapse-all event skipped: ${formatError(error)}`);
+  }
+
+  const groups = collectLayerGroups(doc.layers).reverse();
+  let collapsed = 0;
+  for (const group of groups) {
+    if (await collapseLayerGroupBestEffort(group)) collapsed += 1;
+  }
+  if (collapsed) {
+    log(`  ${label} groups collapsed: ${collapsed}.`);
+  } else if (eventCollapsed) {
+    log(`  ${label} groups collapsed by Photoshop command.`);
+  }
+  return eventCollapsed || collapsed > 0;
+}
 async function packDocumentLayersForMerge(doc, groupName, keepBg) {
   if (!await activateDocumentBestEffort(doc)) {
     log(`  Merge skipped ${groupName}: document is no longer available.`);
@@ -6096,7 +6177,7 @@ function normalizeExportFormats(value) {
 }
 
 function getExportFormats(row) {
-  const rowFormat = row && (row["export.format"] || row.exportFormat || row["鐎电厧鍤弽鐓庣础"]);
+  const rowFormat = row && (row["export.format"] || row.exportFormat || row["导出格式"]);
   const uiFormat = $("exportFormat") && $("exportFormat").value;
   const selectedFormat = uiFormat && uiFormat !== "jpg" ? uiFormat : rowFormat || uiFormat || "jpg";
   return normalizeExportFormats(selectedFormat);
@@ -6233,7 +6314,7 @@ function resolveProductNameByRows(name) {
 
   const querySpec = extractProductSpec(normalized);
   const queryAge = getAgeCnCanonicalFromText(normalized);
-  const queryCategory = normalized.includes("鐡惰") ? "鐡惰" : normalized.includes("绠¤") ? "绠¤" : normalized.includes("缃愯") ? "缃愯" : "";
+  const queryCategory = normalized.includes("瓶装") ? "瓶装" : normalized.includes("管装") ? "管装" : normalized.includes("罐装") ? "罐装" : "";
   const candidates = new Set();
 
   state.productNameRows.forEach((row) => {
@@ -6810,18 +6891,79 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue) {
   }
 }
 
+function getLayersByNames(doc, names) {
+  const seen = new Set();
+  const layers = [];
+  (names || []).forEach((name) => {
+    findLayersByName(doc, name).forEach((layer) => {
+      const key = layer.id || layer;
+      if (seen.has(key)) return;
+      seen.add(key);
+      layers.push(layer);
+    });
+  });
+  return layers;
+}
+
+function findPreferredLayerByNames(doc, names) {
+  for (const name of names || []) {
+    const layer = findLayersByName(doc, name)[0];
+    if (layer) return layer;
+  }
+  return null;
+}
+
+function getTitleLayerVariantInfo(row, text) {
+  const explicit = String(firstTextValue(row || {}, ["txt.titleVariant", "title.variant", "titleVariant"]) || "").trim();
+  if (/^(2|small|compact|long)$/i.test(explicit)) return { variant: 2, reason: "explicit" };
+  if (/^(1|large|normal|big)$/i.test(explicit)) return { variant: 1, reason: "explicit" };
+
+  const raw = String(text || "");
+  const lineCount = raw.split(/\r\n|\r|\n/).length;
+  if (lineCount > 1) return { variant: 2, reason: `lines=${lineCount}` };
+
+  const minUnits = readNumber(row || {}, "title.variant2MinUnits", readNumber(row || {}, "txt.titleVariant2MinUnits", 24));
+  const units = getDisplayLength(raw.replace(/\s+/g, ""));
+  if (Number.isFinite(minUnits) && minUnits > 0 && units >= minUnits) {
+    return { variant: 2, reason: `units=${units.toFixed(1)}/${minUnits}` };
+  }
+  return { variant: 1, reason: `units=${units.toFixed(1)}/${minUnits || "auto"}` };
+}
+
+function findTitleLayerForRow(doc, row, text, options = {}) {
+  const titleLayerNames = ["txt.title.1", "txt.title.2", "txt.title", "txt.title.bold"];
+  const titleLayers = getLayersByNames(doc, titleLayerNames);
+  const variantInfo = getTitleLayerVariantInfo(row, text);
+  const preferredNames = options.useBoldTitle
+    ? ["txt.title.bold", "txt.title", "txt.title.1", "txt.title.2"]
+    : variantInfo.variant === 2
+      ? ["txt.title.2", "txt.title", "txt.title.1", "txt.title.bold"]
+      : ["txt.title.1", "txt.title", "txt.title.2", "txt.title.bold"];
+  const selectedLayer = findPreferredLayerByNames(doc, preferredNames);
+
+  titleLayers.forEach((layer) => {
+    if (layer && layer !== selectedLayer) layer.visible = false;
+  });
+  if (selectedLayer) {
+    selectedLayer.visible = true;
+    log(`  Title layer selected: ${selectedLayer.name}, hiddenAlternates=${Math.max(titleLayers.length - 1, 0)}, ${options.useBoldTitle ? "bold" : variantInfo.reason}.`);
+  }
+  return selectedLayer;
+}
+
 async function applyTitleAndProductNote(doc, row) {
   const handled = {};
-  const titleLayer = findLayerByName(doc, "txt.title");
-  const titleBoldLayer = findLayerByName(doc, "txt.title.bold");
   const titleStyle = String(row["txt.titleStyle"] || row["title.style"] || row["titleStyle"] || "").trim().toLowerCase();
-  const useBoldTitle = !!titleBoldLayer && (hasValue(row, "txt.title.bold") || /^(bold|b|鍔犵矖|绮椾綋|special)$/i.test(titleStyle));
-  const activeTitleLayer = useBoldTitle ? titleBoldLayer : titleLayer;
-  const inactiveTitleLayer = useBoldTitle ? titleLayer : titleBoldLayer;
-  const titleText = useBoldTitle && hasValue(row, "txt.title.bold") ? row["txt.title.bold"] : row["txt.title"];
+  const boldTitleText = firstTextValue(row, ["txt.title.bold"]);
+  const titleText = /^(bold|b|加粗|粗体|special)$/i.test(titleStyle) && boldTitleText !== undefined
+    ? boldTitleText
+    : firstTextValue(row, ["txt.title", "title"]);
+  const useBoldTitle = boldTitleText !== undefined && (titleText === boldTitleText || /^(bold|b|加粗|粗体|special)$/i.test(titleStyle));
+  const titlePreviewText = titleText !== undefined && titleText !== null ? parseTitleSuperscriptMarkup(titleText).text : "";
+  const activeTitleLayer = titleText !== undefined && titleText !== null
+    ? findTitleLayerForRow(doc, row, titlePreviewText, { useBoldTitle })
+    : null;
   let titleLineCount = 1;
-
-  if (inactiveTitleLayer) inactiveTitleLayer.visible = false;
 
   if (activeTitleLayer && titleText !== undefined && titleText !== null) {
     activeTitleLayer.visible = true;
@@ -6833,8 +6975,10 @@ async function applyTitleAndProductNote(doc, row) {
     });
     titleLineCount = String(parsedTitle.text).split(/\r\n|\r|\n/).length;
     handled["txt.title"] = true;
+    handled["txt.title.1"] = true;
+    handled["txt.title.2"] = true;
     handled["txt.title.bold"] = true;
-    log(`  Title text replaced on ${activeTitleLayer.name}; template position/font/size preserved.`);
+    log(`  Title text replaced on ${activeTitleLayer.name}; template position/font/size preserved, lines=${titleLineCount}.`);
   }
 
   const subtitleVariantIndex = titleLineCount > 1 ? 2 : 1;
@@ -6871,23 +7015,22 @@ async function applyTitleAndProductNote(doc, row) {
     handled["txt.subtitle.2"] = true;
   }
 
-  const titleNoteLineBasis = Math.max(titleLineCount, 1) + subtitleLineCount;
+  const titleNoteLineBasis = Math.max(titleLineCount, 1);
   const titleNoteVariantIndex = Math.min(Math.max(titleNoteLineBasis, 1), 3);
   const titleNoteText = firstTextValue(row, [
     `txt.titleNote.${titleNoteVariantIndex}`,
     "txt.titleNote"
   ]);
-  const titleNoteLayer1 = findLayerByName(doc, "txt.titleNote.1");
-  const titleNoteLayer2 = findLayerByName(doc, "txt.titleNote.2");
-  const titleNoteLayer3 = findLayerByName(doc, "txt.titleNote.3");
-  const titleNoteBaseLayer = findLayerByName(doc, "txt.titleNote");
-  const titleNoteLayer = titleNoteVariantIndex >= 3 && titleNoteLayer3
-    ? titleNoteLayer3
-    : titleNoteVariantIndex > 1 && titleNoteLayer2
-      ? titleNoteLayer2
-      : titleNoteLayer1 || titleNoteBaseLayer || titleNoteLayer2 || titleNoteLayer3;
+  const titleNoteLayerNames = ["txt.titleNote.1", "txt.titleNote.2", "txt.titleNote.3", "txt.titleNote"];
+  const titleNoteLayers = getLayersByNames(doc, titleNoteLayerNames);
+  const titleNotePreferredNames = titleNoteVariantIndex >= 3
+    ? ["txt.titleNote.3", "txt.titleNote.2", "txt.titleNote", "txt.titleNote.1"]
+    : titleNoteVariantIndex > 1
+      ? ["txt.titleNote.2", "txt.titleNote", "txt.titleNote.1", "txt.titleNote.3"]
+      : ["txt.titleNote.1", "txt.titleNote", "txt.titleNote.2", "txt.titleNote.3"];
+  const titleNoteLayer = findPreferredLayerByNames(doc, titleNotePreferredNames);
 
-  [titleNoteLayer1, titleNoteLayer2, titleNoteLayer3, titleNoteBaseLayer].forEach((layer) => {
+  titleNoteLayers.forEach((layer) => {
     if (layer && layer !== titleNoteLayer) layer.visible = false;
   });
 
@@ -6898,9 +7041,9 @@ async function applyTitleAndProductNote(doc, row) {
     handled["txt.titleNote.1"] = true;
     handled["txt.titleNote.2"] = true;
     handled["txt.titleNote.3"] = true;
-    log(`  Title note variant used: ${titleNoteLayer.name}, titleLines=${titleLineCount}, subtitleLines=${subtitleLineCount}, lineBasis=${titleNoteLineBasis}.`);
+    log(`  Title note variant used: ${titleNoteLayer.name}, hiddenAlternates=${Math.max(titleNoteLayers.length - 1, 0)}, titleLines=${titleLineCount}, lineBasis=${titleNoteLineBasis}.`);
   } else {
-    [titleNoteLayer1, titleNoteLayer2, titleNoteLayer3, titleNoteBaseLayer].forEach((layer) => {
+    titleNoteLayers.forEach((layer) => {
       if (layer) layer.visible = false;
     });
     handled["txt.titleNote"] = true;
@@ -6985,7 +7128,7 @@ function isGiftControlColumn(column) {
     /^bottomText\.(maxWidth|centerX|overflowScale|area|shortMaxUnits|shortMaxChars|shortFitRatio|shortWidthRatio)$/.test(column) ||
     /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleRadius|maxTextWidth|fontSize)$/.test(column) ||
     /^productNote\.(gap|offsetY)$/.test(column) ||
-    /^(note|remark|remarks|澶囨敞|浜у搧瑙嗚)$/.test(column);
+    /^(note|remark|remarks|备注|产品视觉)$/.test(column);
 }
 
 async function pruneNonDisplayedLayersForPsd(doc, label = "PSD export") {
@@ -7097,8 +7240,11 @@ function makeTimestampForFileName() {
   ].join("");
 }
 
-async function savePsdDocumentAsFile(doc, file) {
+async function savePsdDocumentAsFile(doc, file, options = {}) {
   await pruneNonDisplayedLayersForPsd(doc, file && file.name ? `PSD save ${file.name}` : "PSD save");
+  if (options.collapseGroups) {
+    await collapseAllLayerGroupsBestEffort(doc, "Merge PSD");
+  }
 
   if (doc.saveAs && doc.saveAs.psd) {
     await doc.saveAs.psd(file, { maximizeCompatibility: true }, true);
@@ -7181,7 +7327,7 @@ async function mergeExportedPsdsAsGroups(entries) {
   await moveBgToBottom(master);
   const outputName = `merged_psd_groups_${makeTimestampForFileName()}.psd`;
   const mergedFile = await outputFolder.createFile(outputName, { overwrite: true });
-  await savePsdDocumentAsFile(master, mergedFile);
+  await savePsdDocumentAsFile(master, mergedFile, { collapseGroups: true });
   log(`Merge PSD saved: ${outputName}, groups=${imported}.`);
   return outputName;
 }
@@ -7531,7 +7677,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const setupBox = $("setupBox");
     const collapsed = !setupBox.classList.contains("isCollapsed");
     setupBox.classList.toggle("isCollapsed", collapsed);
-    $("toggleSetup").textContent = collapsed ? "灞曞紑璁剧疆" : "鏀惰捣璁剧疆";
+    $("toggleSetup").textContent = collapsed ? "展开设置" : "收起设置";
   });
   $("pickTemplate").addEventListener("click", pickTemplate);
   $("pickCsv").addEventListener("click", pickCsv);
