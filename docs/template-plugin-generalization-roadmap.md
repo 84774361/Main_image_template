@@ -28,7 +28,7 @@
 
 ### 阶段 1：建立契约，不改行为
 
-- 新增一份 profile 字段说明，列清楚 `paths`、`exportNameColumns`、`dailyMechanismSwitch`、`layerVisibilitySwitches`、`productAssetPriority` 等配置项。
+- 新增一份 profile 字段说明，列清楚 `paths`、`exportNameColumns`、`mechanismSwitch`、`layerVisibilitySwitches`、`productAssetPriority` 等配置项。
 - 新增一份 CSV 字段契约，区分通用字段、模板字段、兼容字段、废弃字段。
 - 为每个现有 profile 做一张能力表：PSD、CSV、素材目录、机制数量、人物切换、赠品切换、产品排版、特殊字体。
 - 只做文档和轻量命名整理，不改渲染逻辑。
@@ -57,7 +57,7 @@
 
 - 检查 CSV 表头是否有无法识别的字段。
 - 检查当前 PSD 是否缺少 profile 声明要求的关键图层。
-- 检查 `daily.mechanism`、赠品类型、人物类型是否超出 profile 支持范围。
+- 检查 `mechanism`、赠品类型、人物类型是否超出 profile 支持范围。
 - 把问题输出到日志，并生成可读的失败清单。
 
 这一步能显著提升通用适用性，因为新模板接入时可以先知道缺什么，而不是等 Photoshop 执行到一半失败。

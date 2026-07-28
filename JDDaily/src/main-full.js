@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260723-title-symbols-line-seed";
+const SCRIPT_VERSION = "20260727-general-profile-modules";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -486,6 +486,30 @@ function getConfiguredExportName(row, index) {
   return `image_${index + 1}`;
 }
 
+function getMechanismSwitchConfig(config = getCurrentTemplateConfig()) {
+  return config && (config.mechanismSwitch || config.dailyMechanismSwitch) || null;
+}
+
+function getMechanismColumnCandidates(switchConfig) {
+  const columns = [
+    switchConfig && switchConfig.column,
+    ...((switchConfig && switchConfig.legacyColumns) || []),
+    "mechanism",
+    "daily.mechanism"
+  ].filter(Boolean);
+  return [...new Set(columns)];
+}
+
+function getMechanismGroupNames(switchConfig, type) {
+  if (!type) return [];
+  const groups = switchConfig && switchConfig.groups || {};
+  return groups[type] || [`mechanism.${type}`, `daily.mechanism.${type}`];
+}
+
+function getMechanismControlColumns(config = getCurrentTemplateConfig()) {
+  const switchConfig = getMechanismSwitchConfig(config) || {};
+  return getMechanismColumnCandidates(switchConfig);
+}
 function sanitizeFileBaseName(value, fallback = "image") {
   const cleaned = String(value || "")
     .trim()
@@ -501,7 +525,8 @@ function isIdentifierColumn(column) {
   const columns = new Set([
     ...BASE_TEMPLATE_CONFIG.exportNameColumns,
     ...(config.exportNameColumns || []),
-    ...(config.ignoredDataColumns || [])
+    ...(config.ignoredDataColumns || []),
+    ...getMechanismControlColumns(config)
   ]);
   return columns.has(column);
 }
@@ -1833,7 +1858,7 @@ function normalizeDailyGiftLayerType(value, options = {}) {
 
 function getDailyGiftType(row, position) {
   const config = getCurrentTemplateConfig();
-  const switchConfig = config && config.dailyMechanismSwitch || {};
+  const switchConfig = getMechanismSwitchConfig(config) || {};
   const layerMap = position === "right"
     ? switchConfig.rightGiftLayers || {}
     : switchConfig.middleGiftLayers || {};
@@ -1872,9 +1897,10 @@ function getDailyGiftRightType(row) {
 }
 
 function getDailyMechanismType(row, switchConfig) {
-  const column = switchConfig.column || "daily.mechanism";
-  const explicit = normalizeDailyMechanism(row && row[column]);
-  if (explicit) return explicit;
+  for (const column of getMechanismColumnCandidates(switchConfig)) {
+    const explicit = normalizeDailyMechanism(row && row[column]);
+    if (explicit) return explicit;
+  }
 
   const sheet = normalizeDailyMechanism(row && row.sheet);
   if (sheet) return sheet;
@@ -1925,7 +1951,7 @@ function setDailyGiftLayerVisibility(doc, switchConfig, position, giftType) {
 
 function applyDailyMechanismSwitch(doc, row) {
   const config = getCurrentTemplateConfig();
-  const switchConfig = config.dailyMechanismSwitch;
+  const switchConfig = getMechanismSwitchConfig(config);
   if (!switchConfig || !switchConfig.enabled) return;
 
   const type = getDailyMechanismType(row, switchConfig);
@@ -3670,9 +3696,9 @@ async function moveLayerByOffset(layer, dx, dy, label) {
 
 function findCurrentGiftLeftImageGroup(doc, row) {
   const config = getCurrentTemplateConfig();
-  const switchConfig = config.dailyMechanismSwitch || {};
+  const switchConfig = getMechanismSwitchConfig(config) || {};
   const type = getDailyMechanismType(row || state.currentRow || {}, switchConfig);
-  const mechanismNames = switchConfig.groups && switchConfig.groups[type] || [`daily.mechanism.${type}`];
+  const mechanismNames = getMechanismGroupNames(switchConfig, type);
   const mechanismLayer = findDailyMechanismLayerForGiftLeft(doc, mechanismNames);
   return mechanismLayer ? findGiftLeftImageGroupInLayer(mechanismLayer) : null;
 }
@@ -3778,9 +3804,9 @@ async function alignGiftLeftImageGroupToArea(doc) {
   }
 
   const config = getCurrentTemplateConfig();
-  const switchConfig = config.dailyMechanismSwitch || {};
+  const switchConfig = getMechanismSwitchConfig(config) || {};
   const type = getDailyMechanismType(state.currentRow || {}, switchConfig);
-  const mechanismNames = switchConfig.groups && switchConfig.groups[type] || [`daily.mechanism.${type}`];
+  const mechanismNames = getMechanismGroupNames(switchConfig, type);
   const mechanismLayer = findDailyMechanismLayerForGiftLeft(doc, mechanismNames);
   if (!mechanismLayer) {
     log(`  GiftLeft group align skipped: active daily.mechanism.${type} group not found.`);
@@ -6533,7 +6559,7 @@ function normalizeImageAliases(row) {
 
 function expandDailyGiftMiddleImage(row) {
   const config = getCurrentTemplateConfig();
-  const switchConfig = config && config.dailyMechanismSwitch || {};
+  const switchConfig = getMechanismSwitchConfig(config) || {};
   if (!switchConfig.enabled) return row;
 
   const expanded = { ...row };
@@ -7120,7 +7146,7 @@ function isGiftControlColumn(column) {
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
     /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
     /^productShadow\.(top|opacity)$/.test(column) ||
-    /^daily\.(mechanism|giftMiddleType|giftRightType|left298)$/.test(column) ||
+    /^(mechanism|daily\.(mechanism|giftMiddleType|giftRightType|left298))$/.test(column) ||
     /^(?:daily\.icon|pdd\.icon|icon)\.[a-zA-Z0-9.+_-]+$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     column === "titleStyle" ||
