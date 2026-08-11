@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260727-general-profile-modules";
+const SCRIPT_VERSION = "20260811-reference-height-ratio";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -1433,6 +1433,94 @@ function readProductHeightRatio(row, key, fallback, aliases = []) {
   return clampHeightRatio(fallback);
 }
 
+function getProductHeightRatioProfile(row) {
+  return String(
+    row["product.heightRatioProfile"] ||
+    row["product.heightProfile"] ||
+    row["product.sizeRatioProfile"] ||
+    row["product.referenceHeightRatio"] ||
+    getCurrentTemplateConfig().productHeightRatioProfile ||
+    ""
+  ).trim().toLowerCase();
+}
+
+function shouldUseReferenceProductHeightRatio(row, count) {
+  const profile = getProductHeightRatioProfile(row);
+  if (["reference-all", "front-all", "psd-all", "true-size-all"].includes(profile)) return true;
+  if (["reference", "front", "front-reference", "psd", "true-size", "true"].includes(profile)) {
+    return Math.max(Number(count) || 1, 1) > 1;
+  }
+  return false;
+}
+
+function readReferenceProductHeightRatio(row, key, fallback, aliases = []) {
+  const referenceKey = `reference${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+  return readProductHeightRatio(row, referenceKey, fallback, [`product.${key}HeightRatio`, ...aliases]);
+}
+
+function getReferenceBottleHeightRatioBySpec(row, size, category) {
+  const pumpBoost = category === "pump" ? 0.04 : 0;
+  if (size >= 500) return readReferenceProductHeightRatio(row, "bottle500", 0.91 + pumpBoost, ["product.lotion500HeightRatio"]);
+  if (size >= 400) return readReferenceProductHeightRatio(row, "bottle400", 0.78 + pumpBoost, ["product.lotion500HeightRatio"]);
+  if (size >= 300) return readReferenceProductHeightRatio(row, "bottle300", 0.75 + pumpBoost, ["product.lotion500HeightRatio"]);
+  if (size >= 200) return readReferenceProductHeightRatio(row, "bottle200", 0.55 + pumpBoost);
+  if (size >= 150) return readReferenceProductHeightRatio(row, "bottle150", 0.55 + pumpBoost);
+  if (size >= 120) return readReferenceProductHeightRatio(row, "bottle120", 0.53 + pumpBoost);
+  if (size >= 100) return readReferenceProductHeightRatio(row, "bottle100", 0.62 + pumpBoost);
+  if (size >= 60) return readReferenceProductHeightRatio(row, "bottle60", 0.46 + pumpBoost);
+  if (size >= 50) return readReferenceProductHeightRatio(row, "bottle50", 0.46 + pumpBoost);
+  if (size >= 40) return readReferenceProductHeightRatio(row, "bottle40", 0.42 + pumpBoost);
+  if (size >= 30) return readReferenceProductHeightRatio(row, "bottle30", 0.36 + pumpBoost);
+  if (size >= 15) return readReferenceProductHeightRatio(row, "bottle15", 0.26 + pumpBoost);
+  if (size >= 10) return readReferenceProductHeightRatio(row, "bottle10", 0.39 + pumpBoost, ["product.lotion5HeightRatio"]);
+  if (size > 0) return readReferenceProductHeightRatio(row, "bottle5", 0.25 + pumpBoost, ["product.lotion5HeightRatio"]);
+  return null;
+}
+
+function getReferenceJarHeightRatioBySpec(row, size) {
+  if (size >= 65) return readReferenceProductHeightRatio(row, "jar65", 0.32);
+  if (size >= 50) return readReferenceProductHeightRatio(row, "jar50", 0.26, ["product.cream50HeightRatio"]);
+  if (size >= 30) return readReferenceProductHeightRatio(row, "jar30", 0.28);
+  if (size > 0) return readReferenceProductHeightRatio(row, "jarSmall", 0.25);
+  return null;
+}
+
+function getReferenceTubeHeightRatioBySpec(row, size) {
+  if (size >= 100) return readReferenceProductHeightRatio(row, "tube100", 0.71);
+  if (size >= 60) return readReferenceProductHeightRatio(row, "tube60", 0.68);
+  if (size >= 50) return readReferenceProductHeightRatio(row, "tube50", 0.55);
+  if (size >= 30) return readReferenceProductHeightRatio(row, "tube30", 0.44);
+  if (size >= 25) return readReferenceProductHeightRatio(row, "tube25", 0.41);
+  if (size >= 15) return readReferenceProductHeightRatio(row, "tube15", 0.67);
+  if (size >= 10) return readReferenceProductHeightRatio(row, "tube10", 0.36);
+  if (size > 0) return readReferenceProductHeightRatio(row, "tube5", 0.37);
+  return null;
+}
+
+function getReferenceAmpouleHeightRatioBySpec(row, size, source) {
+  const text = String(source || "").toLowerCase();
+  if (isFlatAmpoulePacketSource(source)) return readReferenceProductHeightRatio(row, "ampouleBag", 0.25, ["product.stickerHeightRatio", "product.smallBagHeightRatio"]);
+  if (isAmpouleSetSource(source)) {
+    if (/packaging|package|box/i.test(text)) return readReferenceProductHeightRatio(row, "ampouleSetPackaging", 0.54);
+    return readReferenceProductHeightRatio(row, "ampouleSet", 0.39);
+  }
+  if (size >= 60) return readReferenceProductHeightRatio(row, "ampoule60", 0.54);
+  if (size >= 40) return readReferenceProductHeightRatio(row, "ampoule40", 0.46);
+  if (size >= 10) return readReferenceProductHeightRatio(row, "ampoule10", 0.39);
+  if (size > 0) return readReferenceProductHeightRatio(row, "ampouleSmall", 0.36);
+  return null;
+}
+
+function getReferenceProductHeightRatio(row, category, specs, source) {
+  const size = getProductSpecSize(specs);
+  if (category === "bottle" && specs.g === 200) return readReferenceProductHeightRatio(row, "bottle200g", 0.71);
+  if (category === "bottle" && specs.g === 50) return readReferenceProductHeightRatio(row, "bottle50g", 0.55);
+  if (category === "ampoule") return getReferenceAmpouleHeightRatioBySpec(row, size, source);
+  if (category === "jar") return getReferenceJarHeightRatioBySpec(row, size);
+  if (category === "tube") return getReferenceTubeHeightRatioBySpec(row, size);
+  if (category === "pump" || category === "bottle") return getReferenceBottleHeightRatioBySpec(row, size, category);
+  return null;
+}
 function isAmpouleSetSource(source) {
   const text = String(source || "").toLowerCase();
   return /(ampoule[-_\s]*set|set-\d+x|\d+x|\*\s*\d+|\u6b21\u629b.*(?:x|\*)\s*\d+)/.test(text);
@@ -1522,8 +1610,12 @@ function getBagHeightRatio(row, mode) {
   return readProductHeightRatio(row, "bag", mode === "same" ? 0.9 : 0.9, ["product.canvasBagHeightRatio"]);
 }
 
-function getChartProductHeightRatio(row, category, specs, mode, source) {
+function getChartProductHeightRatio(row, category, specs, mode, source, options = {}) {
   const size = getProductSpecSize(specs);
+  if (options.useReference) {
+    const referenceRatio = getReferenceProductHeightRatio(row, category, specs, source);
+    if (Number.isFinite(referenceRatio)) return referenceRatio;
+  }
   if (category === "bottle" && specs.g === 200) {
     return readProductHeightRatio(row, "bottle200g", mode === "same" ? 0.92 : 0.88);
   }
@@ -1553,7 +1645,9 @@ function getProductHeightRatio(row, index, count = 1) {
     return 1;
   }
   const specs = getProductSpecFromSource(source);
-  const ratio = getChartProductHeightRatio(row, category, specs, mode, source);
+  const ratio = getChartProductHeightRatio(row, category, specs, mode, source, {
+    useReference: shouldUseReferenceProductHeightRatio(row, count)
+  });
   if (getCurrentTemplateConfig().id === "jddaily750" && category === "jar") {
     const jarBoost = count <= 1 ? 1.5 : 1.18;
     return clampHeightRatio(ratio * jarBoost);

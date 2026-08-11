@@ -5,7 +5,9 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260728-merged-root-profiles-fix14";
+let configuredAssetsFolder = null;
+let configuredAssetsFolderPath = "";
+const SCRIPT_VERSION = "20260811-reference-height-ratio";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -67,6 +69,7 @@ const BASE_TEMPLATE_CONFIG = {
   },
   backgroundSwitch: null,
   layerVisibilitySwitches: [],
+  dynamicIconSwitch: null,
   bottomTextFromProductName: null,
   productOverlapGapRatio: -0.42,
   giftLeftOverlapGapRatio: -0.18
@@ -97,11 +100,11 @@ const TEMPLATE_CONFIGS = {
       variants: {
         cuiyutao: {
           names: ["img.person.cuiyutao", "img.personCuiyutao"],
-          tokens: ["cuiyutao", "cui", "\\u5d14\\u7389\\u6d9b"]
+          tokens: ["cuiyutao", "cui", "\\u5d14\\u7389\\u6d9b", "崔玉涛"]
         },
         zhangziyi: {
           names: ["img.person.zhangziyi", "img.personZhangziyi"],
-          tokens: ["zhangziyi", "zhang", "\\u7ae0\\u5b50\\u6021"]
+          tokens: ["zhangziyi", "zhang", "\\u7ae0\\u5b50\\u6021", "章子怡"]
         }
       }
     }
@@ -231,6 +234,7 @@ const TEMPLATE_CONFIGS = {
     ignoredDataColumns: ["template.profile", "templateProfile"],
     defaultProductImageView: "front",
     keepPersonOnTop: false,
+    preserveTemplateTextOnly: true,
     backgroundSwitch: {
       enabled: true,
       column: "pdd.background",
@@ -264,12 +268,67 @@ const TEMPLATE_CONFIGS = {
         names: ["cosmeticicon", "cosmeticicon "],
         label: "cosmeticicon",
         defaultVisible: false
+      },
+      {
+        columns: ["pdd.icon.youth12", "pdd.icon.1218", "icon.youth12", "icon.1218"],
+        names: ["12+icon", "12plusicon", "youth12icon", "teen12icon"],
+        label: "12+icon",
+        defaultVisible: false
       }
     ],
+    personTemplateSwitch: {
+      enabled: true,
+      legacyName: "img.person",
+      scopeCurrentMechanism: true,
+      variants: {
+        cuiyutao: {
+          names: ["img.person.cuiyutao", "img.personCuiyutao"],
+          tokens: ["cuiyutao", "cui", "\\u5d14\\u7389\\u6d9b", "崔玉涛"]
+        },
+        zhangziyi: {
+          names: ["img.person.zhangziyi", "img.personZhangziyi"],
+          tokens: ["zhangziyi", "zhang", "\\u7ae0\\u5b50\\u6021", "章子怡"]
+        }
+      }
+    },
+    dailyMechanismSwitch: {
+      enabled: true,
+      column: "daily.mechanism",
+      legacyColumns: ["mechanism", "sheet"],
+      fixedMechanism: "4",
+      defaultMechanism: "4",
+      groups: {
+        "1": ["mechanism.1", "daily.mechanism.1"],
+        "2": ["mechanism.2", "daily.mechanism.2"],
+        "3": ["mechanism.3", "daily.mechanism.3"],
+        "4": ["mechanism.4", "daily.mechanism.4"]
+      },
+      productAreas: {
+        "1": { default: "product.area.1" },
+        "2": { default: "product.area.2" },
+        "3": { default: "product.area.3" },
+        "4": { default: "product.area.4" }
+      },
+      giftAreaName: "gift.area",
+      preferredMechanismLayerNames: ["img.product", "txt.bottomText.1", "txt.bottomText.2"],
+      giftImageGroupNames: ["GIFT", "giftimage", "giftImage", "gift.image"]
+    },
     bottomTextFromProductName: {
       enabled: true,
       sourceColumn: "product.name.cn",
-      targetColumn: "txt.bottomText"
+      targetColumn: "txt.bottomText",
+      mechanisms: ["4"]
+    },
+    finalProductBottomAlign: false,
+    alignPlacedProductBottomToArea: false,
+    productBottomShadow: {
+      enabled: true,
+      layerName: "img.productshadow",
+      opacity: 72,
+      widthRatio: 1,
+      heightRatio: 0.07,
+      offsetXRatio: 0.18,
+      bottomOffsetRatio: 0.14
     },
     preferProductNameImages: true
   },
@@ -344,11 +403,11 @@ const TEMPLATE_CONFIGS = {
       variants: {
         cuiyutao: {
           names: ["img.person.cuiyutao", "img.personCuiyutao"],
-          tokens: ["cuiyutao", "cui", "\\u5d14\\u7389\\u6d9b"]
+          tokens: ["cuiyutao", "cui", "\\u5d14\\u7389\\u6d9b", "崔玉涛"]
         },
         zhangziyi: {
           names: ["img.person.zhangziyi", "img.personZhangziyi"],
-          tokens: ["zhangziyi", "zhang", "\\u7ae0\\u5b50\\u6021"]
+          tokens: ["zhangziyi", "zhang", "\\u7ae0\\u5b50\\u6021", "章子怡"]
         }
       }
     },
@@ -394,8 +453,52 @@ const TEMPLATE_CONFIGS = {
     giftLeftOverlapGapRatio: -0.18
   }
 };
-TEMPLATE_CONFIGS.jddaily750 = {
-  ...BASE_TEMPLATE_CONFIG,
+
+function createTemplateProfile(baseConfig, overrides = {}) {
+  const merged = { ...baseConfig, ...overrides };
+  for (const key of ["paths", "mechanismSwitch", "dailyMechanismSwitch", "personTemplateSwitch", "productShadow", "productBottomShadow"]) {
+    if (baseConfig[key] || overrides[key]) {
+      merged[key] = { ...(baseConfig[key] || {}), ...(overrides[key] || {}) };
+    }
+  }
+  return merged;
+}
+
+function defineTemplateProfile(id, config) {
+  TEMPLATE_CONFIGS[id] = config;
+  return config;
+}
+
+const MAIN_PROFILE_AGE_ICON_SWITCHES = [
+  { columns: ["daily.icon.baby0", "pdd.icon.baby0", "icon.baby0"], names: ["baby0icon"], label: "baby0icon", defaultVisible: false },
+  { columns: ["daily.icon.612", "pdd.icon.612", "icon.612"], names: ["6-12icon"], label: "6-12icon", defaultVisible: false },
+  { columns: ["daily.icon.cosmetic", "pdd.icon.cosmetic", "icon.cosmetic"], names: ["cosmeticicon", "cosmeticicon "], label: "cosmeticicon", defaultVisible: false },
+  { columns: ["daily.icon.youth12", "pdd.icon.youth12", "icon.youth12"], names: ["12+icon", "12plusicon", "youth12icon", "teen12icon"], label: "12+icon", defaultVisible: false }
+];
+
+const PDD_POP_AGE_ICON_SWITCHES = [
+  ...MAIN_PROFILE_AGE_ICON_SWITCHES.slice(0, 3),
+  { columns: ["daily.icon.youth12", "daily.icon.1218", "pdd.icon.youth12", "pdd.icon.1218", "icon.youth12", "icon.1218"], names: ["12+icon", "12plusicon", "youth12icon", "teen12icon"], label: "12+icon", defaultVisible: false }
+];
+
+const DEFAULT_DYNAMIC_ICON_ALIASES = {
+  baby0: ["baby0icon"],
+  baby0icon: ["baby0icon"],
+  "6-12": ["6-12icon"],
+  "6-12icon": ["6-12icon"],
+  "612": ["6-12icon"],
+  "612icon": ["6-12icon"],
+  cosmetic: ["cosmeticicon", "cosmeticicon "],
+  cosmeticicon: ["cosmeticicon", "cosmeticicon "],
+  youth12: ["12+icon", "12plusicon", "youth12icon", "teen12icon"],
+  youth12icon: ["12+icon", "12plusicon", "youth12icon", "teen12icon"],
+  "12+": ["12+icon", "12plusicon", "youth12icon", "teen12icon"],
+  "12+icon": ["12+icon", "12plusicon", "youth12icon", "teen12icon"],
+  "1218": ["12+icon", "12plusicon", "youth12icon", "teen12icon"],
+  "1218icon": ["12+icon", "12plusicon", "youth12icon", "teen12icon"]
+};
+
+defineTemplateProfile("jddaily750", createTemplateProfile(BASE_TEMPLATE_CONFIG, {
   id: "jddaily750",
   label: "JDDaily 750",
   filePrefixPlaceholder: "jd_daily_750_",
@@ -446,7 +549,7 @@ TEMPLATE_CONFIGS.jddaily750 = {
     enabled: true,
     folder: "babyproduct_icefrosteffect"
   },
-  bottomTextSubscriptSuffixes: ["/瓶"],
+  bottomTextSubscriptSuffixes: ["/"],
   bottomTextCenterX: 500,
   bottomTextAreaName: "bottomText.area",
   bottomTextOverflowScale: 0.8,
@@ -456,20 +559,17 @@ TEMPLATE_CONFIGS.jddaily750 = {
   productStackScale: 1.35,
   productOverlapGapRatio: -0.5,
   giftLeftOverlapGapRatio: -0.18
-};
+}));
 
-TEMPLATE_CONFIGS.tianmao88 = {
-  ...TEMPLATE_CONFIGS.jddaily750,
+defineTemplateProfile("tianmao88", createTemplateProfile(TEMPLATE_CONFIGS.jddaily750, {
   id: "tianmao88",
   label: "Tmall 88",
   filePrefixPlaceholder: "tmall_88_",
   paths: {
-    ...TEMPLATE_CONFIGS.jddaily750.paths,
     template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\TIANMAO\\Tmall88_Main_Template\\TM_ALL_MECHANISM_1440X1440_.psd",
     output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\TIANMAO\\Tmall88_Main_Template\\export"
   },
   mechanismSwitch: {
-    ...TEMPLATE_CONFIGS.jddaily750.mechanismSwitch,
     left298ByMechanism: false,
     middleGiftLayers: {
       "208": ["img.giftMiddle.208"],
@@ -477,26 +577,19 @@ TEMPLATE_CONFIGS.tianmao88 = {
       "449": ["img.giftMiddle.449"]
     }
   },
-  layerVisibilitySwitches: [
-    { columns: ["daily.icon.baby0", "pdd.icon.baby0", "icon.baby0"], names: ["baby0icon"], label: "baby0icon", defaultVisible: false },
-    { columns: ["daily.icon.612", "pdd.icon.612", "icon.612"], names: ["6-12icon"], label: "6-12icon", defaultVisible: false },
-    { columns: ["daily.icon.cosmetic", "pdd.icon.cosmetic", "icon.cosmetic"], names: ["cosmeticicon", "cosmeticicon "], label: "cosmeticicon", defaultVisible: false },
-    { columns: ["daily.icon.youth12", "pdd.icon.youth12", "icon.youth12"], names: ["12+icon", "12plusicon", "youth12icon", "teen12icon"], label: "12+icon", defaultVisible: false }
-  ],
+  layerVisibilitySwitches: MAIN_PROFILE_AGE_ICON_SWITCHES,
   productAssetPriority: {
     enabled: true,
     useFolderFallback: false,
     views: ["angle", "front"]
   }
-};
+}));
 
-TEMPLATE_CONFIGS.pddPopMain = {
-  ...TEMPLATE_CONFIGS.tianmao88,
+defineTemplateProfile("pddPopMain", createTemplateProfile(TEMPLATE_CONFIGS.tianmao88, {
   id: "pddPopMain",
   label: "PDD POP",
   filePrefixPlaceholder: "pdd_pop_",
   paths: {
-    ...TEMPLATE_CONFIGS.tianmao88.paths,
     template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDD\\POP\\COMMON_MECHANISM\\BABY_COMMON_Main_Template.psd",
     csv: "F:\\NEWPAGE\\AI生图\\批量生图测试\\PDD\\POP\\COMMON_MECHANISM\\pdd0720.csv",
     assets: "F:\\NEWPAGE\\AI生图\\批量生图测试\\assets",
@@ -507,7 +600,6 @@ TEMPLATE_CONFIGS.pddPopMain = {
   blockedAssetFolders: ["babyproduct_icefrosteffect"],
   productDefaultHeightBoost: 1.08,
   mechanismSwitch: {
-    ...TEMPLATE_CONFIGS.tianmao88.mechanismSwitch,
     middleGiftLayers: {
       "178": ["img.giftMiddle.178"],
       "298": ["img.giftMiddle.298"],
@@ -520,15 +612,10 @@ TEMPLATE_CONFIGS.pddPopMain = {
     },
     left298Layers: []
   },
-  layerVisibilitySwitches: [
-    { columns: ["daily.icon.baby0", "pdd.icon.baby0", "icon.baby0"], names: ["baby0icon"], label: "baby0icon", defaultVisible: false },
-    { columns: ["daily.icon.612", "pdd.icon.612", "icon.612"], names: ["6-12icon"], label: "6-12icon", defaultVisible: false },
-    { columns: ["daily.icon.cosmetic", "pdd.icon.cosmetic", "icon.cosmetic"], names: ["cosmeticicon", "cosmeticicon "], label: "cosmeticicon", defaultVisible: false },
-    { columns: ["daily.icon.youth12", "daily.icon.1218", "pdd.icon.youth12", "pdd.icon.1218", "icon.youth12", "icon.1218"], names: ["12+icon", "12plusicon", "youth12icon", "teen12icon"], label: "12+icon", defaultVisible: false }
-  ]
-};
-TEMPLATE_CONFIGS.tmallAddOn = {
-  ...TEMPLATE_CONFIGS.pddSkuGift,
+  layerVisibilitySwitches: PDD_POP_AGE_ICON_SWITCHES
+}));
+
+defineTemplateProfile("tmallAddOn", createTemplateProfile(TEMPLATE_CONFIGS.pddSkuGift, {
   id: "tmallAddOn",
   label: "TMall AddOn",
   filePrefixPlaceholder: "tmall_addon_",
@@ -577,10 +664,9 @@ TEMPLATE_CONFIGS.tmallAddOn = {
     bottomOffsetRatio: 0.12,
     blur: 9
   }
-};
+}));
 
-TEMPLATE_CONFIGS.tmallFlashSaleMain = {
-  ...TEMPLATE_CONFIGS.pddDailyMain,
+defineTemplateProfile("tmallFlashSaleMain", createTemplateProfile(TEMPLATE_CONFIGS.pddDailyMain, {
   id: "tmallFlashSaleMain",
   label: "TMall FlashSale",
   filePrefixPlaceholder: "tmall_flashsale_",
@@ -594,11 +680,9 @@ TEMPLATE_CONFIGS.tmallFlashSaleMain = {
   skuGiftCompatible: true,
   finalProductBottomAlign: false,
   personTemplateSwitch: {
-    ...TEMPLATE_CONFIGS.pddDailyMain.personTemplateSwitch,
     scopeCurrentMechanism: true
   },
   dailyMechanismSwitch: {
-    ...TEMPLATE_CONFIGS.pddDailyMain.dailyMechanismSwitch,
     byGiftAndPerson: true,
     autoOverridesExplicit: true,
     giftPresenceColumns: ["txt.giftProductLabel", "txt.giftLabel", "txt.giftDesc", "gift.name.cn", "img.gift", "img.giftSet", "img.gift.1"],
@@ -631,8 +715,96 @@ TEMPLATE_CONFIGS.tmallFlashSaleMain = {
     anchorToGift: true,
     offsetX: -20,
     offsetY: -36
+  },
+
+  dynamicIconSwitch: {
+    enabled: true,
+    groupNames: ["ICON", "Icon", "icon"],
+    prefixes: ["icon.", "daily.icon.", "pdd.icon."],
+    listColumns: ["icon.layers", "icon.names", "icon.list", "daily.icons", "pdd.icons"],
+    defaultVisible: false
   }
-};
+}));
+
+defineTemplateProfile("baibuMiaoshaMain", createTemplateProfile(BASE_TEMPLATE_CONFIG, {
+  id: "baibuMiaoshaMain",
+  label: "Baibu Miaosha",
+  filePrefixPlaceholder: "baibu_miaosha_",
+  paths: {
+    template: "",
+    csv: "F:\\SOFT\\CODEX\\PROJECT\\Main_image_template\\sample-data-baibu-miaosha.csv",
+    assets: TEMPLATE_CONFIGS.pddDailyMain.paths.assets,
+    output: "F:\\NEWPAGE\\AI生图\\批量生图测试\\BAIBU_MIAOSHA\\export"
+  },
+  exportNameColumns: ["exportName", "board.name", "sku", "id", "goodsId"],
+  ignoredDataColumns: ["template.profile", "templateProfile"],
+  preserveTemplateTextOnly: true,
+  preferProductNameImages: true,
+  defaultProductImageView: "front",
+  productShadow: {
+    enabled: true,
+    sourceGroupName: "PRODUCT",
+    sourceMode: "items",
+    targetGroupName: "PRODUCT.PROJECT",
+    targetGroupNames: ["PRODUCT.PROJECT", "PROJECT"],
+    name: "PRODUCT.shadow",
+    style: "mirror",
+    opacity: 100,
+    placeAfterSource: false,
+    giftColumns: ["giftshadow", "giftshadow.enabled", "gift.shadow", "giftShadow", "gift.shadow.enabled", "giftShadow.enabled"],
+    includeGiftDefault: false,
+    includeGiftCouponShadow: true
+  },
+  addOnCoupon: {
+    ...TEMPLATE_CONFIGS.tmallAddOn.addOnCoupon,
+    targetPrefix: "gift",
+    placement: "append"
+  },
+  giftTagSwitch: {
+    enabled: true,
+    names: ["gifttag", "gift.tag", "giftTag"],
+    columns: ["gift.tag", "gifttag", "showGiftTag"],
+    anchorToGift: true,
+    offsetX: -20,
+    offsetY: -36
+  },
+
+  dynamicIconSwitch: {
+    enabled: true,
+    groupNames: ["ICON", "Icon", "icon"],
+    prefixes: ["icon.", "daily.icon.", "pdd.icon."],
+    listColumns: ["icon.layers", "icon.names", "icon.list", "daily.icons", "pdd.icons"],
+
+    defaultVisible: false
+  },
+  artboardSwitch: {
+    enabled: true,
+    required: true,
+    columns: {
+      type: ["board.type", "canvas.type", "activity.type"],
+      size: ["board.size", "canvas.size", "export.size"],
+      gift: ["gift.mode", "board.gift", "hasGift"]
+    },
+    uiDefaults: {
+      type: "boardType",
+      size: "boardSize",
+      gift: "giftMode"
+    },
+    defaultType: "baibu",
+    defaultSize: "800",
+    defaultGift: "auto",
+    variants: {
+      "baibu|800|gift": ["百补800-有赠品"],
+      "baibu|800|nogift": ["百补800-无赠品"],
+      "baibu|750|gift": ["百补750-有赠品"],
+      "baibu|750|nogift": ["百补750-无赠品"],
+      "miaosha|800|gift": ["秒杀800-有赠品"],
+      "miaosha|800|nogift": ["秒杀800-无赠品"],
+      "miaosha|750|gift": ["秒杀750-有赠品"],
+      "miaosha|750|nogift": ["秒杀750-无赠品"]
+    }
+  }
+}));
 let activeTemplateId = "pddSkuGift";
 let rowTemplateOverrideId = "";
 
@@ -647,7 +819,10 @@ const state = {
   currentRow: null,
   productNameMap: null,
   productNameRows: [],
-  exportedPsdEntries: []
+  exportedPsdEntries: [],
+  currentArtboardLayer: null,
+  currentArtboardName: "",
+  currentArtboardKey: ""
 };
 
 function isSkuGiftTemplateConfig(config = getCurrentTemplateConfig()) {
@@ -718,15 +893,36 @@ function isAddOnCouponToken(value) {
   return /^__coupon:/i.test(String(value || "").trim());
 }
 
-function isAddOnCouponProductIndex(row, index) {
-  if (!getAddOnCouponConfig()) return false;
-  const couponIndex = parseCount(row && row["product.couponIndex"]);
+function getAddOnCouponTargetPrefix(config = getAddOnCouponConfig()) {
+  const prefix = String(config && (config.targetPrefix || config.layoutPrefix || config.prefix) || "product").trim();
+  return prefix || "product";
+}
+
+function getAddOnCouponPlacement(config = getAddOnCouponConfig()) {
+  const placement = String(config && (config.placement || config.insert || config.position) || "prepend").trim().toLowerCase();
+  return /^(append|after|right|last|end)$/.test(placement) ? "append" : "prepend";
+}
+
+function getAddOnCouponIndexColumn(prefix = getAddOnCouponTargetPrefix()) {
+  return `${prefix}.couponIndex`;
+}
+
+function isAddOnCouponImageIndex(row, prefix, index) {
+  const config = getAddOnCouponConfig();
+  if (!config) return false;
+  const targetPrefix = getAddOnCouponTargetPrefix(config);
+  if (String(prefix || "") !== targetPrefix) return false;
+  const couponIndex = parseCount(row && row[getAddOnCouponIndexColumn(targetPrefix)] || (targetPrefix === "product" ? row && row["product.couponIndex"] : ""));
   return couponIndex > 0 && Number(index) === couponIndex;
+}
+
+function isAddOnCouponProductIndex(row, index) {
+  return isAddOnCouponImageIndex(row, "product", index);
 }
 
 function isAddOnCouponColumn(column) {
   if (!getAddOnCouponConfig()) return false;
-  return /^coupon\./.test(String(column || "")) || /^addOnCoupon\./.test(String(column || "")) || column === "img.coupon" || column === "img.repurchaseCoupon" || column === "img.buybackCoupon" || column === "product.couponIndex";
+  return /^coupon\./.test(String(column || "")) || /^addOnCoupon\./.test(String(column || "")) || column === "img.coupon" || column === "img.repurchaseCoupon" || column === "img.buybackCoupon" || /^(product|gift|giftLeft|giftRight)\.couponIndex$/.test(String(column || ""));
 }
 
 function getAddOnCouponLayerNames(row, config = getAddOnCouponConfig()) {
@@ -886,6 +1082,162 @@ function getMechanismControlColumns(config = getCurrentTemplateConfig()) {
 function getGiftBadgeConfig(config = getCurrentTemplateConfig()) {
   return config && (config.giftBadge || config.giftBadgeSwitch || config.giftTagSwitch) || null;
 }
+
+function getArtboardSwitchConfig(config = getCurrentTemplateConfig()) {
+  const switchConfig = config && config.artboardSwitch;
+  if (!switchConfig || !switchConfig.enabled) return null;
+  return {
+    columns: {
+      type: ["board.type", "canvas.type", "activity.type"],
+      size: ["board.size", "canvas.size", "export.size"],
+      gift: ["gift.mode", "board.gift", "hasGift"]
+    },
+    uiDefaults: {
+      type: "boardType",
+      size: "boardSize",
+      gift: "giftMode"
+    },
+    defaultGift: "auto",
+    variants: {},
+    ...switchConfig
+  };
+}
+
+function readUiValue(id) {
+  const el = id && $(id);
+  return el ? String(el.value || "").trim() : "";
+}
+
+function firstConfiguredValue(row, columns) {
+  for (const column of columns || []) {
+    if (hasValue(row, column)) return String(row[column]).trim();
+  }
+  return "";
+}
+
+function normalizeArtboardType(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return "";
+  if (["baibu", "bb", "百补", "百亿补贴", "baiyi", "baiyibutie"].includes(text)) return "baibu";
+  if (["miaosha", "ms", "秒杀", "seckill", "flashsale", "flash_sale"].includes(text)) return "miaosha";
+  return text;
+}
+
+function normalizeArtboardSize(value) {
+  const text = String(value || "").trim().toLowerCase();
+  const match = text.match(/750|800|\d{3,4}/);
+  return match ? match[0] : "";
+}
+
+function normalizeArtboardGift(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text || ["auto", "\u81ea\u52a8", "default"].includes(text)) return "auto";
+  if (["1", "true", "yes", "y", "gift", "hasgift", "withgift", "\u6709", "\u6709\u8d60", "\u6709\u8d60\u54c1"].includes(text)) return "gift";
+  if (["0", "false", "no", "n", "nogift", "no-gift", "withoutgift", "\u65e0", "\u65e0\u8d60", "\u65e0\u8d60\u54c1"].includes(text)) return "nogift";
+  return text;
+}
+
+function inferArtboardGift(row) {
+  return hasGiftContent(row) || getGiftCount(row || {}, "gift") > 0 ? "gift" : "nogift";
+}
+
+function getArtboardControlColumns(config = getCurrentTemplateConfig()) {
+  const switchConfig = getArtboardSwitchConfig(config);
+  if (!switchConfig) return [];
+  return [
+    ...(switchConfig.columns && switchConfig.columns.type || []),
+    ...(switchConfig.columns && switchConfig.columns.size || []),
+    ...(switchConfig.columns && switchConfig.columns.gift || []),
+    "board.name",
+    "artboard.name",
+    "canvas.name"
+  ];
+}
+
+function resolveArtboardSwitch(row) {
+  const switchConfig = getArtboardSwitchConfig();
+  if (!switchConfig) return null;
+  const columns = switchConfig.columns || {};
+  const uiDefaults = switchConfig.uiDefaults || {};
+
+  const explicitName = firstConfiguredValue(row, ["board.name", "artboard.name", "canvas.name"]);
+  const rawType = firstConfiguredValue(row, columns.type) || readUiValue(uiDefaults.type) || switchConfig.defaultType || "";
+  const rawSize = firstConfiguredValue(row, columns.size) || readUiValue(uiDefaults.size) || switchConfig.defaultSize || "";
+  const rawGift = firstConfiguredValue(row, columns.gift) || readUiValue(uiDefaults.gift) || switchConfig.defaultGift || "auto";
+
+  const type = normalizeArtboardType(rawType);
+  const size = normalizeArtboardSize(rawSize);
+  let gift = normalizeArtboardGift(rawGift);
+  if (gift === "auto") gift = inferArtboardGift(row);
+
+  const key = [type, size, gift].join("|");
+  const names = explicitName ? [explicitName] : (switchConfig.variants && switchConfig.variants[key]) || [];
+  return { switchConfig, key, type, size, gift, names };
+}
+
+function findArtboardLayerByNames(doc, names) {
+  for (const name of names || []) {
+    const layer = findLayerByNameUnscoped(doc, name);
+    if (layer) return layer;
+  }
+  return null;
+}
+
+function setTopLevelVariantVisibility(doc, switchConfig, activeLayer) {
+  const names = new Set(Object.values(switchConfig.variants || {}).flat().map((name) => String(name || "").trim()).filter(Boolean));
+  for (const layer of doc.layers || []) {
+    if (names.has(String(layer.name || "").trim())) {
+      layer.visible = layer === activeLayer;
+    }
+  }
+}
+
+async function deleteInactiveArtboardVariantsAtSwitch(doc, switchConfig, activeLayer, label = "Artboard switch") {
+  if (!doc || !doc.layers || !switchConfig || !activeLayer) return 0;
+  const variantNames = getConfiguredArtboardVariantNames(switchConfig);
+  if (!variantNames.size) return 0;
+
+  const activeName = String(activeLayer.name || "").trim();
+  let removed = 0;
+  for (const layer of Array.from(doc.layers || [])) {
+    const name = String(layer && layer.name || "").trim();
+    if (!variantNames.has(name) || name === activeName || isSameLayerReference(layer, activeLayer)) continue;
+    if (await deleteLayerTreeBestEffort(layer, `${label} inactive artboard ${name}`)) {
+      removed += 1;
+    }
+  }
+
+  if (removed) {
+    log(`  ${label}: deleted ${removed} inactive artboard tree(s).`);
+  }
+  return removed;
+}
+
+async function applyArtboardSwitch(doc, row) {
+  state.currentArtboardLayer = null;
+  state.currentArtboardName = "";
+  state.currentArtboardKey = "";
+
+  const resolved = resolveArtboardSwitch(row);
+  if (!resolved) return null;
+  const { switchConfig, key, names } = resolved;
+  const target = findArtboardLayerByNames(doc, names);
+  if (!target) {
+    const message = `Artboard switch target not found: key=${key}, names=${names.join(" | ") || "none"}.`;
+    if (switchConfig.required) throw new Error(message);
+    log(`  ${message}`);
+    return null;
+  }
+
+  setTopLevelVariantVisibility(doc, switchConfig, target);
+  target.visible = true;
+  state.currentArtboardLayer = target;
+  state.currentArtboardName = target.name;
+  state.currentArtboardKey = key;
+  log(`  Artboard switch: key=${key}, layer=${target.name}.`);
+  await deleteInactiveArtboardVariantsAtSwitch(doc, switchConfig, target, "Artboard switch");
+  return target;
+}
 function sanitizeFileBaseName(value, fallback = "image") {
   const cleaned = String(value || "")
     .trim()
@@ -902,7 +1254,8 @@ function isIdentifierColumn(column) {
     ...BASE_TEMPLATE_CONFIG.exportNameColumns,
     ...(config.exportNameColumns || []),
     ...(config.ignoredDataColumns || []),
-    ...getMechanismControlColumns(config)
+    ...getMechanismControlColumns(config),
+    ...getArtboardControlColumns(config)
   ]);
   return columns.has(column);
 }
@@ -1031,14 +1384,26 @@ async function loadProductNameMap() {
 
   let file = null;
   let sourceName = "";
-  for (const name of candidates) {
-    try {
-      file = await assetsFolder.getEntry(name);
-      sourceName = name;
-      break;
-    } catch (error) {
-      // Optional mapping file.
+  const configuredFolder = await getConfiguredAssetsFolder();
+  const folderCandidates = [];
+  if (configuredFolder) {
+    folderCandidates.push({ folder: configuredFolder, label: "configured assets" });
+  }
+  if (assetsFolder && assetsFolder !== configuredFolder) {
+    folderCandidates.push({ folder: assetsFolder, label: "selected assets" });
+  }
+
+  for (const item of folderCandidates) {
+    for (const name of candidates) {
+      try {
+        file = await item.folder.getEntry(name);
+        sourceName = `${item.label}/${name}`;
+        break;
+      } catch (error) {
+        // Optional mapping file.
+      }
     }
+    if (file) break;
   }
 
   if (!file) {
@@ -1175,7 +1540,7 @@ function compactSpecHyphenKey(key) {
 
 function compactProductNameMatchKey(key) {
   return String(key || "")
-    .replace(/[＊*×Ｘｘ]/g, "x")
+    .replace(/[×Ｘｘ]/g, "x")
     .replace(/((?:kg|ml|g|l))x(?=\d)/gi, "$1")
     .replace(/[\\/_\-\s]+/g, "")
     .toLowerCase();
@@ -1195,7 +1560,7 @@ function getAgeCnCanonicalFromText(value) {
   if (normalized.includes("学龄") || normalized.includes("612")) return "学龄";
   if (normalized.includes("青春") || normalized.includes("1218")) return "青春";
   if (normalized.includes("儿童") || normalized.includes("kids")) return "儿童";
-  if (normalized.includes("婴童") || normalized.includes("婴儿") || normalized.includes("新生儿") || normalized.includes("一页")) return "婴童";
+  if (normalized.includes("婴童") || normalized.includes("婴儿") || normalized.includes("新生") || normalized.includes("一页")) return "婴童";
   return "";
 }
 
@@ -1204,14 +1569,27 @@ function getDefaultProductAgeForQuery(value) {
   if (/洁面泡/.test(normalized) && !/(儿童|kids|学龄|612|青春|1218|婴童|婴儿|新生儿)/.test(normalized)) {
     return "儿童";
   }
-  if (/^一页洁面泡/.test(normalized)) {
+  if (/^一页页洁面泡/.test(normalized)) {
     return "儿童";
   }
   return getAgeCnCanonicalFromText(value) || "婴童";
 }
 
-function choosePreferredProductImageForKey(key, values) {
-  const items = Array.from(values);
+function isProductViewAssetPath(filename, view) {
+  const target = normalizeProductImageViewValue(view);
+  if (!target) return false;
+  const normalized = String(filename || "").replace(/\\/g, "/").toLowerCase();
+  if (!normalized) return false;
+  if (new RegExp(`(^|/)${target}(/|$)`).test(normalized)) return true;
+  if (target === "front") return /(?:^|[-_])(front|face|f)(?=\.[^.]+$|[-_])/i.test(normalized);
+  return /(?:^|[-_])(angle|angled|tilt|tilted|side|a)(?=\.[^.]+$|[-_])/i.test(normalized);
+}
+
+function choosePreferredProductImageForKey(key, values, options = {}) {
+  const allItems = Array.from(values);
+  const requestedView = getProductImageViewFromOptions(options);
+  const viewItems = requestedView ? allItems.filter((item) => isProductViewAssetPath(item, requestedView)) : [];
+  const items = viewItems.length ? viewItems : allItems;
   const normalizedKey = normalizeProductNameKey(key);
   const agePreferred = choosePreferredProductByAge(normalizedKey, items);
   if (agePreferred) return agePreferred;
@@ -1284,10 +1662,10 @@ function normalizeProductNameKey(value) {
     .trim()
     .replace(/×/g, "x")
     .replace(/＊/g, "*")
-    .replace(/Ｘ/g, "x")
-    .replace(/ｘ/g, "x")
+    .replace(/[×Ｘｘ]/g, "x")
+    .replace(/[×Ｘｘ]/g, "x")
     .replace(/\s+/g, "")
-    .replace(/[－–—]/g, "-")
+    .replace(/[－–—―-]/g, "-")
     .toLowerCase();
 }
 
@@ -1335,6 +1713,7 @@ function getChineseProductAliases({ age, product, standardProduct, productEn }) 
   if (/foaming\s*(wash|body\s*wash|shampoo)|body\s*wash|cleansing\s*foam|\u6ce1\u6ce1\u6d17\u6c90|\u6ce1\u6ce1\u6c90\u6d74/i.test(combined)) {
     add("\u6ce1\u6ce1\u6d17\u6c90");
     add("\u6ce1\u6ce1\u6c90\u6d74\u9732");
+    add("泡泡洗发沐浴");
     add("\u6c90\u6d74\u9732");
   }
 
@@ -1369,32 +1748,32 @@ function getEnglishDerivedChineseProductAliases(row, fileName) {
   };
 
   if (/repairing[-\s]*cream|ad[-\s]*cream/.test(combined)) {
-    add("修护霜");
-    add("安心霜");
-    add("学龄霜");
+    add("修护");
+    add("安心");
+    add("学龄");
   }
   if (/soothing[-\s]*cream/.test(combined)) {
-    add("舒缓霜");
-    add("安心霜");
+    add("舒缓");
+    add("安心");
   }
   if (/cooling[-\s]*cream/.test(combined)) {
-    add("夏季安心霜");
-    add("安心霜");
-    add("冰沙霜");
+    add("夏季安心");
+    add("安心");
+    add("冰沙");
   }
   if (/body[-\s]*lotion/.test(combined)) {
-    add("身体乳");
-    add("保湿乳");
+    add("身体");
+    add("保湿");
     add("高保湿乳");
   }
   if (/sunscreen[-\s]*lotion|sunscreen/.test(combined)) {
-    add("防晒乳");
+    add("防晒");
   }
   if (/foaming[-\s]*(wash|body[-\s]*wash|shampoo)|body[-\s]*wash|cleansing[-\s]*foam/.test(combined)) {
-    add("洁面泡");
+    add("洁面");
     add("泡泡洗沐");
-    add("泡泡沐浴露");
-    add("沐浴露");
+    add("泡泡沐浴");
+    add("沐浴");
   }
   if (/repellent[-\s]*spray/.test(combined)) {
     add("\u9a71\u868a\u55b7\u96fe");
@@ -1403,18 +1782,18 @@ function getEnglishDerivedChineseProductAliases(row, fileName) {
     add("\u53ee\u53ee\u55b7\u96fe");
   }
   if (/conditioner/.test(combined)) {
-    add("护发素");
+    add("护发");
   }
   if (/spray/.test(combined)) {
     add("喷雾");
   }
   if (/essence|ampoule/.test(combined)) {
-    add("精华露");
+    add("精华");
     add("次抛");
   }
   if (/essential[-\s]*oil|stickers?|patch/i.test(combined) || /精华贴片|精油贴|贴片/.test(combined)) {
     add("精华贴片");
-    add("精油贴");
+    add("精油");
     add("贴片");
   }
 
@@ -1431,7 +1810,12 @@ function getAllLayers(layers, result = []) {
   return result;
 }
 
-function findLayerByName(doc, name) {
+function shouldUseCurrentArtboardScope() {
+  const switchConfig = getArtboardSwitchConfig();
+  return !!(switchConfig && switchConfig.enabled && state.currentArtboardLayer && state.currentArtboardLayer.layers);
+}
+
+function findLayerByNameUnscoped(doc, name) {
   const layers = getAllLayers(doc.layers);
   const exact = layers.find((layer) => layer.name === name);
   if (exact) return exact;
@@ -1441,11 +1825,25 @@ function findLayerByName(doc, name) {
   return layers.find((layer) => String(layer.name || "").trim().toLowerCase() === normalized) || null;
 }
 
-function findLayersByName(doc, name) {
+function findLayerByName(doc, name) {
+  if (shouldUseCurrentArtboardScope()) {
+    return findLayerByNameInLayer(state.currentArtboardLayer, name) || null;
+  }
+  return findLayerByNameUnscoped(doc, name);
+}
+
+function findLayersByNameUnscoped(doc, name) {
   const normalized = String(name || "").trim().toLowerCase();
   return getAllLayers(doc.layers).filter((layer) => {
     return layer.name === name || String(layer.name || "").trim().toLowerCase() === normalized;
   });
+}
+
+function findLayersByName(doc, name) {
+  if (shouldUseCurrentArtboardScope()) {
+    return findLayersByNameInLayer(state.currentArtboardLayer, name, []);
+  }
+  return findLayersByNameUnscoped(doc, name);
 }
 
 function findLayerByPath(doc, path) {
@@ -1483,6 +1881,17 @@ function findLayerByNameInLayer(parentLayer, name) {
     if (child) return child;
   }
   return null;
+}
+
+function findLayersByNameInLayer(parentLayer, name, result = []) {
+  if (!parentLayer || !parentLayer.layers) return result;
+  const normalized = String(name || "").trim().toLowerCase();
+  for (const layer of parentLayer.layers) {
+    const layerName = String(layer.name || "");
+    if (layerName === name || layerName.trim().toLowerCase() === normalized) result.push(layer);
+    findLayersByNameInLayer(layer, name, result);
+  }
+  return result;
 }
 
 function findLayerByAnyNameInLayer(parentLayer, names) {
@@ -1554,8 +1963,8 @@ function setLayerVisibleByAnyName(doc, names, visible, label) {
 function parseVisibilityValue(value, defaultValue) {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) return Boolean(defaultValue);
-  if (["1", "true", "yes", "y", "on", "show", "visible", "显示", "开", "开启", "是"].includes(raw)) return true;
-  if (["0", "false", "no", "n", "off", "hide", "hidden", "隐藏", "关", "关闭", "否"].includes(raw)) return false;
+  if (["1", "true", "yes", "y", "on", "show", "visible", "显示", "开", "开启", ""].includes(raw)) return true;
+  if (["0", "false", "no", "n", "off", "hide", "hidden", "隐藏", "", "关闭", ""].includes(raw)) return false;
   return Boolean(defaultValue);
 }
 
@@ -1588,10 +1997,157 @@ function applyBackgroundSwitch(doc, row) {
 function applyLayerVisibilitySwitches(doc, row) {
   const switches = getCurrentTemplateConfig().layerVisibilitySwitches || [];
   for (const switchConfig of switches) {
-    if (!switchConfig || !switchConfig.column) continue;
-    const visible = parseVisibilityValue(row && row[switchConfig.column], switchConfig.defaultVisible);
-    setLayerVisibleByAnyName(doc, switchConfig.names || [], visible, switchConfig.label || switchConfig.column);
-    log(`  Layer switch: ${switchConfig.column}=${visible ? "on" : "off"}.`);
+    const columns = switchConfig && (switchConfig.columns || [switchConfig.column]).filter(Boolean);
+    if (!columns || !columns.length) continue;
+    const explicitColumn = columns.find((column) => hasValue(row, column));
+    if (!explicitColumn && switchConfig.preserveWhenMissing) continue;
+    const selectedColumn = explicitColumn || columns[0];
+    const visible = parseVisibilityValue(row && row[selectedColumn], switchConfig.defaultVisible);
+    setLayerVisibleByAnyName(doc, switchConfig.names || [], visible, switchConfig.label || selectedColumn);
+    log(`  Layer switch: ${selectedColumn}=${visible ? "on" : "off"}.`);
+  }
+}
+
+function getDynamicIconSwitchConfig(config = getCurrentTemplateConfig()) {
+  const switchConfig = config && config.dynamicIconSwitch;
+  if (!switchConfig || !switchConfig.enabled) return null;
+  return {
+    groupNames: ["ICON"],
+    prefixes: ["icon.", "daily.icon.", "pdd.icon."],
+    listColumns: ["icon.layers", "icon.names", "icon.list", "daily.icons", "pdd.icons"],
+    defaultVisible: false,
+    aliases: {},
+    ...switchConfig
+  };
+}
+
+function isDynamicIconListColumn(column, switchConfig) {
+  return (switchConfig.listColumns || []).includes(column);
+}
+
+function isIgnoredDynamicIconToken(token, switchConfig) {
+  const normalized = normalizeSwitchToken(token);
+  return (switchConfig.ignoredTokens || [])
+    .map((item) => normalizeSwitchToken(item))
+    .filter(Boolean)
+    .includes(normalized);
+}
+
+function getDynamicIconColumnToken(column, switchConfig) {
+  if (!column || isDynamicIconListColumn(column, switchConfig)) return "";
+  for (const prefix of switchConfig.prefixes || []) {
+    if (column.startsWith(prefix)) {
+      const token = column.slice(prefix.length).trim();
+      return isIgnoredDynamicIconToken(token, switchConfig) ? "" : token;
+    }
+  }
+  return "";
+}
+
+function hasDynamicIconControls(row, switchConfig) {
+  return Object.keys(row || {}).some((column) => {
+    return isDynamicIconListColumn(column, switchConfig) || !!getDynamicIconColumnToken(column, switchConfig);
+  });
+}
+
+function addUnique(items, value) {
+  const text = String(value || "");
+  if (text && !items.includes(text)) items.push(text);
+}
+
+function addDynamicIconAliasKeys(map, key, names) {
+  const rawKey = String(key || "").trim().toLowerCase();
+  const normalizedKey = normalizeSwitchToken(key);
+  if (rawKey) map[rawKey] = names;
+  if (normalizedKey) map[normalizedKey] = names;
+}
+
+function getDynamicIconAliasMap(switchConfig) {
+  const map = {};
+  const aliases = { ...DEFAULT_DYNAMIC_ICON_ALIASES, ...(switchConfig.aliases || {}) };
+  for (const [key, value] of Object.entries(aliases)) {
+    addDynamicIconAliasKeys(map, key, Array.isArray(value) ? value : [value]);
+  }
+  return map;
+}
+
+function getDynamicIconLayerNames(token, switchConfig) {
+  const raw = String(token || "").trim();
+  if (!raw) return [];
+
+  const names = [];
+  const aliases = getDynamicIconAliasMap(switchConfig);
+  const rawKey = raw.toLowerCase();
+  const normalizedKey = normalizeSwitchToken(raw);
+  for (const name of aliases[rawKey] || aliases[normalizedKey] || []) addUnique(names, name);
+  addUnique(names, raw);
+  if (!/icon$/i.test(raw)) addUnique(names, `${raw}icon`);
+  return names;
+}
+
+function setChildLayersVisibleRecursive(layer, visible) {
+  let count = 0;
+  for (const child of layer && layer.layers || []) {
+    setLayerVisibleRecursive(child, visible);
+    count += 1;
+    count += setChildLayersVisibleRecursive(child, visible);
+  }
+  return count;
+}
+
+function hideDynamicIconGroups(doc, switchConfig) {
+  const seen = new Set();
+  let groupCount = 0;
+  let childCount = 0;
+  for (const groupName of switchConfig.groupNames || []) {
+    for (const layer of findLayersByName(doc, groupName)) {
+      if (!layer || !layer.layers || seen.has(layer)) continue;
+      seen.add(layer);
+      layer.visible = true;
+      groupCount += 1;
+      childCount += setChildLayersVisibleRecursive(layer, false);
+    }
+  }
+  if (groupCount) {
+    log(`  Dynamic icon reset: groups=${groupCount}, layers=${childCount}.`);
+  } else {
+    log(`  Dynamic icon reset skipped: ICON group not found.`);
+  }
+}
+
+function splitDynamicIconList(value) {
+  return String(value || "")
+    .split(/[,\n\r;|，、；]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function applyDynamicIconSwitch(doc, row) {
+  const switchConfig = getDynamicIconSwitchConfig();
+  if (!switchConfig || !hasDynamicIconControls(row, switchConfig)) return;
+
+  hideDynamicIconGroups(doc, switchConfig);
+
+  for (const column of switchConfig.listColumns || []) {
+    if (!hasValue(row, column)) continue;
+    for (const token of splitDynamicIconList(row[column])) {
+      const names = getDynamicIconLayerNames(token, switchConfig);
+      setLayersVisibleByAnyName(doc, names, true, `dynamic icon ${token}`);
+      log(`  Dynamic icon switch: ${column}:${token}=on.`);
+    }
+  }
+
+  for (const [column, value] of Object.entries(row || {})) {
+    const token = getDynamicIconColumnToken(column, switchConfig);
+    if (!token) continue;
+    const visible = parseVisibilityValue(value, switchConfig.defaultVisible);
+    if (!visible) {
+      log(`  Dynamic icon switch: ${column}=off.`);
+      continue;
+    }
+    const names = getDynamicIconLayerNames(token, switchConfig);
+    setLayersVisibleByAnyName(doc, names, true, `dynamic icon ${token}`);
+    log(`  Dynamic icon switch: ${column}=on.`);
   }
 }
 
@@ -1620,7 +2176,7 @@ function applyGiftTagVisibility(doc, row) {
 
   setLayersVisibleByAnyName(doc, names, false, "gifttag");
   if (visible) {
-    const currentTag = findLayerByAnyNameInCurrentMechanismOnly(doc, row, names);
+    const currentTag = findLayerByAnyNameInCurrentMechanismOnly(doc, row, names) || findLayerByAnyName(doc, names);
     if (currentTag) {
       currentTag.visible = true;
     } else {
@@ -1751,14 +2307,14 @@ function getProductCategoryFromSource(source) {
   const text = String(source || "").toLowerCase();
   if (isFlatAmpoulePacketSource(text)) return "ampoule";
   if (/(ampoule|次抛|安瓶|set-\d+x|\d+x|sticker|stickers|patch|贴片|精油贴)/.test(text)) return "ampoule";
-  if (/(tube|管)/.test(text)) return "tube";
+  if (/(tube|管装|软管)/.test(text)) return "tube";
   if (/(pump|泵|按压)/.test(text)) return "pump";
-  if (/(jar|pot|罐)/.test(text)) return "jar";
-  if (/(canvas[-_\s]*bag|gift[-_\s]*bag|帆布袋|袋)/.test(text)) return "bag";
-  if (/(bottle|瓶)/.test(text)) return "bottle";
+  if (/(jar|pot|罐装)/.test(text)) return "jar";
+  if (/(canvas[-_\s]*bag|gift[-_\s]*bag|帆布袋|袋装)/.test(text)) return "bag";
+  if (/(bottle|瓶装)/.test(text)) return "bottle";
   if (/(cream|面霜)/.test(text)) return "jar";
   if (/(安心霜|学龄霜|冰沙霜)/.test(text)) return "jar";
-  if (/(diaper|repairing|身体乳100g)/.test(text)) return "tube";
+  if (/(diaper|repairing|身体乳?00g)/.test(text)) return "tube";
   if (/(wash|foam|shampoo|body-lotion|lotion|乳|oil|精油|sunscreen|sun)/.test(text)) return "bottle";
   return "default";
 }
@@ -1909,8 +2465,8 @@ function getGiftLeftAmpouleGroupCount(row) {
   ].filter(Boolean).join(" ")
     .replace(/×/g, "x")
     .replace(/＊/g, "*")
-    .replace(/Ｘ/g, "x")
-    .replace(/ｘ/g, "x");
+    .replace(/[×Ｘｘ]/g, "x")
+    .replace(/[×Ｘｘ]/g, "x");
 
   const groupMatch = text.match(/(?:\*|x)\s*5\s*(?:\*|x)\s*(\d+)/i);
   if (groupMatch) return Math.max(1, Math.min(Number(groupMatch[1]), 12));
@@ -1953,6 +2509,95 @@ function readProductHeightRatio(row, key, fallback, aliases = []) {
     if (Number.isFinite(value)) return clampHeightRatio(value);
   }
   return clampHeightRatio(fallback);
+}
+
+function getProductHeightRatioProfile(row) {
+  return String(
+    row["product.heightRatioProfile"] ||
+    row["product.heightProfile"] ||
+    row["product.sizeRatioProfile"] ||
+    row["product.referenceHeightRatio"] ||
+    getCurrentTemplateConfig().productHeightRatioProfile ||
+    ""
+  ).trim().toLowerCase();
+}
+
+function shouldUseReferenceProductHeightRatio(row, count) {
+  const profile = getProductHeightRatioProfile(row);
+  if (["reference-all", "front-all", "psd-all", "true-size-all"].includes(profile)) return true;
+  if (["reference", "front", "front-reference", "psd", "true-size", "true"].includes(profile)) {
+    return Math.max(Number(count) || 1, 1) > 1;
+  }
+  return false;
+}
+
+function readReferenceProductHeightRatio(row, key, fallback, aliases = []) {
+  const referenceKey = `reference${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+  return readProductHeightRatio(row, referenceKey, fallback, [`product.${key}HeightRatio`, ...aliases]);
+}
+
+function getReferenceBottleHeightRatioBySpec(row, size, category) {
+  const pumpBoost = category === "pump" ? 0.04 : 0;
+  if (size >= 500) return readReferenceProductHeightRatio(row, "bottle500", 0.91 + pumpBoost, ["product.lotion500HeightRatio"]);
+  if (size >= 400) return readReferenceProductHeightRatio(row, "bottle400", 0.78 + pumpBoost, ["product.lotion500HeightRatio"]);
+  if (size >= 300) return readReferenceProductHeightRatio(row, "bottle300", 0.75 + pumpBoost, ["product.lotion500HeightRatio"]);
+  if (size >= 200) return readReferenceProductHeightRatio(row, "bottle200", 0.55 + pumpBoost);
+  if (size >= 150) return readReferenceProductHeightRatio(row, "bottle150", 0.55 + pumpBoost);
+  if (size >= 120) return readReferenceProductHeightRatio(row, "bottle120", 0.53 + pumpBoost);
+  if (size >= 100) return readReferenceProductHeightRatio(row, "bottle100", 0.62 + pumpBoost);
+  if (size >= 60) return readReferenceProductHeightRatio(row, "bottle60", 0.46 + pumpBoost);
+  if (size >= 50) return readReferenceProductHeightRatio(row, "bottle50", 0.46 + pumpBoost);
+  if (size >= 40) return readReferenceProductHeightRatio(row, "bottle40", 0.42 + pumpBoost);
+  if (size >= 30) return readReferenceProductHeightRatio(row, "bottle30", 0.36 + pumpBoost);
+  if (size >= 15) return readReferenceProductHeightRatio(row, "bottle15", 0.26 + pumpBoost);
+  if (size >= 10) return readReferenceProductHeightRatio(row, "bottle10", 0.39 + pumpBoost, ["product.lotion5HeightRatio"]);
+  if (size > 0) return readReferenceProductHeightRatio(row, "bottle5", 0.25 + pumpBoost, ["product.lotion5HeightRatio"]);
+  return null;
+}
+
+function getReferenceJarHeightRatioBySpec(row, size) {
+  if (size >= 65) return readReferenceProductHeightRatio(row, "jar65", 0.32);
+  if (size >= 50) return readReferenceProductHeightRatio(row, "jar50", 0.26, ["product.cream50HeightRatio"]);
+  if (size >= 30) return readReferenceProductHeightRatio(row, "jar30", 0.28);
+  if (size > 0) return readReferenceProductHeightRatio(row, "jarSmall", 0.25);
+  return null;
+}
+
+function getReferenceTubeHeightRatioBySpec(row, size) {
+  if (size >= 100) return readReferenceProductHeightRatio(row, "tube100", 0.71);
+  if (size >= 60) return readReferenceProductHeightRatio(row, "tube60", 0.68);
+  if (size >= 50) return readReferenceProductHeightRatio(row, "tube50", 0.55);
+  if (size >= 30) return readReferenceProductHeightRatio(row, "tube30", 0.44);
+  if (size >= 25) return readReferenceProductHeightRatio(row, "tube25", 0.41);
+  if (size >= 15) return readReferenceProductHeightRatio(row, "tube15", 0.67);
+  if (size >= 10) return readReferenceProductHeightRatio(row, "tube10", 0.36);
+  if (size > 0) return readReferenceProductHeightRatio(row, "tube5", 0.37);
+  return null;
+}
+
+function getReferenceAmpouleHeightRatioBySpec(row, size, source) {
+  const text = String(source || "").toLowerCase();
+  if (isFlatAmpoulePacketSource(source)) return readReferenceProductHeightRatio(row, "ampouleBag", 0.25, ["product.stickerHeightRatio", "product.smallBagHeightRatio"]);
+  if (isAmpouleSetSource(source)) {
+    if (/packaging|package|box/i.test(text)) return readReferenceProductHeightRatio(row, "ampouleSetPackaging", 0.54);
+    return readReferenceProductHeightRatio(row, "ampouleSet", 0.39);
+  }
+  if (size >= 60) return readReferenceProductHeightRatio(row, "ampoule60", 0.54);
+  if (size >= 40) return readReferenceProductHeightRatio(row, "ampoule40", 0.46);
+  if (size >= 10) return readReferenceProductHeightRatio(row, "ampoule10", 0.39);
+  if (size > 0) return readReferenceProductHeightRatio(row, "ampouleSmall", 0.36);
+  return null;
+}
+
+function getReferenceProductHeightRatio(row, category, specs, source) {
+  const size = getProductSpecSize(specs);
+  if (category === "bottle" && specs.g === 200) return readReferenceProductHeightRatio(row, "bottle200g", 0.71);
+  if (category === "bottle" && specs.g === 50) return readReferenceProductHeightRatio(row, "bottle50g", 0.55);
+  if (category === "ampoule") return getReferenceAmpouleHeightRatioBySpec(row, size, source);
+  if (category === "jar") return getReferenceJarHeightRatioBySpec(row, size);
+  if (category === "tube") return getReferenceTubeHeightRatioBySpec(row, size);
+  if (category === "pump" || category === "bottle") return getReferenceBottleHeightRatioBySpec(row, size, category);
+  return null;
 }
 
 function isYouthSeriesProductSource(source) {
@@ -2131,8 +2776,18 @@ function getBagHeightRatio(row, mode) {
   return readProductHeightRatio(row, "bag", mode === "same" ? 0.9 : 0.9, ["product.canvasBagHeightRatio"]);
 }
 
-function getChartProductHeightRatio(row, category, specs, mode, source) {
+function getChartProductHeightRatio(row, category, specs, mode, source, options = {}) {
   const size = getProductSpecSize(specs);
+  if (options.useReference && !isYouthSeriesProductSource(source)) {
+    const referenceRatio = getReferenceProductHeightRatio(row, category, specs, source);
+    if (Number.isFinite(referenceRatio)) return referenceRatio;
+  }
+  if (category === "bottle" && specs.g === 200) {
+    return readProductHeightRatio(row, "bottle200g", mode === "same" ? 0.92 : 0.88);
+  }
+  if (category === "bottle" && specs.g === 50) {
+    return readProductHeightRatio(row, "bottle50g", mode === "same" ? 0.58 : 0.46);
+  }
   if (isYouthSeriesProductSource(source)) return getYouthSeriesProductHeightRatio(row, category, specs, mode, source);
   if (category === "ampoule") return getAmpouleHeightRatioBySpec(row, size, mode, source);
   if (category === "jar") return getJarHeightRatioBySpec(row, size, mode);
@@ -2154,7 +2809,9 @@ function getProductHeightRatio(row, index, count = 1) {
   const category = getProductCategory(row, index);
   const source = getImageSourceForIndex(row, "product", index);
   const specs = getProductSpecFromSource(source);
-  return getChartProductHeightRatio(row, category, specs, mode, source);
+  return getChartProductHeightRatio(row, category, specs, mode, source, {
+    useReference: shouldUseReferenceProductHeightRatio(row, count)
+  });
 }
 
 function applyProductHeightRatioToBox(row, index, areaBox, box, count = 1) {
@@ -2327,7 +2984,13 @@ function hasGiftLeftContent(row) {
     "img.giftLeft",
     "img.giftLeftSet",
     "img.giftLeft.1"
-  ].some((key) => hasValue(row, key));
+  ].some((key) => hasEnabledValue(row, key));
+}
+
+function hasEnabledValue(row, key) {
+  if (!hasValue(row, key)) return false;
+  const raw = String(row[key]).trim().toLowerCase();
+  return !["0", "false", "no", "n", "off", "hide", "hidden", "none", "null", "undefined", "", "", "隐藏", "", "关闭"].includes(raw);
 }
 
 function hasPersonContent(row) {
@@ -2339,7 +3002,7 @@ function hasPersonContent(row) {
     "人物",
     "达人",
     "代言人"
-  ].some((key) => hasValue(row, key));
+  ].some((key) => hasEnabledValue(row, key));
 }
 
 function getGiftRightTemplateType(row) {
@@ -2401,13 +3064,13 @@ function normalizeDailyMechanism(value) {
   if (match) return match[0];
   if (text.includes("official") || text.includes("flagship") || text.includes("旗舰") || text.includes("官方")) return "2";
   if (text.includes("diff") || text.includes("pddmain") || text.includes("pdd_main") || text === "main") return "4";
-  if (text.includes("nogift") || text.includes("no-gift") || text.includes("none") || text.includes("无赠") || text.includes("无礼") || text.includes("无买赠")) return "3";
-  if (text.includes("gift") || text.includes("left") || text.includes("赠品") || text.includes("买即享") || text.includes("买即赠")) return "1";
+  if (text.includes("nogift") || text.includes("no-gift") || text.includes("none") || text.includes("无赠") || text.includes("无礼") || text.includes("无买")) return "3";
+  if (text.includes("gift") || text.includes("left") || text.includes("赠品") || text.includes("买即") || text.includes("买即")) return "1";
   return "";
 }
 
 function hasAnyConfiguredValue(row, columns) {
-  return (columns || []).some((column) => hasValue(row, column));
+  return (columns || []).some((column) => hasEnabledValue(row, column));
 }
 
 function getGiftAndPersonMechanismType(row, switchConfig) {
@@ -2477,6 +3140,7 @@ function getDailyGiftRightType(row) {
 }
 function getDailyMechanismType(row, switchConfig) {
   if (!switchConfig || !switchConfig.enabled) return "";
+  if (switchConfig.fixedMechanism) return String(switchConfig.fixedMechanism);
   if (switchConfig.byGiftAndPerson && switchConfig.autoOverridesExplicit) {
     return getGiftAndPersonMechanismType(row, switchConfig);
   }
@@ -2593,6 +3257,31 @@ function findDailyMechanismLayerForGiftLeft(doc, names) {
     return layer && findGiftLeftImageGroupInLayer(layer);
   }) || null;
 }
+function scoreMechanismLayerCandidate(layer, switchConfig) {
+  if (!layer) return 0;
+  const preferredNames = switchConfig.preferredMechanismLayerNames || [];
+  return preferredNames.reduce((score, name) => {
+    return score + (findLayerByNameInLayer(layer, name) ? 1 : 0);
+  }, 0);
+}
+
+function choosePreferredMechanismLayerCandidate(candidates, switchConfig) {
+  const preferredNames = switchConfig.preferredMechanismLayerNames || [];
+  if (!preferredNames.length) return null;
+  let best = null;
+  const summary = [];
+  for (const [index, layer] of (candidates || []).entries()) {
+    const score = scoreMechanismLayerCandidate(layer, switchConfig);
+    const visibleBonus = layer && layer.visible !== false ? 100 : 0;
+    const total = score + visibleBonus;
+    summary.push(`#${index}:${layer ? layer.name : "?"}:${layer && layer.visible !== false ? "visible" : "hidden"}:score=${score}:total=${total}`);
+    if (!score) continue;
+    if (!best || total > best.total) best = { layer, total };
+  }
+  log(`  Mechanism candidates: ${summary.join(" | ") || "none"}; chosen=${best && best.layer ? best.layer.name : "default"}.`);
+  return best ? best.layer : null;
+}
+
 function findDailyMechanismLayer(doc, row) {
   const config = getCurrentTemplateConfig();
   const switchConfig = getMechanismSwitchConfig(config) || {};
@@ -2603,7 +3292,8 @@ function findDailyMechanismLayer(doc, row) {
   for (const name of names || []) {
     candidates.push(...findLayersByName(doc, name));
   }
-  return candidates.find((layer) => layer && layer.visible !== false && findGiftImageGroupInLayer(layer)) ||
+  return choosePreferredMechanismLayerCandidate(candidates, switchConfig) ||
+    candidates.find((layer) => layer && layer.visible !== false && findGiftImageGroupInLayer(layer)) ||
     candidates.find((layer) => layer && findGiftImageGroupInLayer(layer)) ||
     candidates.find((layer) => layer && layer.visible !== false) ||
     candidates[0] ||
@@ -4492,7 +5182,9 @@ async function prepareImageGroupLayers(doc, row, prefix) {
 
   const count = getGiftCount(row, prefix);
   const baseName = `img.${prefix}`;
-  const baseLayer = prefix === "gift" ? findCurrentMechanismLayerByName(doc, row, baseName) : findLayerByName(doc, baseName);
+  const baseLayer = prefix === "product" || prefix === "gift"
+    ? findCurrentMechanismLayerByName(doc, row, baseName)
+    : findLayerByName(doc, baseName);
   const areaLayer = getImageGroupAreaLayer(doc, prefix, count, row);
   const areaBox = getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
 
@@ -4501,6 +5193,7 @@ async function prepareImageGroupLayers(doc, row, prefix) {
   }
   hideImageGroupAreaLayers(doc, prefix);
 
+  log(`  ${prefix} group prep: count=${count}, base=${baseLayer ? baseLayer.name : "none"}, sourceMode=${shouldPlaceGroupFromFiles(row, prefix) ? "place" : "placeholder"}.`);
   if (areaBox) {
     log(`  ${prefix}.area: ${areaLayer.name}, x=${Math.round(areaBox.left)}, y=${Math.round(areaBox.top)}, w=${Math.round(areaBox.width)}, h=${Math.round(areaBox.height)}`);
     state.groupAreaBoxes[prefix] = areaBox;
@@ -4511,7 +5204,8 @@ async function prepareImageGroupLayers(doc, row, prefix) {
     delete state.groupAreaNames[prefix];
   }
 
-  if ((count <= 1 && prefix !== "giftLeft") || !baseLayer) return;
+  const hasSingleCouponSource = count === 1 && isAddOnCouponImageIndex(row, prefix, 1);
+  if ((count <= 1 && prefix !== "giftLeft" && !hasSingleCouponSource) || !baseLayer) return;
 
   const baseBox = getBoundsBox(baseLayer.boundsNoEffects || baseLayer.bounds);
   if (!baseBox) return;
@@ -4611,7 +5305,7 @@ function getImageGroupAreaLayer(doc, prefix, count, row) {
     const area3 = findLayerByName(doc, "product.area.3");
     const area4 = findLayerByName(doc, "product.area.4");
     const fallback = findLayerByName(doc, "product.area");
-    return count > 2 ? area2 || fallback || area1 || area3 : area1 || fallback || area2 || area3;
+    return count > 2 ? area2 || fallback || area1 || area3 || area4 : area1 || fallback || area2 || area4 || area3;
   }
 
   const config = getCurrentTemplateConfig();
@@ -4625,6 +5319,14 @@ function getImageGroupAreaLayer(doc, prefix, count, row) {
     if (switchConfig.giftAreaName) {
       return findLayerByName(doc, switchConfig.giftAreaName) || findLayerByName(doc, `${prefix}.area`);
     }
+  }
+
+  if (prefix === "gift") {
+    return findLayerByName(doc, "gift.area") ||
+      findLayerByName(doc, "gift.area.2") ||
+      findLayerByName(doc, "gift.area.1") ||
+      findLayerByName(doc, "gift.area.3") ||
+      findLayerByName(doc, "gift.area.4");
   }
 
   return findLayerByName(doc, `${prefix}.area`);
@@ -4821,7 +5523,7 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
   const layers = [];
   for (let i = 1; i <= count; i += 1) {
     const rawImagePath = row[`img.${prefix}.${i}`] || row[`img.${prefix}`];
-    const isCoupon = prefix === "product" && isAddOnCouponProductIndex(row, i);
+    const isCoupon = isAddOnCouponImageIndex(row, prefix, i);
     let imagePath = rawImagePath;
     let layer = null;
     let templateBox = null;
@@ -4849,11 +5551,14 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
 
     if (!layer) {
       if (!imagePath || isAddOnCouponToken(imagePath)) continue;
+      log(`  ${prefix} place source ${i}: ${imagePath}`);
       const asset = await getAssetEntry(imagePath, {
         disableTrimmed: prefix === "giftRight",
         normalizeGiftRight: prefix === "giftRight",
-        productFallbackPriority: prefix === "product"
+        productFallbackPriority: prefix === "product",
+        view: prefix === "product" ? getProductImageView(row) : ""
       });
+      log(`  ${prefix} asset entry ${i}: ${asset && asset.name ? asset.name : imagePath}`);
       layer = await placeAssetAsLayer(asset);
       layer.name = `img.${prefix}.${i}`;
       layer.visible = true;
@@ -4904,7 +5609,7 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     if (areaBox) {
       await clampLayerToBox(layer, areaBox);
     }
-    if (prefix === "product" && areaBox && !isCoupon) {
+    if (prefix === "product" && areaBox && !isCoupon && getCurrentTemplateConfig().alignPlacedProductBottomToArea !== false) {
       await alignLayerBottomToBox(layer, areaBox);
     }
     if (prefix === "giftLeft") {
@@ -4920,8 +5625,19 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     baseLayer.visible = false;
   }
 
-  if (prefix === "product" && getAddOnCouponConfig()) {
+  if (getAddOnCouponConfig() && prefix === getAddOnCouponTargetPrefix()) {
     hideAddOnCouponTemplateLayers(doc, row);
+  }
+
+  const getPlacedLayerIndex = (layer) => {
+    const match = String(layer && layer.name || "").match(/\.(\d+)$/);
+    return match ? Number(match[1]) : 0;
+  };
+  const giftTagAnchorLayer = prefix === "gift"
+    ? layers.slice().reverse().find((layer) => layer && !isAddOnCouponImageIndex(row, prefix, getPlacedLayerIndex(layer)))
+    : null;
+  if (giftTagAnchorLayer) {
+    await alignGiftTagToGiftLayer(doc, row, giftTagAnchorLayer);
   }
 
   if (prefix === "product") {
@@ -4974,7 +5690,8 @@ async function alignGiftTagToGiftLayer(doc, row, giftLayer) {
   const anchorEnabled = tagConfig.anchorToGift || tagConfig.anchorTo === "gift" || tagConfig.anchorTo === "img.gift";
   if (!tagConfig.enabled || !anchorEnabled || !giftLayer) return;
 
-  const tagLayer = findLayerByAnyNameInCurrentMechanismOnly(doc, row, tagConfig.layerNames || tagConfig.names || ["gifttag"]);
+  const tagNames = tagConfig.layerNames || tagConfig.names || ["gifttag"];
+  const tagLayer = findLayerByAnyNameInCurrentMechanismOnly(doc, row, tagNames) || findLayerByAnyName(doc, tagNames);
   if (!tagLayer || tagLayer.visible === false) return;
 
   const giftBox = getBoundsBox(giftLayer.boundsNoEffects || giftLayer.bounds);
@@ -4988,6 +5705,28 @@ async function alignGiftTagToGiftLayer(doc, row, giftLayer) {
   await moveLayerByOffset(tagLayer, dx, dy, tagLayer.name);
   log(`  Gift tag anchored: dx=${Math.round(dx)}, dy=${Math.round(dy)}.`);
 }
+async function alignGiftTagToPlacedGiftLayer(doc, row) {
+  const tagConfig = getGiftBadgeConfig() || {};
+  if (!tagConfig.enabled) return;
+  const mechanismConfig = getMechanismSwitchConfig() || {};
+  if (mechanismConfig.enabled) return;
+
+  const count = Math.max(getGiftCount(row || {}, "gift") || 0, 0);
+  for (let i = count; i >= 1; i -= 1) {
+    if (isAddOnCouponImageIndex(row, "gift", i)) continue;
+    const layer = findCurrentMechanismLayerByName(doc, row, `img.gift.${i}`);
+    if (layer && layer.visible !== false) {
+      await alignGiftTagToGiftLayer(doc, row, layer);
+      return;
+    }
+  }
+
+  const fallbackLayer = findCurrentMechanismLayerByName(doc, row, "img.gift");
+  if (fallbackLayer && fallbackLayer.visible !== false) {
+    await alignGiftTagToGiftLayer(doc, row, fallbackLayer);
+  }
+}
+
 async function alignGiftLeftImageGroupToArea(doc) {
   const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.giftLeft;
   const areaName = state.groupAreaNames && state.groupAreaNames.giftLeft || "giftLeft.area";
@@ -5148,6 +5887,108 @@ async function alignGiftImageGroupToArea(doc) {
   log(`  Gift align: area=${areaName}, mode=${alignX}/${alignY}, moved=${childBoxes.length ? childBoxes.map((item) => item.layer.name).join("+") : targetLayer.name}, dx=${Math.round(dx)}, dy=${Math.round(dy)}, target=${targetPoint}.`);
 }
 
+
+async function applyGiftCouponGapFromProduct(doc, row) {
+  const config = getAddOnCouponConfig();
+  if (!config || getAddOnCouponTargetPrefix(config) !== "gift") return;
+
+  const gapValue = readNumber(row, "coupon.gap", readNumber(row, "addOnCoupon.gap", NaN));
+
+  const couponIndex = parseCount(row && row[getAddOnCouponIndexColumn("gift")]);
+  if (couponIndex <= 0 || !isAddOnCouponImageIndex(row, "gift", couponIndex)) return;
+
+  const couponLayer = findCurrentMechanismLayerByName(doc, row, `img.gift.${couponIndex}`) ||
+    findAddOnCouponTemplateLayer(doc, row) ||
+    findCurrentMechanismLayerByName(doc, row, "img.gift") ||
+    findCurrentGiftImageGroup(doc, row);
+  const couponBox = couponLayer && couponLayer.visible !== false && getBoundsBox(couponLayer.boundsNoEffects || couponLayer.bounds);
+  if (!couponBox) {
+    log("  Gift coupon gap skipped: coupon layer not found.");
+    return;
+  }
+
+  const productItems = collectProductGroupItems(doc, row, { excludeCoupon: true });
+  const productBox = getItemsGroupBox(productItems);
+  if (!productBox) return;
+
+  await alignGiftCouponAndProductToProductArea(doc, row, couponLayer, {
+    productItems,
+    productBox,
+    couponBox,
+    gapValue
+  });
+}
+
+function collectProductShadowFollowLayers(doc) {
+  const config = getCurrentTemplateConfig();
+  const names = new Set([
+    config && config.productShadow && (config.productShadow.name || "PRODUCT.shadow"),
+    "PRODUCT.shadow"
+  ].filter(Boolean));
+  const bottomConfig = config && config.productBottomShadow;
+  const bottomName = bottomConfig && (bottomConfig.layerName || "img.productshadow");
+  if (bottomName) {
+    names.add(bottomName);
+    for (let i = 1; i <= 12; i += 1) {
+      names.add(`${bottomName}.${i}`);
+    }
+  }
+
+  const layers = [];
+  names.forEach((name) => {
+    findLayersByName(doc, name).forEach((layer) => {
+      if (layer && layer.visible !== false && !layers.includes(layer)) {
+        layers.push(layer);
+      }
+    });
+  });
+  return layers;
+}
+
+async function alignGiftCouponAndProductToProductArea(doc, row, couponLayer, geometry = {}) {
+  const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.product;
+  if (!areaBox) {
+    log("  Product+coupon center align skipped: product.area not found.");
+    return;
+  }
+
+  const productItems = geometry.productItems && geometry.productItems.length
+    ? geometry.productItems
+    : collectProductGroupItems(doc, row, { excludeCoupon: true });
+  const productBox = geometry.productBox || getItemsGroupBox(productItems);
+  const couponBox = geometry.couponBox || (couponLayer && couponLayer.visible !== false && getBoundsBox(couponLayer.boundsNoEffects || couponLayer.bounds));
+  if (!productItems.length || !productBox || !couponBox) {
+    log("  Product+coupon center align skipped: product or coupon bounds not found.");
+    return;
+  }
+
+  const gapValue = geometry.gapValue;
+  const hasGap = Number.isFinite(gapValue);
+  const targetCouponLeft = hasGap ? productBox.right + gapValue : couponBox.left;
+  const targetCouponBox = makeBox(targetCouponLeft, couponBox.top, couponBox.width, couponBox.height);
+  const combinedBox = getItemsGroupBox([
+    { layer: null, box: productBox },
+    { layer: couponLayer, box: targetCouponBox }
+  ]);
+  if (!combinedBox) return;
+
+  const productMoveX = areaBox.centerX - combinedBox.centerX;
+  const couponMoveX = productMoveX + (targetCouponLeft - couponBox.left);
+
+  if (Number.isFinite(productMoveX) && Math.abs(productMoveX) >= 0.5) {
+    await translateProductItems(productItems, productMoveX, 0);
+    for (const shadowLayer of collectProductShadowFollowLayers(doc)) {
+      await moveLayerByOffset(shadowLayer, productMoveX, 0, shadowLayer.name);
+    }
+  }
+  if (Number.isFinite(couponMoveX) && Math.abs(couponMoveX) >= 0.5) {
+    await moveLayerByOffset(couponLayer, couponMoveX, 0, couponLayer.name);
+  }
+
+  const expectedGap = hasGap ? gapValue : targetCouponLeft - productBox.right;
+  log(`  Product+coupon center aligned to ${state.groupAreaNames.product || "product.area"}: productDx=${Math.round(productMoveX)}, couponDx=${Math.round(couponMoveX)}, couponGap=${Number.isFinite(expectedGap) ? Math.round(expectedGap) : "?"}, targetCenter=${Math.round(areaBox.centerX)}.`);
+}
+
 function collectProductItems(doc, count, row = null, options = {}) {
   const items = [];
   for (let i = 1; i <= count; i += 1) {
@@ -5170,6 +6011,51 @@ function collectProductGroupItems(doc, row, options = {}) {
   const layer = findCurrentProductLayer(doc, row, "img.product");
   const box = layer && layer.visible !== false && getBoundsBox(layer.boundsNoEffects || layer.bounds);
   return layer && box ? [{ layer, box }] : [];
+}
+
+function getProductShadowGiftColumns(config = {}) {
+  return config.giftColumns || ["giftshadow", "giftshadow.enabled", "gift.shadow", "giftShadow", "gift.shadow.enabled", "giftShadow.enabled"];
+}
+
+function shouldIncludeGiftInProductShadow(row, config = {}) {
+  const columns = getProductShadowGiftColumns(config);
+  const explicitColumn = columns.find((column) => hasValue(row || {}, column));
+  if (!explicitColumn) return Boolean(config.includeGiftDefault);
+  return parseVisibilityValue(row && row[explicitColumn], Boolean(config.includeGiftDefault));
+}
+
+function collectGiftShadowItems(doc, row, options = {}) {
+  const count = Math.max(getGiftCount(row || {}, "gift") || 0, 0);
+  const items = [];
+  for (let i = 1; i <= count; i += 1) {
+    if (options.excludeCoupon && isAddOnCouponImageIndex(row || {}, "gift", i)) continue;
+    const layer = findCurrentMechanismLayerByName(doc, row, `img.gift.${i}`);
+    const box = layer && layer.visible !== false && getBoundsBox(layer.boundsNoEffects || layer.bounds);
+    if (layer && box) {
+      items.push({ layer, box, index: i, source: getImageSourceForIndex(row || {}, "gift", i) });
+    }
+  }
+
+  if (!options.excludeCoupon) {
+    const couponIndex = parseCount(row && row[getAddOnCouponIndexColumn("gift")]);
+    const hasCouponItem = items.some((item) => Number(item.index) === couponIndex);
+    if (couponIndex > 0 && isAddOnCouponImageIndex(row || {}, "gift", couponIndex) && !hasCouponItem) {
+      const couponLayer = findAddOnCouponTemplateLayer(doc, row);
+      const couponBox = couponLayer && couponLayer.visible !== false && getBoundsBox(couponLayer.boundsNoEffects || couponLayer.bounds);
+      if (couponLayer && couponBox) {
+        items.push({ layer: couponLayer, box: couponBox, index: couponIndex, source: getAddOnCouponProductToken(row) || resolveAddOnCouponImage(row) });
+      }
+    }
+  }
+
+  if (items.length) return items;
+
+  if (count <= 1 && !(options.excludeCoupon && isAddOnCouponImageIndex(row || {}, "gift", 1))) {
+    const layer = findCurrentMechanismLayerByName(doc, row, "img.gift");
+    const box = layer && layer.visible !== false && getBoundsBox(layer.boundsNoEffects || layer.bounds);
+    if (layer && box) return [{ layer, box, index: 1, source: getImageSourceForIndex(row || {}, "gift", 1) }];
+  }
+  return [];
 }
 
 async function scaleProductItemsToHeight(items, row, areaBox) {
@@ -5641,13 +6527,39 @@ function isLayerDisplayedForFinalPsd(layer) {
   return !Number.isFinite(opacity) || opacity > 0;
 }
 
+function isProtectedMainProductLabelLayer(layer) {
+  const config = getCurrentTemplateConfig();
+  return !!(config && config.id === "baibuMiaoshaMain" && hasValue(state.currentRow || {}, "txt.mainProductLabel") && String(layer && layer.name || "").trim() === "txt.mainProductLabel");
+}
+
+function layerTreeContainsProtectedMainProductLabel(layer) {
+  if (!layer) return false;
+  if (isProtectedMainProductLabelLayer(layer)) return true;
+  return isLayerGroup(layer) && Array.from(layer.layers || []).some(layerTreeContainsProtectedMainProductLabel);
+}
+
+function protectMainProductLabelVisibility(layer, label = "PSD cleanup") {
+  if (!layerTreeContainsProtectedMainProductLabel(layer)) return false;
+  try {
+    layer.visible = true;
+  } catch (error) {
+    log(`  ${label} main label visibility skipped: ${formatError(error)}`);
+  }
+  return true;
+}
+
 async function pruneLayerCollectionForPsd(layers, ancestorsVisible) {
   const result = { hidden: 0, empty: 0 };
   const snapshot = Array.from(layers || []);
 
   for (const layer of snapshot) {
     if (!layer) continue;
-    const effectivelyVisible = ancestorsVisible && isLayerDisplayedForFinalPsd(layer);
+    let effectivelyVisible = ancestorsVisible && isLayerDisplayedForFinalPsd(layer);
+
+    if (!effectivelyVisible && protectMainProductLabelVisibility(layer, "PSD cleanup")) {
+      effectivelyVisible = ancestorsVisible && isLayerDisplayedForFinalPsd(layer);
+      log(`  PSD cleanup: protected txt.mainProductLabel from deletion in ${layer.name}.`);
+    }
 
     if (!effectivelyVisible) {
       const removedCount = countLayerTree(layer);
@@ -5671,6 +6583,204 @@ async function pruneLayerCollectionForPsd(layers, ancestorsVisible) {
   }
 
   return result;
+}
+
+async function deleteLayerTreeBestEffort(layer, label = "PSD layer tree") {
+  if (!layer) return false;
+  if (isLayerGroup(layer)) {
+    for (const child of Array.from(layer.layers || [])) {
+      await deleteLayerTreeBestEffort(child, `${label} child ${child.name || "layer"}`);
+    }
+  }
+  return deleteLayerBestEffort(layer, label);
+}
+
+function getConfiguredArtboardVariantNames(config = getArtboardSwitchConfig()) {
+  if (!config || !config.variants) return new Set();
+  return new Set(Object.values(config.variants)
+    .flat()
+    .map((name) => String(name || "").trim())
+    .filter(Boolean));
+}
+
+function getCurrentArtboardLayerName() {
+  return String(state.currentArtboardName || state.currentArtboardLayer && state.currentArtboardLayer.name || "").trim();
+}
+
+function refreshCurrentArtboardLayer(doc, label = "PSD export") {
+  const switchConfig = getArtboardSwitchConfig();
+  const name = getCurrentArtboardLayerName();
+  if (!doc || !doc.layers || !switchConfig || !name) return state.currentArtboardLayer || null;
+
+  const refreshed = Array.from(doc.layers || []).find((layer) => String(layer && layer.name || "").trim() === name) || findArtboardLayerByNames(doc, [name]);
+  if (!refreshed) return state.currentArtboardLayer || null;
+
+  if (!isSameLayerReference(refreshed, state.currentArtboardLayer)) {
+    state.currentArtboardLayer = refreshed;
+    state.currentArtboardName = refreshed.name;
+    log(`  ${label} artboard reference refreshed: ${refreshed.name}.`);
+  }
+  return refreshed;
+}
+
+async function removeInactiveArtboardVariantLayersForPsd(doc, label = "PSD export") {
+  const switchConfig = getArtboardSwitchConfig();
+  if (!doc || !doc.layers || !switchConfig || !state.currentArtboardLayer) return 0;
+
+  const activeLayer = refreshCurrentArtboardLayer(doc, label);
+  const activeName = getCurrentArtboardLayerName();
+  const variantNames = getConfiguredArtboardVariantNames(switchConfig);
+  if (!variantNames.size) return 0;
+
+  let removed = 0;
+  for (const layer of Array.from(doc.layers || [])) {
+    const name = String(layer && layer.name || "").trim();
+    if (!variantNames.has(name) || name === activeName || isSameLayerReference(layer, activeLayer)) continue;
+    if (await deleteLayerTreeBestEffort(layer, `${label} inactive artboard ${name}`)) {
+      removed += 1;
+    }
+  }
+
+  if (removed) {
+    log(`  ${label} cleanup: removed ${removed} inactive artboard layer(s).`);
+  }
+  return removed;
+}
+
+async function ungroupLayerBestEffort(layer, label = "PSD artboard") {
+  if (!layer) return [];
+  ensureModules();
+
+  try {
+    photoshop.app.activeDocument.activeLayers = [layer];
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "ungroupLayersEvent",
+          _target: [
+            { _ref: "layer", _enum: "ordinal", _value: "targetEnum" }
+          ],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    return Array.from(photoshop.app.activeDocument.activeLayers || []).filter(Boolean);
+  } catch (error) {
+    log(`  ${label} ungroup skipped: ${formatError(error)}`);
+  }
+
+  return [];
+}
+
+async function liftGroupChildrenToTopLevelBestEffort(group, label = "PSD artboard") {
+  if (!group || !group.layers) return [];
+  const children = Array.from(group.layers || []).filter(Boolean);
+  const moved = [];
+
+  for (const child of children) {
+    try {
+      await child.move(group, photoshop.constants.ElementPlacement.PLACEBEFORE);
+      moved.push(child);
+    } catch (error) {
+      log(`  ${label} child lift skipped: ${child.name || "layer"}: ${formatError(error)}`);
+    }
+  }
+
+  if (moved.length && Array.from(group.layers || []).length === 0) {
+    await deleteLayerBestEffort(group, `${label} empty artboard`);
+  }
+  return moved;
+}
+
+function findTopLevelGroupByName(doc, name) {
+  const normalized = String(name || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return Array.from(doc && doc.layers || []).find((layer) => {
+    return isLayerGroup(layer) && String(layer.name || "").trim().toLowerCase() === normalized;
+  }) || null;
+}
+
+function isSameLayerReference(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return typeof a.id !== "undefined" && typeof b.id !== "undefined" && a.id === b.id;
+}
+
+function getLayerPackSnapshot(layer) {
+  return {
+    id: typeof layer.id !== "undefined" ? layer.id : null,
+    name: String(layer.name || ""),
+    bounds: getBoundsBox(layer.boundsNoEffects || layer.bounds)
+  };
+}
+
+function layerBoundsMatchSnapshot(layer, snapshot) {
+  const box = getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
+  const snapBox = snapshot && snapshot.bounds;
+  if (!box || !snapBox) return true;
+  return Math.abs(box.left - snapBox.left) <= 2 &&
+    Math.abs(box.top - snapBox.top) <= 2 &&
+    Math.abs(box.right - snapBox.right) <= 2 &&
+    Math.abs(box.bottom - snapBox.bottom) <= 2;
+}
+
+function findTopLevelLayersByPackSnapshots(doc, snapshots = []) {
+  const candidates = Array.from(doc && doc.layers || []).filter((layer) => layer && isLayerDisplayedForFinalPsd(layer));
+  const used = new Set();
+  const layers = [];
+
+  snapshots.forEach((snapshot) => {
+    const found = candidates.find((layer, index) => {
+      if (used.has(index)) return false;
+      if (snapshot.id !== null && typeof layer.id !== "undefined" && layer.id === snapshot.id) return true;
+      return String(layer.name || "") === snapshot.name && layerBoundsMatchSnapshot(layer, snapshot);
+    });
+    if (found) {
+      used.add(candidates.indexOf(found));
+      layers.push(found);
+    }
+  });
+
+  return layers;
+}
+
+async function packCurrentArtboardForPsd(doc, groupName, label = "PSD export") {
+  const switchConfig = getArtboardSwitchConfig();
+  if (!doc || !doc.layers || !switchConfig) return null;
+
+  await activateDocumentBestEffort(doc);
+  const artboard = refreshCurrentArtboardLayer(doc, label);
+  if (!artboard || !artboard.layers) return null;
+  const packLayersBeforeUngroup = Array.from(artboard.layers || []).filter((layer) => layer && isLayerDisplayedForFinalPsd(layer));
+  const snapshots = packLayersBeforeUngroup.map(getLayerPackSnapshot);
+  if (!packLayersBeforeUngroup.length) {
+    log(`  ${label} artboard pack skipped: current artboard has no visible layers.`);
+    return null;
+  }
+
+  await ungroupLayerBestEffort(artboard, `${label} ${state.currentArtboardName || artboard.name}`);
+  const protectedMainLabel = findTopLevelLayersByPackSnapshots(doc, snapshots).find((layer) => String(layer.name || "") === "txt.mainProductLabel");
+  if (protectedMainLabel) ensureLayerVisibleForDataReplacement(protectedMainLabel, "txt.mainProductLabel");
+
+  let packLayers = packLayersBeforeUngroup;
+  let group = await groupSelectedLayersBestEffort(packLayers, groupName, `${label} group ${groupName}`);
+  if (!group) {
+    packLayers = findTopLevelLayersByPackSnapshots(doc, snapshots);
+    if (!packLayers.length) {
+      packLayers = await liftGroupChildrenToTopLevelBestEffort(artboard, `${label} ${state.currentArtboardName || artboard.name}`);
+    }
+    group = await groupSelectedLayersBestEffort(packLayers, groupName, `${label} group ${groupName}`);
+  }
+  if (!group) {
+    log(`  ${label} artboard pack skipped: group creation failed.`);
+    return null;
+  }
+
+  state.currentArtboardLayer = group;
+  state.currentArtboardName = group.name;
+  log(`  ${label} artboard packed as group: ${group.name}.`);
+  return group;
 }
 
 async function pruneNonDisplayedLayersForPsd(doc, label = "PSD export") {
@@ -5762,6 +6872,11 @@ async function activateDocumentBestEffort(doc) {
     }
   } catch (error) {
     log(`  Activate document DOM skipped: ${formatError(error)}`);
+  }
+
+  if (typeof doc.id === "undefined" || doc.id === null) {
+    log("  Activate document action skipped: document id unavailable.");
+    return false;
   }
 
   try {
@@ -5903,6 +7018,13 @@ async function packDocumentLayersForMerge(doc, groupName, keepBg) {
     await moveBgToBottom(doc);
   } else {
     await removeBgLayers(doc);
+  }
+
+  const existingGroup = findTopLevelGroupByName(doc, groupName);
+  if (existingGroup && Array.from(doc.layers || []).filter((layer) => layer && !isBgLayerName(layer.name)).length === 1) {
+    existingGroup.visible = true;
+    log(`  Merge source already packed: ${groupName}.`);
+    return existingGroup;
   }
 
   const packLayers = Array.from(doc.layers || []).filter((layer) => {
@@ -6077,18 +7199,26 @@ async function createProductShadowSourceLayer(doc, productGroup, config) {
     return null;
   }
 
-  const productItems = collectProductGroupItems(doc, state.currentRow || {}, { excludeCoupon: true });
-  if (!productItems.length) {
-    log("  Product shadow item fallback skipped: no visible product image layers.");
+  const row = state.currentRow || {};
+  const productItems = collectProductGroupItems(doc, row, { excludeCoupon: true });
+  const giftItems = shouldIncludeGiftInProductShadow(row, config)
+    ? collectGiftShadowItems(doc, row, { excludeCoupon: !config.includeGiftCouponShadow })
+    : [];
+  const shadowItems = [...productItems, ...giftItems];
+  if (!shadowItems.length) {
+    log("  Product shadow item fallback skipped: no visible product or gift image layers.");
     return null;
+  }
+  if (giftItems.length) {
+    log(`  Product shadow gift items included: ${giftItems.map((item) => item.layer.name).join(" + ")}.`);
   }
 
   const copies = [];
-  for (let i = 0; i < productItems.length; i += 1) {
+  for (let i = 0; i < shadowItems.length; i += 1) {
     const copy = await duplicateLayerBestEffort(
-      productItems[i].layer,
+      shadowItems[i].layer,
       `${shadowName}.${i + 1}`,
-      `Product shadow ${productItems[i].layer.name}`
+      `Product shadow ${shadowItems[i].layer.name}`
     );
     if (copy) copies.push(copy);
   }
@@ -6483,9 +7613,14 @@ async function applyProductShadow(doc) {
   if (!config || !config.enabled) return;
 
   const productGroup = findLayerByName(doc, config.sourceGroupName || "PRODUCT");
-  if (!productGroup) {
+  const sourceMode = String(config.sourceMode || "").trim().toLowerCase();
+  const canUseItemSource = ["items", "item", "layers", "productitems", "product-items"].includes(sourceMode);
+  if (!productGroup && !canUseItemSource) {
     log("  Product shadow skipped: PRODUCT group not found.");
     return;
+  }
+  if (!productGroup && canUseItemSource) {
+    log("  Product shadow source group not found; using visible product item layers.");
   }
 
   try {
@@ -6531,7 +7666,7 @@ async function applyProductShadow(doc) {
     const projectGroup = findProductShadowTargetGroup(doc, config);
     const movedToTargetGroup = await moveLayerToGroupBestEffort(shadowLayer, projectGroup);
 
-    if (config.placeAfterSource !== false || !movedToTargetGroup) {
+    if (productGroup && (config.placeAfterSource !== false || !movedToTargetGroup)) {
       try {
         await shadowLayer.move(productGroup, photoshop.constants.ElementPlacement.PLACEAFTER);
       } catch (error) {
@@ -7077,6 +8212,7 @@ async function applyBottomTextRules(layer, value) {
 async function replaceSmartObjectLayer(layer, file) {
   if (!layer || !file) return;
 
+  log(`  Replace smart object: ${layer.name} <= ${file.name || "entry"}`);
   ensureModules();
   const originalTargetBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
   const targetBox = originalTargetBox;
@@ -7193,8 +8329,8 @@ async function getAssetEntry(filename, options = {}) {
   if (/^[a-zA-Z]:[\\/]/.test(rawFilename) && fs.getEntryWithUrl) {
     return fs.getEntryWithUrl(pathToFileUrl(rawFilename));
   }
-  const normalized = normalizeImagePathForTemplate(String(filename).replace(/\\/g, "/"));
-  const productViewFallbacks = getProductImageViewFallbacks(normalized);
+  const normalized = normalizeImagePathForTemplate(String(filename).replace(/\\/g, "/"), options);
+  const productViewFallbacks = getProductImageViewFallbacks(normalized, options);
   for (const fallback of productViewFallbacks) {
     try {
       const entry = await getAssetEntryWithoutProductViewFallback(fallback, options);
@@ -7210,8 +8346,8 @@ async function getAssetEntry(filename, options = {}) {
   return getAssetEntryWithoutProductViewFallback(normalized, options);
 }
 
-function getProductImageViewFallbacks(filename) {
-  const normalized = normalizeImagePathForTemplate(String(filename || "").replace(/\\/g, "/"));
+function getProductImageViewFallbacks(filename, options = {}) {
+  const normalized = normalizeImagePathForTemplate(String(filename || "").replace(/\\/g, "/"), options);
   const match = normalized.match(/^(.*?)-(angle|front)(\.[^.]+)$/i);
   if (!match) {
     const baseMatch = normalized.match(/^(.*?)(\.[^.]+)$/);
@@ -7229,7 +8365,7 @@ function getProductImageViewFallbacks(filename) {
       `${base}-angle${ext}`,
       `${withoutProducts}-angle${ext}`,
       `angle/${withoutProducts}-angle${ext}`
-    ].map(normalizeImagePathForTemplate)));
+    ].map((item) => normalizeImagePathForTemplate(item, options))));
   }
 
   const base = match[1];
@@ -7239,9 +8375,13 @@ function getProductImageViewFallbacks(filename) {
   const candidates = [normalized];
   candidates.push(normalized.replace(/^products\//i, ""));
   if (view === "angle") {
+    const baseWithoutAngleFolder = base.replace(/(^|\/)angle(\/)/i, "$1$2");
+    const withoutProductsNoAngle = withoutProducts.replace(/(^|\/)angle(\/)/i, "$1");
     candidates.push(`${base}${ext}`);
-    candidates.push(`${base.replace(/(^|\/)angle(\/)/i, "$1$2")}${ext}`);
-    candidates.push(`angle/${withoutProducts.replace(/(^|\/)angle(\/)/i, "$1")}-angle${ext}`);
+    candidates.push(`${baseWithoutAngleFolder}${ext}`);
+    candidates.push(`angle/${withoutProductsNoAngle}-angle${ext}`);
+    candidates.push(`${baseWithoutAngleFolder}-front${ext}`);
+    candidates.push(`front/${withoutProductsNoAngle}-front${ext}`);
   }
   if (view === "front") {
     candidates.push(`${base}-F${ext}`);
@@ -7249,11 +8389,11 @@ function getProductImageViewFallbacks(filename) {
     candidates.push(`${base.replace(/(^|\/)front(\/)/i, "$1$2")}-front${ext}`);
     candidates.push(`front/${withoutProducts.replace(/(^|\/)front(\/)/i, "$1")}-front${ext}`);
   }
-  return Array.from(new Set(candidates.map(normalizeImagePathForTemplate)));
+  return Array.from(new Set(candidates.map((item) => normalizeImagePathForTemplate(item, options))));
 }
 
 async function getAssetEntryWithoutProductViewFallback(normalized, options = {}) {
-  normalized = normalizeImagePathForTemplate(normalized);
+  normalized = normalizeImagePathForTemplate(normalized, options);
   const dailyProductAsset = await getDailyProductAssetEntry(normalized);
   if (dailyProductAsset) {
     return dailyProductAsset;
@@ -7281,7 +8421,13 @@ async function getAssetEntryWithoutProductViewFallback(normalized, options = {})
   const unifiedFallback = await getUnifiedAssetFallbackEntry(normalized, options);
   if (unifiedFallback) return unifiedFallback;
 
-  return assetsFolder.getEntry(normalized);
+  try {
+    return await assetsFolder.getEntry(normalized);
+  } catch (error) {
+    const configuredFallback = await getConfiguredAssetEntry(normalized);
+    if (configuredFallback) return configuredFallback;
+    throw error;
+  }
 }
 
 
@@ -7401,40 +8547,48 @@ function getUnifiedAssetFallbackCandidates(normalized, options = {}) {
   if (!/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(raw)) return [];
 
   const config = getCurrentTemplateConfig().productAssetPriority || {};
+  const priorityEnabled = !!config.enabled;
   const folder = config.folder || "babyproduct_icefrosteffect";
-  const useFolderFallback = config.useFolderFallback !== false;
+  const useFolderFallback = priorityEnabled && config.useFolderFallback !== false;
   const relative = removeProductAssetFolders(raw);
   const ext = getAssetExtension(relative);
   const base = stripAssetExtension(relative).replace(/-(?:angle|front)$/i, "");
   const bases = getProductSpecUnitAliasBases(base);
+  const configuredViews = Array.isArray(config.views)
+    ? config.views.map((view) => normalizeProductImageViewValue(view)).filter(Boolean)
+    : [];
+  const rawView = /^(?:products\/)?front\//i.test(raw) ? "front" : /^(?:products\/)?angle\//i.test(raw) ? "angle" : "";
+  const requestedView = getProductImageViewFromOptions(options) || rawView;
+  const fallbackViews = configuredViews.length ? configuredViews : ["angle", "front"];
+  const orderedViews = requestedView
+    ? [requestedView, ...fallbackViews.filter((view) => view !== requestedView)]
+    : fallbackViews;
   const folderCandidates = (item) => useFolderFallback ? [
     `${folder}/${item}-ice${ext}`,
     `${folder}/${item}-water${ext}`,
     `${folder}/${item}${ext}`
   ] : [];
+  const viewCandidates = (item) => orderedViews.flatMap((view) => [
+    `${view}/${item}-${view}${ext}`,
+    `products/${view}/${item}-${view}${ext}`
+  ]);
 
   if (!options.productFallbackPriority) {
     if (!/^(?:front|angle)\//i.test(raw)) return [];
     return Array.from(new Set(bases.flatMap((item) => [
       raw,
-      `products/angle/${item}-angle${ext}`,
-      `products/front/${item}-front${ext}`,
+      ...viewCandidates(item),
       ...folderCandidates(item),
-      `angle/${item}-angle${ext}`,
-      `front/${item}-front${ext}`,
       `products/${item}${ext}`,
       `${item}${ext}`
     ])));
   }
 
   const candidates = bases.flatMap((item) => [
-    ...folderCandidates(item),
-    `angle/${item}-angle${ext}`,
-    `front/${item}-front${ext}`,
-    `products/angle/${item}-angle${ext}`,
-    `products/front/${item}-front${ext}`,
-    `products/${item}${ext}`,
     raw,
+    ...viewCandidates(item),
+    ...folderCandidates(item),
+    `products/${item}${ext}`,
     `${item}${ext}`
   ]);
   return Array.from(new Set(candidates));
@@ -7452,9 +8606,13 @@ async function getUnifiedAssetFallbackEntry(normalized, options = {}) {
     } catch (error) {
       // Try the next unified asset location.
     }
+    const configuredEntry = await getConfiguredAssetEntry(candidate, candidate !== normalized ? `Unified asset configured fallback: ${normalized} -> ${candidate}` : "");
+    if (configuredEntry) return configuredEntry;
   }
   return null;
-}function getExportBaseName(row, index) {
+}
+
+function getExportBaseName(row, index) {
   const prefix = $("filePrefix").value || "";
   const base = sanitizeFileBaseName(getConfiguredExportName(row, index), `image_${index + 1}`);
   return sanitizeFileBaseName(`${prefix}${base}`.replace(/\.(?:jpe?g|psd)$/i, ""), `image_${index + 1}`);
@@ -7502,8 +8660,8 @@ function expandRepeatedImageToken(token) {
   const normalized = token
     .replace(/×/g, "x")
     .replace(/＊/g, "*")
-    .replace(/Ｘ/g, "x")
-    .replace(/ｘ/g, "x");
+    .replace(/[×Ｘｘ]/g, "x")
+    .replace(/[×Ｘｘ]/g, "x");
   const match = normalized.match(/^(.*?)(?:\s*(?:\*|x)\s*(\d+))$/i);
   if (!match) return [token];
 
@@ -7526,12 +8684,33 @@ const PRODUCT_NAME_COLUMNS = [
   "productSet.cn",
   "产品名称",
   "中文产品名称",
-  "产品中文名",
+  "产品中文",
   "产品组合"
+];
+
+const GIFT_NAME_COLUMNS = [
+  "gift.name.cn",
+  "giftName.cn",
+  "gift.cn",
+  "giftName",
+  "gift.names",
+  "gift.names.cn",
+  "赠品名称",
+  "赠品中文",
+  "赠品组合"
 ];
 
 function getProductNameField(row) {
   for (const key of PRODUCT_NAME_COLUMNS) {
+    if (hasValue(row, key)) {
+      return { key, value: row[key] };
+    }
+  }
+  return { key: "", value: "" };
+}
+
+function getGiftNameField(row) {
+  for (const key of GIFT_NAME_COLUMNS) {
     if (hasValue(row, key)) {
       return { key, value: row[key] };
     }
@@ -7550,8 +8729,8 @@ function expandRepeatedProductNameToken(token) {
   const normalized = token
     .replace(/×/g, "x")
     .replace(/＊/g, "*")
-    .replace(/Ｘ/g, "x")
-    .replace(/ｘ/g, "x");
+    .replace(/[×Ｘｘ]/g, "x")
+    .replace(/[×Ｘｘ]/g, "x");
 
   const match = normalized.match(/^(.*?)(?:\s*(?:\*|x)\s*(\d+))$/i);
   if (!match) return [token];
@@ -7566,8 +8745,8 @@ function shouldExpandProductRepeatBeforeDirectLookup(token) {
   const normalized = String(token || "")
     .replace(/×/g, "x")
     .replace(/＊/g, "*")
-    .replace(/Ｘ/g, "x")
-    .replace(/ｘ/g, "x");
+    .replace(/[×Ｘｘ]/g, "x")
+    .replace(/[×Ｘｘ]/g, "x");
   if (!/(?:\*|x)\s*\d+\s*$/i.test(normalized)) return false;
 
   const multipliers = normalized.match(/(?:\*|x)\s*\d+/gi) || [];
@@ -7615,7 +8794,7 @@ function resolveKnownProductAliasImage(name) {
       ["5g", "products/baby-diaper-cream-tube-5g.png"]
     ]);
   }
-  if (/泡泡洗沐|泡泡沐浴露/.test(normalized)) {
+  if (/泡泡洗沐|泡泡沐浴露|泡泡洗发沐浴露/.test(normalized)) {
     return bySpec([
       ["500ml", "products/baby-foaming-wash-shampoo-bottle-500ml.png"],
       ["300ml", "products/baby-foaming-wash-shampoo-bottle-300ml.png"],
@@ -7664,22 +8843,33 @@ function resolveProductNameToImage(name, options = {}) {
       const mapped = state.productNameMap.get(normalized)
         || state.productNameMap.get(compact)
         || state.productNameMap.get(matchKey);
-      if (mapped) return normalizeImagePathForTemplate(mapped);
+      if (mapped) return normalizeImagePathForTemplate(mapped, options);
     }
     if (options.allowRows !== false) {
-      const rowMapped = resolveProductNameByRows(raw);
-      if (rowMapped) return normalizeImagePathForTemplate(rowMapped);
+      const rowMapped = resolveProductNameByRows(raw, options);
+      if (rowMapped) return normalizeImagePathForTemplate(rowMapped, options);
     }
   }
 
   const knownAlias = resolveKnownProductAliasImage(raw);
-  if (knownAlias) return normalizeImagePathForTemplate(knownAlias);
+  if (knownAlias) return normalizeImagePathForTemplate(knownAlias, options);
   return "";
 }
 
-function normalizeImagePathForTemplate(filename) {
+function normalizeProductImageViewValue(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (/^(front|face|f|正面|正面图)$/.test(text)) return "front";
+  if (/^(angle|angled|tilt|tilted|side|a|斜侧|倾斜|斜侧图|倾斜图)$/.test(text)) return "angle";
+  return "";
+}
+
+function getProductImageViewFromOptions(options = {}) {
+  return normalizeProductImageViewValue(options.view || options.productView || options.imageView);
+}
+
+function normalizeImagePathForTemplate(filename, options = {}) {
   const normalized = stripBlobPathPrefix(String(filename || "").replace(/\\/g, "/"));
-  const view = getDefaultProductImageViewForTemplate();
+  const view = getProductImageViewFromOptions(options) || getDefaultProductImageViewForTemplate();
   if (!view) return normalized;
   if (!/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(normalized)) return normalized;
   if (isExplicitProductViewAssetPath(normalized, view)) return normalized;
@@ -7819,7 +9009,7 @@ function applyProductImageView(row) {
   return expanded;
 }
 
-function resolveProductNameByRows(name) {
+function resolveProductNameByRows(name, options = {}) {
   const raw = String(name || "").trim();
   const normalized = getProductNameLookupKeys(raw)[0] || "";
   if (!normalized || !state.productNameRows || !state.productNameRows.length) return "";
@@ -7834,9 +9024,9 @@ function resolveProductNameByRows(name) {
     if (!fileName) return;
 
     const imagePath = fileName.includes("/") || fileName.includes("\\") ? fileName : `products/${fileName}`;
-    const fullName = row.standard_cn || row["标准中文名"] || row["中文标准名"] || "";
-    const age = row.age_cn || row["年龄段"] || "";
-    const product = row.product_cn || row["产品名"] || "";
+    const fullName = row.standard_cn || row["标准中文"] || row["中文标准"] || "";
+    const age = row.age_cn || row["年龄"] || "";
+    const product = row.product_cn || row["产品"] || "";
     const category = row.category_cn || row["品类"] || "";
     const spec = row.spec || row["规格"] || "";
     const productEn = row.product_en || row["product_en"] || "";
@@ -7846,7 +9036,7 @@ function resolveProductNameByRows(name) {
     if (queryAge && age && !getAgeCnAliases(age).some((alias) => normalizeProductNameKey(alias) === normalizeProductNameKey(queryAge))) return;
     if (queryCategory && category && getProductCategoryHint(category) !== queryCategory) return;
     if (querySpec && normalizeProductNameKey(spec) !== normalizeProductNameKey(querySpec)) return;
-    if (/body-lotion/i.test(imagePath) && normalized.includes("安心霜")) return;
+    if (/body-lotion/i.test(imagePath) && normalized.includes("安心")) return;
 
     const aliases = [
       fullName,
@@ -7862,7 +9052,7 @@ function resolveProductNameByRows(name) {
   });
 
   if (candidates.size === 1) return Array.from(candidates)[0];
-  return choosePreferredProductImageForKey(normalized, candidates);
+  return choosePreferredProductImageForKey(normalized, candidates, options);
 }
 
 function isLooseProductAliasMatch(query, alias) {
@@ -7871,8 +9061,8 @@ function isLooseProductAliasMatch(query, alias) {
   if (!normalizedQuery || !normalizedAlias) return false;
   if (normalizedQuery.includes(normalizedAlias) || normalizedAlias.includes(normalizedQuery)) return true;
 
-  const strippedAlias = normalizedAlias.replace(/(乳液|乳霜|乳|霜|露|水|膏|液)$/u, "");
-  if (["婴童", "婴儿", "新生儿", "学龄", "青春", "儿童", "一页"].includes(strippedAlias)) {
+  const strippedAlias = normalizedAlias.replace(/(乳液|乳霜|乳|霜|露|水|膏)$/u, "");
+  if (["婴童", "婴儿", "新生", "学龄", "青春", "儿童", "一页"].includes(strippedAlias)) {
     return false;
   }
   if (strippedAlias.length >= 2 && normalizedQuery.includes(strippedAlias)) {
@@ -7986,8 +9176,8 @@ function getKnownProductFamilyFromText(value) {
   const families = [
     "净护洗发沐浴露",
     "净护洗发水",
-    "冰雪精华霜",
-    "舒缓精华霜"
+    "冰雪精华",
+    "舒缓精华露"
   ];
   return families.find((family) => normalized.includes(normalizeProductNameKey(family))) || "";
 }
@@ -7996,6 +9186,33 @@ function extractProductNamesFromLabel(value) {
   return String(value || "")
     .replace(/^[^:：]*[:：]\s*/, "")
     .trim();
+}
+
+function expandGiftNameToSet(row) {
+  const expanded = { ...row };
+  if (hasValue(expanded, "img.giftSet") || hasValue(expanded, "img.gift")) return expanded;
+
+  const source = getGiftNameField(expanded);
+  if (!source.value) return expanded;
+
+  const resolvedSet = resolveProductNameTokensToImages(splitProductNameList(source.value), { view: getProductImageView(expanded) });
+  const images = Array.from(new Set(resolvedSet.images.filter(Boolean)));
+
+  if (images.length === 1) {
+    expanded["img.gift"] = images[0];
+    expanded["gift.count"] = expanded["gift.count"] || "1";
+    log(`  Gift CN mapped from ${source.key}: ${images[0]}`);
+  } else if (images.length > 1) {
+    expanded["img.giftSet"] = images.join(" | ");
+    expanded["gift.count"] = expanded["gift.count"] || String(images.length);
+    log(`  Gift CN mapped from ${source.key}: ${images.join(" | ")}`);
+  }
+
+  if (resolvedSet.missing.length) {
+    log(`  Gift CN not found: ${resolvedSet.missing.join(" | ")}`);
+  }
+
+  return expanded;
 }
 
 function expandLabelToImageSet(row, prefix, labelColumns, targetNameColumn) {
@@ -8044,6 +9261,7 @@ function applySkuGiftLabelSources(row) {
     }
   }
 
+  expanded = expandGiftNameToSet(expanded);
   expanded = expandLabelToImageSet(expanded, "gift", [
     "txt.giftProductLabel",
     "txt.giftLabel",
@@ -8131,8 +9349,8 @@ function getGiftCount(row, prefix) {
   const normalized = text
     .replace(/×/g, "x")
     .replace(/＊/g, "*")
-    .replace(/Ｘ/g, "x")
-    .replace(/ｘ/g, "x");
+    .replace(/[×Ｘｘ]/g, "x")
+    .replace(/[×Ｘｘ]/g, "x");
   const match = normalized.match(/(?:\*|x|X)\s*(\d+)/);
   return match ? Math.max(1, Math.min(Number(match[1]), 6)) : 0;
 }
@@ -8202,45 +9420,61 @@ function expandGiftImageSet(row, prefix) {
   return expanded;
 }
 
-function applyAddOnCouponToProductSet(row) {
+function applyAddOnCouponToImageSet(row) {
+  const config = getAddOnCouponConfig();
   const couponSource = getAddOnCouponProductToken(row);
-  if (!couponSource) return row;
+  if (!config || !couponSource) return row;
 
+  const prefix = getAddOnCouponTargetPrefix(config);
   const expanded = { ...row };
-  const setSpec = parseImageSpec(expanded["img.productSet"] || "");
+  const setColumn = `img.${prefix}Set`;
+  const baseColumn = `img.${prefix}`;
+  const setSpec = parseImageSpec(expanded[setColumn] || "");
   let images = setSpec.images.slice();
-  if (!images.length && expanded["img.product"]) {
-    images = splitImageList(expanded["img.product"]);
+  if (!images.length && expanded[baseColumn]) {
+    images = splitImageList(expanded[baseColumn]);
   }
   if (!images.length) {
     for (let i = 1; i <= 6; i += 1) {
-      if (expanded[`img.product.${i}`]) images.push(expanded[`img.product.${i}`]);
+      if (expanded[`img.${prefix}.${i}`]) images.push(expanded[`img.${prefix}.${i}`]);
     }
   }
 
   const normalize = (value) => String(value || "").replace(/\\/g, "/").trim().toLowerCase();
   images = images.filter((image) => !isAddOnCouponToken(image) && normalize(image) !== normalize(couponSource));
-  images.unshift(couponSource);
+  const placement = getAddOnCouponPlacement(config);
+  const couponIndex = placement === "append" ? images.length + 1 : 1;
+  if (placement === "append") {
+    images.push(couponSource);
+  } else {
+    images.unshift(couponSource);
+  }
 
-  for (let i = 6; i >= 1; i -= 1) {
-    const key = `product.category.${i}`;
-    if (hasValue(expanded, key)) {
-      expanded[`product.category.${i + 1}`] = expanded[key];
+  if (placement !== "append") {
+    for (let i = 6; i >= 1; i -= 1) {
+      const key = `${prefix}.category.${i}`;
+      if (hasValue(expanded, key)) {
+        expanded[`${prefix}.category.${i + 1}`] = expanded[key];
+      }
     }
   }
 
-  expanded["img.productSet"] = images.join(" | ");
-  expanded["product.count"] = String(images.length);
-  expanded["product.couponIndex"] = "1";
-  expanded["product.category.1"] = "coupon";
-  if (setSpec.layout && !hasValue(expanded, "product.layout")) {
-    expanded["product.layout"] = setSpec.layout;
-  } else if (!hasValue(expanded, "product.layout")) {
-    expanded["product.layout"] = "line";
+  expanded[setColumn] = images.join(" | ");
+  expanded[`${prefix}.count`] = String(images.length);
+  expanded[getAddOnCouponIndexColumn(prefix)] = String(couponIndex);
+  expanded[`${prefix}.category.${couponIndex}`] = "coupon";
+  if (setSpec.layout && !hasValue(expanded, `${prefix}.layout`)) {
+    expanded[`${prefix}.layout`] = setSpec.layout;
+  } else if (!hasValue(expanded, `${prefix}.layout`)) {
+    expanded[`${prefix}.layout`] = "line";
   }
 
-  log(`  AddOn coupon prepended to product layout: index=1, source=${couponSource}`);
+  log(`  AddOn coupon ${placement === "append" ? "appended" : "prepended"} to ${prefix} layout: index=${couponIndex}, source=${couponSource}`);
   return expanded;
+}
+
+function applyAddOnCouponToProductSet(row) {
+  return applyAddOnCouponToImageSet(row);
 }
 
 function normalizeImageAliases(row) {
@@ -8472,13 +9706,66 @@ async function getLayerBox(layer) {
   return getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
 }
 
+function getTextAnchorXByJustification(box, justification) {
+  if (!box) return NaN;
+  const raw = String(justification === undefined || justification === null ? "" : justification).toLowerCase();
+  if (/center|centre|middle|居中/.test(raw)) return box.centerX;
+  if (/right|右/.test(raw)) return box.right;
+  return box.left;
+}
+
+async function restoreTextLayerOriginalAnchor(layer, originalBox, label = "text", justification = null) {
+  if (!layer || !originalBox) return;
+  const afterBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!afterBox) return;
+  const dx = getTextAnchorXByJustification(originalBox, justification) - getTextAnchorXByJustification(afterBox, justification);
+  const dy = originalBox.top - afterBox.top;
+  if (!Number.isFinite(dx) || !Number.isFinite(dy) || (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5)) return;
+  await layer.translate(dx, dy);
+  log(`  Text anchor restored: ${label}, dx=${Math.round(dx)}, dy=${Math.round(dy)}.`);
+}
+
+async function restoreTextLayerAnchor(doc, layer, originalBox, label = "text", justification = null) {
+  if (!layer || !originalBox) return;
+  const afterBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!afterBox) return;
+
+  const areaLayer = getTextAreaLayerNames(layer.name)
+    .map((name) => findLayerByName(doc, name))
+    .find(Boolean);
+  if (areaLayer) {
+    const areaBox = getBoundsBox(areaLayer.boundsNoEffects || areaLayer.bounds);
+    if (areaBox) {
+      const dx = areaBox.centerX - afterBox.centerX;
+      const dy = areaBox.top - afterBox.top;
+      if (Number.isFinite(dx) && Number.isFinite(dy) && (Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5)) {
+        await layer.translate(dx, dy);
+      }
+      areaLayer.visible = false;
+      log(`  Text anchored to template area: ${label} -> ${areaLayer.name}.`);
+      return;
+    }
+  }
+
+  await restoreTextLayerOriginalAnchor(layer, originalBox, label, justification);
+}
+
 function getTextAreaLayerNames(textLayerName) {
-  const suffix = String(textLayerName || "").replace(/^txt\./, "");
+  const rawName = String(textLayerName || "");
+  const baseName = rawName.replace(/\.\d+$/, "");
+  const suffix = rawName.replace(/^txt\./, "");
+  const baseSuffix = baseName.replace(/^txt\./, "");
   const names = [
     `TEXT.${suffix}.area`,
-    `${textLayerName}.area`,
+    `${suffix}.area`,
+    `${rawName}.area`,
     `ttxt.${suffix}.area`,
-    `ttxt.${textLayerName}.area`
+    `ttxt.${rawName}.area`,
+    `TEXT.${baseSuffix}.area`,
+    `${baseSuffix}.area`,
+    `${baseName}.area`,
+    `ttxt.${baseSuffix}.area`,
+    `ttxt.${baseName}.area`
   ];
   if (isPromoTitleName(textLayerName)) {
     names.push(
@@ -8508,6 +9795,9 @@ function findTextLayerForColumn(doc, column, row = null) {
   if (isPromoTitleName(column)) {
     const names = getPromoTitleLayerNames(null, column);
     return findLayerByAnyNameInCurrentMechanismOnly(doc, row, names) || findLayerByAnyName(doc, names);
+  }
+  if (getCurrentTemplateConfig().id === "baibuMiaoshaMain" && column === "txt.mainProductLabel") {
+    return findLayerByNameInLayer(state.currentArtboardLayer, column) || findLayerByName(doc, column);
   }
   return findLayerByNameInCurrentMechanismOnly(doc, row, column) || findLayerByName(doc, column);
 }
@@ -8607,6 +9897,7 @@ async function applyBottomTextLayerTemplateContents(doc, layer, value, options =
   }
 }
 
+
 async function applyBottomTextVariantRules(doc, value, row = {}, column = "txt.bottomText") {
   const config = getCurrentTemplateConfig();
   const areaLayer = findLayerByName(doc, config.bottomTextAreaName || "bottomText.area") || findPromoTitleAreaLayer(doc);
@@ -8703,6 +9994,7 @@ async function applyBottomTextVariantRules(doc, value, row = {}, column = "txt.b
   }
   return !!selectedLayer;
 }
+
 async function selectPromoTitleLayerForValue(doc, value, fallbackLayer = null) {
   const primaryLayer =
     findLayerByAnyName(doc, getPromoTitleLayerNames(1)) ||
@@ -8807,6 +10099,27 @@ async function applyGeneratedBottomTextIfNeeded(doc, row) {
 function shouldReplaceTextOnlyWithoutMove(layerName) {
   return String(layerName || "").trim() === "txt.mainProductLabel";
 }
+
+function ensureLayerVisibleForDataReplacement(layer, column) {
+  if (!layer) return;
+  try {
+    layer.visible = true;
+  } catch (error) {
+    log(`  Text visibility restore skipped for ${column || layer.name}: ${formatError(error)}`);
+  }
+}
+
+function ensureBaibuMainProductLabelVisible(doc, row, label = "Export") {
+  const config = getCurrentTemplateConfig();
+  if (!config || config.id !== "baibuMiaoshaMain" || !hasValue(row || state.currentRow || {}, "txt.mainProductLabel")) return;
+  const layer = findLayerByNameInLayer(state.currentArtboardLayer, "txt.mainProductLabel") || findLayerByName(doc, "txt.mainProductLabel");
+  if (!layer) {
+    log(`  ${label}: txt.mainProductLabel not found before export.`);
+    return;
+  }
+  ensureLayerVisibleForDataReplacement(layer, "txt.mainProductLabel");
+  log(`  ${label}: txt.mainProductLabel visible before export.`);
+}
 function shouldKeepTemplateTextBox(layerName) {
   if (isPromoTitleName(layerName)) return true;
   const config = getCurrentTemplateConfig();
@@ -8826,11 +10139,14 @@ function shouldUseLineSeedForSymbols(layerName) {
 }
 
 function getPddSkuGiftLabelWrapConfig(layerName) {
-  if (!isSkuGiftTemplateConfig()) return null;
-  if (layerName === "txt.mainProductLabel") {
+  const name = String(layerName || "").trim().replace(/\.\d+$/, "");
+  const config = getCurrentTemplateConfig();
+  const supportsLabelWrap = isSkuGiftTemplateConfig(config) || config && config.id === "baibuMiaoshaMain";
+  if (!supportsLabelWrap) return null;
+  if (name === "txt.mainProductLabel") {
     return { displayLength: 22, fallbackWidth: 360, fontSize: 13 };
   }
-  if (layerName === "txt.giftProductLabel") {
+  if (name === "txt.giftProductLabel") {
     return { displayLength: 22, fallbackWidth: 260, fontSize: 13 };
   }
   return null;
@@ -8897,6 +10213,31 @@ function getTextAreaBoxForLayer(doc, layerName) {
   return getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
 }
 
+function isBaibuMainProductLabelLayer(layerName) {
+  const config = getCurrentTemplateConfig();
+  const name = String(layerName || "").trim().replace(/\.\d+$/, "");
+  return !!(config && config.id === "baibuMiaoshaMain" && name === "txt.mainProductLabel");
+}
+
+function getCurrentArtboardBoundsBox() {
+  const layer = state.currentArtboardLayer;
+  return getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
+}
+
+function getMainProductLabelMaxWidth(row, areaBox) {
+  const artboardBox = getCurrentArtboardBoundsBox();
+  const baseWidth = areaBox && Number.isFinite(areaBox.width) && areaBox.width > 0
+    ? areaBox.width
+    : artboardBox && Number.isFinite(artboardBox.width) && artboardBox.width > 0
+      ? artboardBox.width * 0.92
+      : 740;
+  return readNumber(
+    row || {},
+    "txt.mainProductLabel.maxWidth",
+    readNumber(row || {}, "mainProductLabel.maxWidth", baseWidth * 0.98)
+  );
+}
+
 function wrapPddSkuGiftLabelIfNeeded(doc, layer, value, textKey) {
   const config = getPddSkuGiftLabelWrapConfig(layer && layer.name);
   const raw = String(value || "");
@@ -8907,13 +10248,44 @@ function wrapPddSkuGiftLabelIfNeeded(doc, layer, value, textKey) {
   const maxWidth = areaBox ? areaBox.width : config.fallbackWidth;
   const estimatedWidth = estimateMultilineTextWidth(raw, fontSize);
   const displayLength = getDisplayLength(raw);
-  if (displayLength <= config.displayLength) return raw;
+  const hasAreaBox = !!areaBox;
+  const forceBaibuMainWrap = isBaibuMainProductLabelLayer(layer && layer.name) && displayLength > config.displayLength;
+  if (!forceBaibuMainWrap && hasAreaBox && estimatedWidth <= maxWidth) return raw;
+  if (!forceBaibuMainWrap && !hasAreaBox && displayLength <= config.displayLength) return raw;
 
   const wrapped = splitLabelByPlusBalanced(raw);
   if (wrapped !== raw) {
     log(`  Text wrapped by plus: ${layer.name}, displayLength=${displayLength}, textW=${Math.round(estimatedWidth)}, maxW=${Math.round(maxWidth)}.`);
   }
   return wrapped;
+}
+
+async function wrapMainProductLabelToAreaIfOverflow(doc, layer, value, label = "txt.mainProductLabel") {
+  if (!isBaibuMainProductLabelLayer(layer && layer.name)) return false;
+  const raw = String(value || "");
+  if (!raw || raw.includes("\n") || !raw.includes("+")) return false;
+
+  const areaBox = getTextAreaBoxForLayer(doc, layer.name);
+  const textBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!textBox || !Number.isFinite(textBox.width) || textBox.width <= 0) return false;
+
+  const maxWidth = getMainProductLabelMaxWidth(state.currentRow || {}, areaBox);
+  if (!Number.isFinite(maxWidth) || maxWidth <= 0 || textBox.width <= maxWidth) return false;
+
+  const wrapped = splitLabelByPlusBalanced(raw);
+  if (wrapped === raw) return false;
+
+  await replaceTextLayerPreserveTemplateParagraphWithSuperscripts(layer, wrapped, doc);
+
+  const wrappedBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (wrappedBox && Number.isFinite(wrappedBox.width) && wrappedBox.width > maxWidth) {
+    const scale = Math.max(0.55, Math.min(1, maxWidth / wrappedBox.width));
+    await scaleTextLayerFontSize(layer, scale);
+    log(`  Main product label scaled after width wrap: ${label}, scale=${scale.toFixed(3)}, textW=${Math.round(wrappedBox.width)}, maxW=${Math.round(maxWidth)}.`);
+  }
+
+  log(`  Main product label wrapped by actual width: ${label}, textW=${Math.round(textBox.width)}, maxW=${Math.round(maxWidth)}.`);
+  return true;
 }
 
 async function centerTextLayerParagraph(layer) {
@@ -9286,7 +10658,7 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue, variantSourceT
   if (!config || !textLayer) return;
 
   const variant = getSubtitleLayerVariant(variantSourceText);
-  const rectangleLayer = findSubtitleRectangleLayer(doc, variant, config);
+  const rectangleLayer = findSubtitleRectangleLayer(doc, variant, config, state.currentRow || {});
   if (!rectangleLayer) {
     log("  Subtitle rectangle not found.");
     return;
@@ -9393,21 +10765,26 @@ function isSubtitleTextLayer(layer) {
   return !!(layer && /^txt\.subtitle(?:\.\d+)?$/.test(String(layer.name || "")));
 }
 
-function findSubtitleTextLayer(doc, finalText, variantSourceText = finalText) {
+function findSubtitleTextLayer(doc, finalText, variantSourceText = finalText, row = null) {
   const variant = getSubtitleLayerVariant(variantSourceText);
-  const preferred = findLayerByName(doc, `txt.subtitle.${variant}`);
-  const fallback = findLayerByName(doc, "txt.subtitle");
-  const layer = preferred || fallback;
-  hideAlternateSubtitleLayers(doc, layer);
-  if (preferred) {
-    log(`  Subtitle layer selected: txt.subtitle.${variant}, chars=${getSubtitleCharCount(variantSourceText)}.`);
+  const preferredName = `txt.subtitle.${variant}`;
+  const scopedPreferred = findLayerByNameInCurrentMechanismOnly(doc, row, preferredName);
+  const scopedFallback = findLayerByNameInCurrentMechanismOnly(doc, row, "txt.subtitle");
+  const preferred = scopedPreferred || findLayerByName(doc, preferredName);
+  const fallback = scopedFallback || findLayerByName(doc, "txt.subtitle");
+  const layer = scopedPreferred || scopedFallback || preferred || fallback;
+  hideAlternateSubtitleLayers(doc, layer, row);
+  if (layer) {
+    log(`  Subtitle layer selected: ${layer.name}, chars=${getSubtitleCharCount(variantSourceText)}.`);
   }
   return layer;
 }
 
-function hideAlternateSubtitleLayers(doc, activeLayer) {
-  ["txt.subtitle", "txt.subtitle.1", "txt.subtitle.2"].forEach((name) => {
-    const layer = findLayerByName(doc, name);
+function hideAlternateSubtitleLayers(doc, activeLayer, row = null) {
+  const names = ["txt.subtitle", "txt.subtitle.1", "txt.subtitle.2"];
+  const mechanismLayer = findDailyMechanismLayer(doc, row || state.currentRow || {});
+  names.forEach((name) => {
+    const layer = mechanismLayer ? findLayerByNameInLayer(mechanismLayer, name) : findLayerByName(doc, name);
     if (layer && layer !== activeLayer) {
       layer.visible = false;
     }
@@ -9419,12 +10796,14 @@ function hideSubtitleModule(doc) {
   hideAlternateSubtitleRectangleLayers(doc, null);
   log("  Subtitle hidden: empty txt.subtitle.");
 }
-function findSubtitleRectangleLayer(doc, variant, config) {
+function findSubtitleRectangleLayer(doc, variant, config, row = null) {
   const names = [
     `txt.subtitle.rectangle.${variant}`,
     config.layerName || "txt.subtitle.rectangle"
   ];
-  const layer = names.map((name) => findLayerByName(doc, name)).find(Boolean);
+  const layer = names
+    .map((name) => findLayerByNameInCurrentMechanismOnly(doc, row, name))
+    .find(Boolean) || names.map((name) => findLayerByName(doc, name)).find(Boolean);
   if (layer) {
     hideAlternateSubtitleRectangleLayers(doc, layer);
     if (layer.name !== (config.layerName || "txt.subtitle.rectangle")) {
@@ -9745,7 +11124,8 @@ async function applyTitleAndProductNote(doc, row) {
     }
   }
 
-  const noteText = firstTextValue(row, ["txt.productNote", "txt.note", "txt.description", "txt.subtitle"]);
+  const noteSourceKey = ["txt.productNote", "txt.note", "txt.description", "txt.subtitle"].find((key) => hasValue(row, key));
+  const noteText = noteSourceKey ? row[noteSourceKey] : undefined;
   const productNoteLayer1 = findLayerByName(doc, "txt.productNote.1");
   const productNoteLayer2 = findLayerByName(doc, "txt.productNote.2");
   const productNoteLayer3 = findLayerByName(doc, "txt.productNote.3");
@@ -9754,11 +11134,11 @@ async function applyTitleAndProductNote(doc, row) {
     : titleLineCount > 1 && productNoteLayer2
       ? productNoteLayer2
       : productNoteLayer1 || findLayerByName(doc, "txt.productNote");
-  const forceSubtitleLayer = getCurrentTemplateConfig().productNameToSubtitle && hasValue(row, "txt.subtitle");
-  const subtitlePreviewText = forceSubtitleLayer ? formatPddSubtitleText(noteText) : noteText;
+  const forceSubtitleLayer = (getCurrentTemplateConfig().productNameToSubtitle && hasValue(row, "txt.subtitle")) || noteSourceKey === "txt.subtitle";
+  const subtitlePreviewText = forceSubtitleLayer && getCurrentTemplateConfig().productNameToSubtitle ? formatPddSubtitleText(noteText) : noteText;
   const subtitleLayer = forceSubtitleLayer
-    ? findSubtitleTextLayer(doc, subtitlePreviewText, noteText)
-    : findLayerByName(doc, "txt.subtitle");
+    ? findSubtitleTextLayer(doc, subtitlePreviewText, noteText, row)
+    : findCurrentMechanismLayerByName(doc, row, "txt.subtitle");
   const fallbackNoteLayer = forceSubtitleLayer
     ? subtitleLayer || productNoteLayer
     : productNoteLayer || subtitleLayer;
@@ -9805,16 +11185,20 @@ async function applyTitleAndProductNote(doc, row) {
 
 function isGiftControlColumn(column) {
   return PRODUCT_NAME_COLUMNS.includes(column) ||
-    /^(giftLeft|giftRight|gift|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|slotSpan|category|categoryGap|categoryGapMode|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
+    GIFT_NAME_COLUMNS.includes(column) ||
+    /^(giftLeft|giftRight|gift|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|slotSpan|category|categoryGapMode|categoryGap|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
     /^product\.gap\.\d+$/.test(column) ||
     /^product\.gap\.[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
     /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
-    /^productShadow\.(top|opacity|style)$/.test(column) ||
+    /^productShadow\.(top|opacity|style|gift|giftShadow|includeGift|includeGiftShadow)$/.test(column) ||
     /^productBottomShadow\.(opacity|widthRatio|heightRatio|offsetXRatio|bottomOffsetRatio|blur)$/.test(column) ||
+    /^(giftshadow|giftshadow\.enabled|gift\.shadow|giftShadow|gift\.shadow\.enabled|giftShadow\.enabled)$/.test(column) ||
     /^(shadow\.style|shadowStyle)$/.test(column) ||
     isAddOnCouponColumn(column) ||
-    /^pdd\.(background|icon\.[a-zA-Z0-9.+_-]+)$/.test(column) ||
+    /^pdd\.background$/.test(column) ||
+    /^(?:icon|daily\.icon|pdd\.icon)\..+$/.test(column) ||
+    /^(?:daily\.icons|pdd\.icons)$/.test(column) ||
     /^(mechanism|daily\.(mechanism|giftMiddleType|left298))$/.test(column) ||
     /^person\.(offsetX|offsetY)$/.test(column) ||
     /^(txt\.titleLayer|txt\.title\.layer|title\.layer|titleLayer|txt\.titleStyle|title\.style|titleStyle)$/.test(column) ||
@@ -9824,6 +11208,84 @@ function isGiftControlColumn(column) {
     /^subtitle\.(rectanglePadding[XY]|rectangleMaxWidth|rectangleWidthScale|rectangleRadius|maxTextWidth|fontSize)(\.\d+)?$/.test(column) ||
     /^productNote\.(gap|offsetY)$/.test(column) ||
     /^(note|remark|remarks|备注|产品视角)$/.test(column);
+}
+
+function readDescriptorUnitValue(value) {
+  if (typeof value === "number") return value;
+  if (value && typeof value._value === "number") return value._value;
+  if (value && typeof value.value === "number") return value.value;
+  return Number(value);
+}
+
+function makePixelUnit(value) {
+  return { _unit: "pixelsUnit", _value: Number(value) };
+}
+
+async function getCurrentArtboardExportRect() {
+  const layer = state.currentArtboardLayer;
+  if (!layer || typeof layer.id === "undefined") return null;
+
+  try {
+    const result = await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "get",
+          _target: [{ _ref: "layer", _id: layer.id }],
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: true, modalBehavior: "execute" }
+    );
+    const rect = result && result[0] && result[0].artboard && result[0].artboard.artboardRect;
+    if (!rect) return null;
+    const left = readDescriptorUnitValue(rect.left);
+    const top = readDescriptorUnitValue(rect.top);
+    const right = readDescriptorUnitValue(rect.right);
+    const bottom = readDescriptorUnitValue(rect.bottom);
+    if (![left, top, right, bottom].every(Number.isFinite) || right <= left || bottom <= top) return null;
+    return { left, top, right, bottom, width: right - left, height: bottom - top };
+  } catch (error) {
+    log(`  Artboard rect read skipped: ${formatError(error)}`);
+    return null;
+  }
+}
+
+async function cropDocumentToCurrentArtboard(doc) {
+  const switchConfig = getArtboardSwitchConfig();
+  if (!switchConfig || !switchConfig.enabled || !state.currentArtboardLayer) return false;
+
+  const rect = await getCurrentArtboardExportRect(doc);
+  if (!rect) {
+    log(`  Artboard export crop skipped: rect not found for ${state.currentArtboardName || "current artboard"}.`);
+    return false;
+  }
+
+  try {
+    await photoshop.action.batchPlay(
+      [
+        {
+          _obj: "crop",
+          to: {
+            _obj: "rectangle",
+            top: makePixelUnit(rect.top),
+            left: makePixelUnit(rect.left),
+            bottom: makePixelUnit(rect.bottom),
+            right: makePixelUnit(rect.right)
+          },
+          angle: { _unit: "angleUnit", _value: 0 },
+          delete: true,
+          _options: { dialogOptions: "dontDisplay" }
+        }
+      ],
+      { synchronousExecution: false, modalBehavior: "execute" }
+    );
+  } catch (error) {
+    log(`  Artboard export crop failed: ${formatError(error)}`);
+    return false;
+  }
+
+  log(`  Artboard export crop: ${state.currentArtboardName || "current"}, ${Math.round(rect.width)}x${Math.round(rect.height)}.`);
+  return true;
 }
 
 async function exportJpg(doc, row, index) {
@@ -9868,7 +11330,12 @@ async function exportPsd(doc, row, index) {
   const outputName = getExportName(row, index, "psd");
   log(`  Saving PSD as: ${outputName}`);
   const psdFile = await outputFolder.createFile(outputName, { overwrite: true });
+  const groupName = sanitizeFileBaseName(String(outputName || "").replace(/\.psd$/i, ""), `image_${index + 1}`);
+  refreshCurrentArtboardLayer(doc, `PSD export ${outputName}`);
+  await removeInactiveArtboardVariantLayersForPsd(doc, `PSD export ${outputName}`);
   await pruneNonDisplayedLayersForPsd(doc, `PSD export ${outputName}`);
+  refreshCurrentArtboardLayer(doc, `PSD export ${outputName}`);
+  await packCurrentArtboardForPsd(doc, groupName, `PSD export ${outputName}`);
 
   if (doc.saveAs && doc.saveAs.psd) {
     await doc.saveAs.psd(psdFile, { maximizeCompatibility: true }, true);
@@ -9952,6 +11419,18 @@ async function savePsdDocumentAsFile(doc, file, options = {}) {
   );
 }
 
+async function openDocumentForMerge(file, label = "Merge PSD") {
+  ensureModules();
+  const opened = await photoshop.app.open(file);
+  const active = photoshop.app.activeDocument || null;
+  const doc = opened && opened.layers ? opened : active && active.layers ? active : opened || active;
+  if (!doc || !doc.layers) {
+    throw new Error(`${label} open failed: document not available after opening ${file && file.name || "PSD"}.`);
+  }
+  log(`  ${label} opened: ${file && file.name || "PSD"}, docId=${typeof doc.id === "undefined" ? "active" : doc.id}.`);
+  return doc;
+}
+
 async function mergeExportedPsdsAsGroups(entries) {
   const psdEntries = (entries || [])
     .filter((entry) => entry && entry.file && /\.psd$/i.test(entry.name || entry.file.name || ""))
@@ -9964,7 +11443,7 @@ async function mergeExportedPsdsAsGroups(entries) {
 
   log(`Merge PSD start: ${psdEntries.length} file(s).`);
   const first = psdEntries[0];
-  const master = await photoshop.app.open(first.file);
+  const master = await openDocumentForMerge(first.file, "Merge master");
   const firstGroupName = sanitizeFileBaseName(String(first.name || first.file.name || "1").replace(/\.psd$/i, ""), `sku_${first.index || 1}`);
   await packDocumentLayersForMerge(master, firstGroupName, true);
 
@@ -9975,7 +11454,7 @@ async function mergeExportedPsdsAsGroups(entries) {
     let srcDoc = null;
     try {
       log(`  Merge opening: ${entry.name || entry.file.name}`);
-      srcDoc = await photoshop.app.open(entry.file);
+      srcDoc = await openDocumentForMerge(entry.file, "Merge source");
       const srcGroup = await packDocumentLayersForMerge(srcDoc, groupName, false);
       if (!srcGroup) continue;
       const duplicated = await duplicateLayerToDocumentBestEffort(srcGroup, master, groupName);
@@ -10022,6 +11501,9 @@ async function exportDocument(doc, row, index) {
   const formats = getExportFormats(row);
   log(`  Exporting ${formats.map((format) => format.toUpperCase()).join(" + ")}...`);
   ensureProductProjectVisibleBeforeExport(doc);
+  ensureBaibuMainProductLabelVisible(doc, row, "Export");
+  await cropDocumentToCurrentArtboard(doc);
+  ensureBaibuMainProductLabelVisible(doc, row, "Export crop");
   const outputNames = [];
   for (const format of formats) {
     if (format === "psd") {
@@ -10034,10 +11516,12 @@ async function exportDocument(doc, row, index) {
 }
 
 async function closeDocWithoutSaving(doc) {
+  if (!doc) return;
   if (doc.closeWithoutSaving) {
     await doc.closeWithoutSaving();
     return;
   }
+  if (!doc.close) return;
   ensureModules();
   await doc.close(photoshop.constants.SaveOptions.DONOTSAVECHANGES);
 }
@@ -10069,12 +11553,14 @@ async function applyConfiguredProductShadows(doc, row) {
 async function applyRowToDocument(doc, row) {
   const expandedRow = expandRow(row);
   state.currentRow = expandedRow;
+  await applyArtboardSwitch(doc, expandedRow);
 
   const productCount = getGiftCount(expandedRow, "product");
   const productImages = Array.from({ length: Math.max(productCount, 1) }, (_, index) => {
     return expandedRow[`img.product.${index + 1}`] || expandedRow["img.product"] || "";
   }).filter(Boolean);
-  log(`  Product expanded: count=${productCount || 1}, layout=${resolveImageGroupLayout(expandedRow, "product", productCount || 1)}, images=${productImages.join(" | ")}`);
+  log(`  Active template: ${getCurrentTemplateConfig().id}, product.view=${getProductImageView(expandedRow)}, mechanism=${getDailyMechanismType(expandedRow, getMechanismSwitchConfig() || {}) || "none"}.`);
+  log(`  Product expanded: count=${productCount || 1}, layout=${resolveImageGroupLayout(expandedRow, "product", productCount || 1)}, set=${expandedRow["img.productSet"] || ""}, images=${productImages.join(" | ")}`);
 
   const handledTextColumns = await applyTitleAndProductNote(doc, expandedRow);
 
@@ -10085,6 +11571,7 @@ async function applyRowToDocument(doc, row) {
   await prepareImageGroupLayers(doc, expandedRow, "gift");
   applyBackgroundSwitch(doc, expandedRow);
   applyLayerVisibilitySwitches(doc, expandedRow);
+  applyDynamicIconSwitch(doc, expandedRow);
   applyGiftTagVisibility(doc, expandedRow);
   applyGiftRightTemplateSwitch(doc, expandedRow);
   applyPersonTemplateSwitch(doc, expandedRow);
@@ -10098,6 +11585,7 @@ async function applyRowToDocument(doc, row) {
       column === "img.person" ||
       /^(shadow\.style|shadowStyle)$/.test(column) ||
       isAddOnCouponColumn(column) ||
+      isAddOnCouponToken(value) ||
       column === "img.giftRight" ||
       /^img\.giftRight\.\d+$/.test(column) ||
       /^img\.giftLeft\.\d+$/.test(column) ||
@@ -10125,13 +11613,22 @@ async function applyRowToDocument(doc, row) {
     }
 
     if (column.startsWith("txt.")) {
+      ensureLayerVisibleForDataReplacement(layer, column);
       if (isPromoTitleName(column)) {
         if (await applyBottomTextVariantRules(doc, value, expandedRow, column)) {
           continue;
         }
       }
       if (shouldReplaceTextOnlyWithoutMove(layer.name) || shouldReplaceTextOnlyWithoutMove(column)) {
-        await replaceTextLayer(layer, value);
+        const originalTextBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+        const originalJustification = getTextLayerJustificationValue(layer);
+        await replaceTextLayerPreserveTemplateParagraphWithSuperscripts(layer, value, doc);
+        if (isBaibuMainProductLabelLayer(layer.name) || isBaibuMainProductLabelLayer(column)) {
+          await wrapMainProductLabelToAreaIfOverflow(doc, layer, value, column);
+          log(`  Main product label kept at PSD text origin: ${column}.`);
+        } else {
+          await restoreTextLayerOriginalAnchor(layer, originalTextBox, column, originalJustification);
+        }
         log(`  Text content replaced only; position kept: ${column}.`);
         continue;
       }
@@ -10161,7 +11658,9 @@ async function applyRowToDocument(doc, row) {
     if (column.startsWith("img.")) {
       const asset = await getAssetEntry(value, {
         disableTrimmed: column === "img.giftRight",
-        normalizeGiftRight: column === "img.giftRight"
+        normalizeGiftRight: column === "img.giftRight",
+        productFallbackPriority: column.startsWith("img.product"),
+        view: column.startsWith("img.product") ? getProductImageView(expandedRow) : ""
       });
       await replaceSmartObjectLayer(layer, asset);
       continue;
@@ -10173,15 +11672,17 @@ async function applyRowToDocument(doc, row) {
   hideUnusedTemplateImageLayers(doc, expandedRow);
   applyDailyMechanismSwitch(doc, expandedRow);
   applyGiftTagVisibility(doc, expandedRow);
+  await alignGiftTagToPlacedGiftLayer(doc, expandedRow);
   await applyGeneratedBottomTextIfNeeded(doc, expandedRow);
   log("  Before product arrange.");
   await arrangeProductLineAfterReplace(doc, expandedRow);
   log("  After product arrange.");
   await applyProductGroupScale(doc, expandedRow);
   await alignCurrentProductLayersToArea(doc, expandedRow);
-  await applyConfiguredProductShadows(doc, expandedRow);
   await alignGiftLeftImageGroupToArea(doc);
   await alignGiftImageGroupToArea(doc);
+  await applyGiftCouponGapFromProduct(doc, expandedRow);
+  await applyConfiguredProductShadows(doc, expandedRow);
   if (getCurrentTemplateConfig().keepPersonOnTop) {
     await keepPersonOnTop(doc);
   }
@@ -10196,6 +11697,9 @@ async function processOne(row, index) {
   state.placedImageLayers = {};
   state.templateLayerBoxes = {};
   state.currentRow = null;
+  state.currentArtboardLayer = null;
+  state.currentArtboardName = "";
+  state.currentArtboardKey = "";
 
   const previousTemplateId = activeTemplateId;
   const previousOverrideId = rowTemplateOverrideId;
@@ -10232,6 +11736,9 @@ async function runBatch() {
     state.placedImageLayers = {};
     state.templateLayerBoxes = {};
     state.currentRow = null;
+    state.currentArtboardLayer = null;
+    state.currentArtboardName = "";
+    state.currentArtboardKey = "";
   $("runBatch").disabled = true;
   $("log").textContent = "";
 
@@ -10348,6 +11855,36 @@ async function getDefaultEntry(path) {
     throw new Error("UXP getEntryWithUrl is not available");
   }
   return fs.getEntryWithUrl(pathToFileUrl(path));
+}
+
+async function getConfiguredAssetsFolder() {
+  const assetsPath = getConfiguredPath("assets");
+  if (!assetsPath) return null;
+  if (configuredAssetsFolder && configuredAssetsFolderPath === assetsPath) {
+    return configuredAssetsFolder;
+  }
+
+  try {
+    configuredAssetsFolder = await getDefaultEntry(assetsPath);
+    configuredAssetsFolderPath = assetsPath;
+    return configuredAssetsFolder;
+  } catch (error) {
+    log(`Configured assets unavailable: ${formatError(error)}`);
+    return null;
+  }
+}
+
+async function getConfiguredAssetEntry(relativePath, message = "") {
+  const configuredFolder = await getConfiguredAssetsFolder();
+  if (!configuredFolder || configuredFolder === assetsFolder || !relativePath) return null;
+
+  try {
+    const entry = await configuredFolder.getEntry(relativePath);
+    log(message || `Configured assets fallback: ${relativePath}`);
+    return entry;
+  } catch (error) {
+    return null;
+  }
 }
 
 async function loadDefaultPaths() {

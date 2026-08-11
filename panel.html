@@ -2,8 +2,8 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="src/styles.css?v=20260709-superscript-explicit-only" />
-    <script src="src/main-full.js?v=20260728-merged-root-profiles-fix14"></script>
+    <link rel="stylesheet" href="src/styles.css?v=20260807-flex-options" />
+    <script src="src/main-full.js?v=20260811-reference-height-ratio"></script>
   </head>
   <body>
     <main class="panel">
@@ -20,6 +20,7 @@
           <label class="fieldLabel" for="templateProfile">&#27169;&#26495;&#31867;&#22411;</label>
           <select id="templateProfile">
             <option value="pddSkuGift" selected>SKU</option>
+            <option value="baibuMiaoshaMain">&#30334;&#34917;&#31186;&#26432;</option>
             <option value="tmallAddOn">TMall AddOn</option>
             <option value="tmallFlashSaleMain">TMall FlashSale</option>
             <option value="pddDiffMain">PDD Main</option>
@@ -46,18 +47,51 @@
 
         <div class="options">
           <div class="optionGrid">
-            <label for="exportFormat">&#26684;&#24335;</label>
-            <select id="exportFormat">
-              <option value="jpg" selected>JPG</option>
-              <option value="psd">PSD</option>
-              <option value="jpg,psd">JPG + PSD</option>
-            </select>
+            <div class="optionField">
+              <label for="exportFormat">&#26684;&#24335;</label>
+              <select id="exportFormat">
+                <option value="jpg" selected>JPG</option>
+                <option value="psd">PSD</option>
+                <option value="jpg,psd">JPG + PSD</option>
+              </select>
+            </div>
 
-            <label for="jpgQuality">JPG</label>
-            <input id="jpgQuality" type="number" min="1" max="12" value="10" />
+            <div class="optionField">
+              <label for="jpgQuality">JPG</label>
+              <input id="jpgQuality" type="number" min="1" max="12" value="10" />
+            </div>
 
-            <label for="filePrefix">&#21069;&#32512;</label>
-            <input id="filePrefix" type="text" placeholder="jd_618_" />
+            <div class="optionField optionFieldWide">
+              <label for="filePrefix">&#21069;&#32512;</label>
+              <input id="filePrefix" type="text" placeholder="jd_618_" />
+            </div>
+
+            <div class="optionField">
+              <label for="boardType">&#27963;&#21160;</label>
+              <select id="boardType">
+                <option value="">&#33258;&#21160;</option>
+                <option value="baibu">&#30334;&#34917;</option>
+                <option value="miaosha">&#31186;&#26432;</option>
+              </select>
+            </div>
+
+            <div class="optionField">
+              <label for="boardSize">&#30011;&#24067;</label>
+              <select id="boardSize">
+                <option value="">&#33258;&#21160;</option>
+                <option value="800">800</option>
+                <option value="750">750</option>
+              </select>
+            </div>
+
+            <div class="optionField">
+              <label for="giftMode">&#36192;&#21697;</label>
+              <select id="giftMode">
+                <option value="auto">&#33258;&#21160;</option>
+                <option value="gift">&#26377;&#36192;&#21697;</option>
+                <option value="nogift">&#26080;&#36192;&#21697;</option>
+              </select>
+            </div>
           </div>
 
           <label class="checkboxRow">
