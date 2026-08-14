@@ -7,7 +7,7 @@ let uxpStorage = null;
 let fs = null;
 let configuredAssetsFolder = null;
 let configuredAssetsFolderPath = "";
-const SCRIPT_VERSION = "20260811-reference-height-ratio";
+const SCRIPT_VERSION = "20260813-preserve-final-product-group-layout";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -758,7 +758,26 @@ defineTemplateProfile("baibuMiaoshaMain", createTemplateProfile(BASE_TEMPLATE_CO
   addOnCoupon: {
     ...TEMPLATE_CONFIGS.tmallAddOn.addOnCoupon,
     targetPrefix: "gift",
-    placement: "append"
+    placement: "append",
+    alignWithProduct: false,
+    variants: {
+      contact: {
+        ...TEMPLATE_CONFIGS.tmallAddOn.addOnCoupon.variants.contact,
+        image: "coupon/30元回购券-联系领取.png"
+      },
+      auto: {
+        ...TEMPLATE_CONFIGS.tmallAddOn.addOnCoupon.variants.auto,
+        image: "coupon/30元回购券-自动发放.png"
+      }
+    }
+  },
+  dailyMechanismSwitch: {
+    ...TEMPLATE_CONFIGS.tmallFlashSaleMain.dailyMechanismSwitch,
+    giftAlign: {
+      layerName: "img.gift",
+      alignX: "center",
+      alignY: "bottom"
+    }
   },
   giftTagSwitch: {
     enabled: true,
@@ -793,6 +812,7 @@ defineTemplateProfile("baibuMiaoshaMain", createTemplateProfile(BASE_TEMPLATE_CO
     defaultType: "baibu",
     defaultSize: "800",
     defaultGift: "auto",
+    deleteInactive: false,
     variants: {
       "baibu|800|gift": ["百补800-有赠品"],
       "baibu|800|nogift": ["百补800-无赠品"],
@@ -920,6 +940,11 @@ function isAddOnCouponProductIndex(row, index) {
   return isAddOnCouponImageIndex(row, "product", index);
 }
 
+function shouldIncludeCouponInProductShadow(row) {
+  const columns = ["coupon.shadow", "couponShadow", "coupon.shadow.enabled", "addOnCoupon.shadow", "addOnCouponShadow", "addOnCoupon.shadow.enabled"];
+  const explicitColumn = columns.find((column) => hasValue(row || {}, column));
+  return explicitColumn ? parseVisibilityValue(row && row[explicitColumn], false) : false;
+}
 function isAddOnCouponColumn(column) {
   if (!getAddOnCouponConfig()) return false;
   return /^coupon\./.test(String(column || "")) || /^addOnCoupon\./.test(String(column || "")) || column === "img.coupon" || column === "img.repurchaseCoupon" || column === "img.buybackCoupon" || /^(product|gift|giftLeft|giftRight)\.couponIndex$/.test(String(column || ""));
@@ -1235,7 +1260,9 @@ async function applyArtboardSwitch(doc, row) {
   state.currentArtboardName = target.name;
   state.currentArtboardKey = key;
   log(`  Artboard switch: key=${key}, layer=${target.name}.`);
-  await deleteInactiveArtboardVariantsAtSwitch(doc, switchConfig, target, "Artboard switch");
+  if (switchConfig.deleteInactive !== false) {
+    await deleteInactiveArtboardVariantsAtSwitch(doc, switchConfig, target, "Artboard switch");
+  }
   return target;
 }
 function sanitizeFileBaseName(value, fallback = "image") {
@@ -5205,7 +5232,26 @@ async function prepareImageGroupLayers(doc, row, prefix) {
   }
 
   const hasSingleCouponSource = count === 1 && isAddOnCouponImageIndex(row, prefix, 1);
-  if ((count <= 1 && prefix !== "giftLeft" && !hasSingleCouponSource) || !baseLayer) return;
+  if (prefix === "gift" && count > 1 && baseLayer) {
+    baseLayer.visible = false;
+    log("  Hidden template base image before gift layout: img.gift.");
+  }
+  if (!baseLayer) return;
+  if (count <= 1 && prefix === "product" && !hasSingleCouponSource) {
+    const singleBox = getBoundsBox(baseLayer.boundsNoEffects || baseLayer.bounds);
+    if (singleBox && areaBox) {
+      const singleItems = await scaleProductItemsToAreaHeight([{
+        layer: baseLayer,
+        index: 1,
+        fixedSize: isAddOnCouponProductIndex(row || {}, 1),
+        source: getImageSourceForIndex(row || {}, "product", 1),
+        box: singleBox
+      }], row, areaBox);
+      await arrangeProductLayerStacking(singleItems, getImageGroupZOrder(row, "product"));
+    }
+    return;
+  }
+  if (count <= 1 && prefix !== "giftLeft" && !hasSingleCouponSource) return;
 
   const baseBox = getBoundsBox(baseLayer.boundsNoEffects || baseLayer.bounds);
   if (!baseBox) return;
@@ -5247,7 +5293,7 @@ async function prepareImageGroupLayers(doc, row, prefix) {
     }
 
     layer.visible = true;
-    await fitLayerToBox(layer, targetBoxes[i - 1], { alignY: prefix === "product" ? "bottom" : "center" });
+    await fitLayerToBox(layer, targetBoxes[i - 1], { alignY: prefix === "product" || prefix === "gift" ? "bottom" : "center" });
     if (areaBox) {
       await clampLayerToBox(layer, areaBox);
     }
@@ -5256,7 +5302,7 @@ async function prepareImageGroupLayers(doc, row, prefix) {
       targetBox: targetBoxes[i - 1],
       areaBox,
       scale: getLayerScaleForInitialPlacement(row, prefix),
-      alignY: prefix === "product" ? "bottom" : "center",
+      alignY: prefix === "product" || prefix === "gift" ? "bottom" : "center",
       fitBy: prefix === "product" && getImageGroupSourceText(row, prefix).includes("cream") ? "height" : "contain"
     };
     layers.push(layer);
@@ -5384,6 +5430,9 @@ function hideUnusedTemplateImageLayers(doc, row) {
     const baseLayer = findLayerByName(doc, `img.${prefix}`);
     if (count > 1 && baseLayer && !placedNames[baseLayer.name]) {
       baseLayer.visible = false;
+      if (prefix === "gift") {
+        baseLayer.name = "__ignored.img.gift";
+      }
       hiddenCount += 1;
       log(`  Hidden template base image: img.${prefix}.`);
     }
@@ -5596,7 +5645,7 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
       prefix === "giftRight" ||
       prefix === "gift");
     await fitLayerToBox(layer, targetBox, {
-      alignY: prefix === "product" ? "bottom" : "center",
+      alignY: prefix === "product" || prefix === "gift" ? "bottom" : "center",
       fitBy: fitByHeight ? "height" : "contain"
     });
     if (prefix === "product" && areaBox) {
@@ -5641,10 +5690,18 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
   }
 
   if (prefix === "product") {
-    const productItems = layers.map((layer) => ({
-      layer,
-      box: getBoundsBox(layer.boundsNoEffects || layer.bounds)
-    })).filter((item) => item.box);
+    let productItems = layers.map((layer) => {
+      const index = getPlacedLayerIndex(layer);
+      return {
+        layer,
+        index,
+        fixedSize: isAddOnCouponProductIndex(row, index),
+        box: getBoundsBox(layer.boundsNoEffects || layer.bounds)
+      };
+    }).filter((item) => item.box);
+    if (count <= 1 && areaBox) {
+      productItems = await scaleProductItemsToAreaHeight(productItems, row, areaBox);
+    }
     await arrangeProductLayerStacking(productItems, getImageGroupZOrder(row, "product"));
   }
 
@@ -5673,16 +5730,20 @@ async function alignCurrentProductLayersToArea(doc, row) {
     return;
   }
 
-  for (const item of items) {
-    const box = getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds);
-    if (!box) continue;
-    await item.layer.translate(areaBox.centerX - box.centerX, areaBox.bottom - box.bottom);
+  const groupBox = getItemsGroupBox(items);
+  if (!groupBox) {
+    log("  Final product bottom align skipped: product group bounds not found.");
+    return;
   }
+
+  // Preserve the spacing established by product/coupon layout. Centering every
+  // layer independently would collapse all items onto the same point.
+  await translateProductItems(items, areaBox.centerX - groupBox.centerX, areaBox.bottom - groupBox.bottom);
   const aligned = items.map((item) => {
     const box = getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds);
     return `${item.layer.name}:${box ? `${Math.round(box.centerX)},${Math.round(box.bottom)}` : "?"}`;
   }).join(", ");
-  log(`  Final product center-bottom aligned to ${state.groupAreaNames.product || "product.area"}: ${aligned}, areaCenterBottom=${Math.round(areaBox.centerX)},${Math.round(areaBox.bottom)}.`);
+  log(`  Final product group center-bottom aligned to ${state.groupAreaNames.product || "product.area"}: ${aligned}, areaCenterBottom=${Math.round(areaBox.centerX)},${Math.round(areaBox.bottom)}.`);
 }
 
 async function alignGiftTagToGiftLayer(doc, row, giftLayer) {
@@ -5892,6 +5953,11 @@ async function applyGiftCouponGapFromProduct(doc, row) {
   const config = getAddOnCouponConfig();
   if (!config || getAddOnCouponTargetPrefix(config) !== "gift") return;
 
+  if (config.alignWithProduct === false) {
+    log("  Gift coupon kept in gift layout; product alignment skipped.");
+    return;
+  }
+
   const gapValue = readNumber(row, "coupon.gap", readNumber(row, "addOnCoupon.gap", NaN));
 
   const couponIndex = parseCount(row && row[getAddOnCouponIndexColumn("gift")]);
@@ -5917,6 +5983,26 @@ async function applyGiftCouponGapFromProduct(doc, row) {
     couponBox,
     gapValue
   });
+}
+
+function findLayersByNameInActiveArtboardOrDoc(doc, name) {
+  if (shouldUseCurrentArtboardScope() && state.currentArtboardLayer) {
+    return findLayersByNameInLayer(state.currentArtboardLayer, name, []);
+  }
+  return findLayersByName(doc, name);
+}
+
+function hasProductShadowTemplateLayer(doc) {
+  const config = getCurrentTemplateConfig();
+  const shadowConfig = config && config.productShadow || {};
+  const bottomConfig = config && config.productBottomShadow || {};
+  const names = [
+    shadowConfig.name || "PRODUCT.shadow",
+    "PRODUCT.shadow",
+    bottomConfig.layerName || "img.productshadow",
+    "img.productshadow"
+  ].filter(Boolean);
+  return names.some((name) => findLayersByNameInActiveArtboardOrDoc(doc, name).length > 0);
 }
 
 function collectProductShadowFollowLayers(doc) {
@@ -6058,6 +6144,50 @@ function collectGiftShadowItems(doc, row, options = {}) {
   return [];
 }
 
+async function alignBaibuGiftItemsBottomToArea(doc, row) {
+  const config = getCurrentTemplateConfig();
+  if (!config || config.id !== "baibuMiaoshaMain") return;
+
+  const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.gift;
+  if (!areaBox) {
+    log("  Baibu gift item bottom align skipped: gift.area not found.");
+    return;
+  }
+
+  const items = collectGiftShadowItems(doc, row, { excludeCoupon: true });
+  if (!items.length) {
+    log("  Baibu gift item bottom align skipped: no non-coupon gift item.");
+    return;
+  }
+
+  const offsetY = readNumber(row || {}, "gift.bottomOffset", readNumber(row || {}, "gift.itemBottomOffset", 0));
+  for (const item of items) {
+    const box = getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds);
+    if (!box) continue;
+    const dy = areaBox.bottom + offsetY - box.bottom;
+    if (Number.isFinite(dy) && Math.abs(dy) >= 0.5) {
+      await moveLayerByOffset(item.layer, 0, dy, item.layer.name);
+      log(`  Baibu gift item bottom aligned: ${item.layer.name}, dy=${Math.round(dy)}, targetBottom=${Math.round(areaBox.bottom + offsetY)}.`);
+    }
+  }
+}
+
+function shouldFillProductAreaHeight(row) {
+  const explicit = firstTextValue(row || {}, [
+    "product.fillAreaHeight",
+    "product.areaHeightFill",
+    "product.maxHeightToArea",
+    "product.fillHeight"
+  ]);
+  if (explicit !== undefined) return parseVisibilityValue(explicit, true);
+  return getCurrentTemplateConfig().productFillAreaHeight !== false;
+}
+
+function getProductAreaFillHeightRatio(row) {
+  const ratio = readNumber(row || {}, "product.fillAreaHeightRatio", readNumber(row || {}, "product.areaHeightFillRatio", 1));
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+}
+
 async function scaleProductItemsToHeight(items, row, areaBox) {
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
@@ -6072,6 +6202,33 @@ async function scaleProductItemsToHeight(items, row, areaBox) {
     }
     log(`  Product height rule: ${item.layer.name}, mode=${getProductHeightMode(row, items.length)}, category=${getProductCategory(row, i + 1)}, ratio=${ratio}, targetH=${Math.round(targetHeight)}`);
   }
+  return refreshProductItems(items);
+}
+
+async function scaleProductItemsToAreaHeight(items, row, areaBox) {
+  if (!shouldFillProductAreaHeight(row) || !areaBox) return refreshProductItems(items);
+
+  const freshItems = refreshProductItems(items);
+  const scalableItems = freshItems.filter((item) => !item.fixedSize && item.box && item.box.height > 0);
+  if (!scalableItems.length) return freshItems;
+
+  const maxHeight = Math.max(...scalableItems.map((item) => item.box.height));
+  const groupBox = getItemsGroupBox(freshItems);
+  const targetHeight = areaBox.height * getProductAreaFillHeightRatio(row);
+  const heightFactor = targetHeight / maxHeight;
+  const widthFactor = groupBox && groupBox.width > 0 ? areaBox.width / groupBox.width : heightFactor;
+  const factor = Math.min(heightFactor, widthFactor);
+  if (!Number.isFinite(factor) || factor <= 0 || Math.abs(factor - 1) <= 0.001) return freshItems;
+
+  const anchorPoint = { x: areaBox.centerX, y: areaBox.bottom };
+  for (const item of scalableItems) {
+    await scaleLayerAroundPoint(item.layer, factor, anchorPoint);
+  }
+
+  const filledItems = refreshProductItems(freshItems);
+  const filledBox = getItemsGroupBox(filledItems);
+  log(`  Product area fill applied: factor=${factor.toFixed(3)}, anchor=areaCenterBottom, heightFactor=${heightFactor.toFixed(3)}, widthFactor=${widthFactor.toFixed(3)}, maxH=${Math.round(maxHeight)}->${Math.round(targetHeight)}, groupW=${filledBox ? Math.round(filledBox.width) : "?"}/${Math.round(areaBox.width)}, groupH=${filledBox ? Math.round(filledBox.height) : "?"}.`);
+  return filledItems;
 }
 
 async function scaleProductItemsByFactor(items, factor) {
@@ -6175,6 +6332,33 @@ async function scaleProductItemsToFitArea(items, areaBox) {
   return items;
 }
 
+async function scaleMixedProductLineToAreaHeight(items, row, areaBox, gaps) {
+  if (!shouldFillProductAreaHeight(row) || !areaBox) return refreshProductItems(items);
+
+  const freshItems = refreshProductItems(items);
+  const scalableItems = freshItems.filter((item) => !item.fixedSize && item.box && item.box.height > 0);
+  if (!scalableItems.length) return freshItems;
+
+  const fixedWidth = freshItems.reduce((sum, item) => sum + (item.fixedSize ? item.box.width : 0), 0);
+  const scalableWidth = scalableItems.reduce((sum, item) => sum + item.box.width, 0);
+  const gapWidth = Array.isArray(gaps) ? gaps.reduce((sum, item) => sum + item, 0) : gaps * Math.max(0, freshItems.length - 1);
+  const availableWidth = areaBox.width - fixedWidth - gapWidth;
+  const maxHeight = Math.max(...scalableItems.map((item) => item.box.height));
+  const targetHeight = areaBox.height * getProductAreaFillHeightRatio(row);
+  const heightFactor = targetHeight / maxHeight;
+  const widthFactor = scalableWidth > 0 ? availableWidth / scalableWidth : heightFactor;
+  const factor = Math.min(heightFactor, widthFactor);
+  if (!Number.isFinite(factor) || factor <= 0 || Math.abs(factor - 1) <= 0.001) return freshItems;
+
+  for (const item of scalableItems) {
+    await scaleLayerByFactor(item.layer, factor, { anchor: "bottomCenter" });
+  }
+
+  const filledItems = refreshProductItems(freshItems);
+  const filledBox = getItemsGroupBox(filledItems);
+  log(`  Product mixed line area fill applied: factor=${factor.toFixed(3)}, heightFactor=${heightFactor.toFixed(3)}, widthFactor=${widthFactor.toFixed(3)}, maxH=${Math.round(maxHeight)}->${Math.round(targetHeight)}, groupW=${filledBox ? Math.round(filledBox.width) : "?"}/${Math.round(areaBox.width)}, groupH=${filledBox ? Math.round(filledBox.height) : "?"}.`);
+  return filledItems;
+}
 async function alignProductGroupBottomCenter(items, areaBox) {
   const groupBox = getItemsGroupBox(items);
   if (!groupBox || !areaBox) return items;
@@ -6222,6 +6406,7 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
   gaps = normalizeProductLineGaps(gaps);
 
   if (hasFixedSizeProduct) {
+    freshItems = await scaleMixedProductLineToAreaHeight(freshItems, row, areaBox, gaps);
     let totalWidth = getItemsTotalWidth(freshItems, gaps);
     if (totalWidth > areaBox.width) {
       const fixedWidth = freshItems.reduce((sum, item) => sum + (item.fixedSize ? item.box.width : 0), 0);
@@ -6263,12 +6448,60 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
   freshItems = refreshProductItems(freshItems);
   freshItems = await scaleProductItemsToFitArea(freshItems, areaBox);
   freshItems = await alignProductGroupBottomCenter(freshItems, areaBox);
+  freshItems = await scaleProductItemsToAreaHeight(freshItems, row, areaBox);
   const finalGroupBox = getItemsGroupBox(freshItems);
 
   await arrangeProductLayerStacking(freshItems, getImageGroupZOrder(row, "product"));
   log(`  Arranged product line after replace. touchEdges=${touchEdges}, gapMode=${useCategoryGaps ? "category" : "manual"}, gap=${gaps.join("|") || gap}, groupW=${finalGroupBox ? Math.round(finalGroupBox.width) : "?"}, groupH=${finalGroupBox ? Math.round(finalGroupBox.height) : "?"}, items=${freshItems.length}`);
 }
 
+async function arrangeMixedProductOverlapWithCoupon(items, row, areaBox, layout) {
+  const productItems = items.filter((item) => !item.fixedSize);
+  const couponItems = items.filter((item) => item.fixedSize);
+  if (!productItems.length || !couponItems.length) return false;
+
+  await arrangeProductOverlapItems(productItems, row, areaBox, layout);
+  let freshProductItems = refreshProductItems(productItems);
+  let freshCouponItems = refreshProductItems(couponItems);
+  const productBox = getItemsGroupBox(freshProductItems);
+  const couponBox = getItemsGroupBox(freshCouponItems);
+  if (!productBox || !couponBox) return false;
+
+  const requestedGap = Math.max(1, readNumber(row, "coupon.gap", readNumber(row, "addOnCoupon.gap", 12)));
+  const minProductWidthRatio = readNumber(row, "product.minWidthRatioWithCoupon", 0.28);
+  const minProductWidth = Math.max(1, areaBox.width * (Number.isFinite(minProductWidthRatio) ? minProductWidthRatio : 0.28));
+  const availableProductWidth = Math.max(minProductWidth, areaBox.width - couponBox.width - requestedGap);
+  const factor = productBox.width > availableProductWidth ? availableProductWidth / productBox.width : 1;
+  if (Number.isFinite(factor) && factor > 0 && factor < 1) {
+    await scaleProductItemsByFactor(freshProductItems, factor);
+    freshProductItems = refreshProductItems(freshProductItems);
+  }
+
+  const scaledProductBox = getItemsGroupBox(freshProductItems);
+  freshCouponItems = refreshProductItems(couponItems);
+  const scaledCouponBox = getItemsGroupBox(freshCouponItems);
+  if (!scaledProductBox || !scaledCouponBox) return false;
+
+  const maxGap = Math.max(1, areaBox.width - scaledProductBox.width - scaledCouponBox.width);
+  const effectiveGap = Math.min(requestedGap, maxGap);
+  const finalCombinedWidth = scaledProductBox.width + effectiveGap + scaledCouponBox.width;
+  const productLeft = areaBox.centerX - finalCombinedWidth / 2;
+  const productDx = productLeft - scaledProductBox.left;
+  const productDy = areaBox.bottom - scaledProductBox.bottom;
+  await translateProductItems(freshProductItems, productDx, productDy);
+
+  freshProductItems = refreshProductItems(freshProductItems);
+  const finalProductBox = getItemsGroupBox(freshProductItems) || scaledProductBox;
+  const couponDx = finalProductBox.right + effectiveGap - scaledCouponBox.left;
+  const couponDy = areaBox.bottom - scaledCouponBox.bottom;
+  await translateProductItems(freshCouponItems, couponDx, couponDy);
+
+  const finalItems = refreshProductItems([...freshProductItems, ...freshCouponItems]);
+  const finalBox = getItemsGroupBox(finalItems);
+  await arrangeProductLayerStacking(finalItems, getImageGroupZOrder(row, "product"));
+  log(`  Arranged product ${layout} with coupon gap: requestedGap=${Math.round(requestedGap)}, effectiveGap=${Math.round(effectiveGap)}, groupW=${finalBox ? Math.round(finalBox.width) : "?"}/${Math.round(areaBox.width)}, groupH=${finalBox ? Math.round(finalBox.height) : "?"}.`);
+  return true;
+}
 async function arrangeProductOverlapItems(items, row, areaBox, layout) {
   const minWidth = Math.min(...items.map((item) => item.box.width));
   const hasManualOverlapRatio = row["product.overlapRatio"] !== undefined && row["product.overlapRatio"] !== "";
@@ -6325,8 +6558,10 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
     left += item.box.width + (Array.isArray(gaps) ? gaps[i] || 0 : gap);
   }
 
-  await arrangeProductLayerStacking(finalItems, getImageGroupZOrder(row, "product"));
-  log(`  Arranged product ${layout} after replace. overlapRatio=${overlapRatio}, gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, centerSpan=${Math.round(centerSpan)}, totalWidth=${Math.round(finalTotalWidth)}, items=${finalItems.length}`);
+  const filledItems = await scaleProductItemsToAreaHeight(finalItems, row, areaBox);
+  const filledBox = getItemsGroupBox(filledItems);
+  await arrangeProductLayerStacking(filledItems, getImageGroupZOrder(row, "product"));
+  log(`  Arranged product ${layout} after replace. overlapRatio=${overlapRatio}, gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, centerSpan=${Math.round(centerSpan)}, totalWidth=${Math.round(finalTotalWidth)}, groupH=${filledBox ? Math.round(filledBox.height) : "?"}, items=${filledItems.length}`);
 }
 
 async function arrangeProductLineAfterReplace(doc, row) {
@@ -6339,19 +6574,44 @@ async function arrangeProductLineAfterReplace(doc, row) {
     return;
   }
   if (layout !== "line") {
-    log("  Product arrange skipped: using prepared gift-style overlap layout.");
+    const areaBox = state.groupAreaBoxes.product;
+    if (!areaBox) {
+      log("  Product arrange skipped: product.area not found.");
+      return;
+    }
+    const preparedLayers = collectProductItems(doc, count, row);
+    if (!preparedLayers.length) {
+      log("  Product arrange skipped: no product layers found.");
+      return;
+    }
+    let preparedItems = await scaleProductItemsToHeight(preparedLayers, row, areaBox);
+    if (preparedItems.some((item) => item.fixedSize)) {
+      const handled = await arrangeMixedProductOverlapWithCoupon(preparedItems, row, areaBox, layout);
+      if (handled) return;
+    }
+    preparedItems = await scaleProductItemsToFitArea(preparedItems, areaBox);
+    preparedItems = await alignProductGroupBottomCenter(preparedItems, areaBox);
+    preparedItems = await scaleProductItemsToAreaHeight(preparedItems, row, areaBox);
+    const preparedBox = getItemsGroupBox(preparedItems);
+    await arrangeProductLayerStacking(preparedItems, getImageGroupZOrder(row, "product"));
+    log(`  Product arrange kept prepared ${layout} layout, groupH=${preparedBox ? Math.round(preparedBox.height) : "?"}.`);
     return;
   }
   const hasFixedSizeProduct = Array.from({ length: count }, (_, index) => isAddOnCouponProductIndex(row, index + 1)).some(Boolean);
-  if (!hasFixedSizeProduct && !shouldTouchProductEdges(row) && shouldUseProductCategoryPairGaps(row)) {
-    const preparedLayers = collectProductItems(doc, count, row);
-    await arrangeProductLayerStacking(preparedLayers, getImageGroupZOrder(row, "product"));
-    log(`  Product arrange skipped: using prepared category-gap ${layout} layout.`);
-    return;
-  }
   const areaBox = state.groupAreaBoxes.product;
   if (!areaBox) {
     log("  Product arrange skipped: product.area not found.");
+    return;
+  }
+  if (!hasFixedSizeProduct && !shouldTouchProductEdges(row) && shouldUseProductCategoryPairGaps(row)) {
+    const preparedLayers = collectProductItems(doc, count, row);
+    let preparedItems = await scaleProductItemsToHeight(preparedLayers, row, areaBox);
+    preparedItems = await scaleProductItemsToFitArea(preparedItems, areaBox);
+    preparedItems = await alignProductGroupBottomCenter(preparedItems, areaBox);
+    preparedItems = await scaleProductItemsToAreaHeight(preparedItems, row, areaBox);
+    const preparedBox = getItemsGroupBox(preparedItems);
+    await arrangeProductLayerStacking(preparedItems, getImageGroupZOrder(row, "product"));
+    log(`  Product arrange skipped: using prepared category-gap ${layout} layout, groupH=${preparedBox ? Math.round(preparedBox.height) : "?"}.`);
     return;
   }
 
@@ -7200,7 +7460,7 @@ async function createProductShadowSourceLayer(doc, productGroup, config) {
   }
 
   const row = state.currentRow || {};
-  const productItems = collectProductGroupItems(doc, row, { excludeCoupon: true });
+  const productItems = collectProductGroupItems(doc, row, { excludeCoupon: !shouldIncludeCouponInProductShadow(row) });
   const giftItems = shouldIncludeGiftInProductShadow(row, config)
     ? collectGiftShadowItems(doc, row, { excludeCoupon: !config.includeGiftCouponShadow })
     : [];
@@ -7480,7 +7740,7 @@ async function prepareProductBottomShadowLayers(doc, row, config, count) {
   const baseLayer = findCurrentProductBottomShadowLayer(doc, row, config);
   const baseName = config.layerName || "img.productshadow";
   if (!baseLayer) {
-    return config.generateIfMissing ? Array.from({ length: count }, () => null) : [];
+    return [];
   }
 
   const layers = [baseLayer];
@@ -7538,8 +7798,13 @@ function getBackmostProductLayerForShadow(items, row) {
 async function applyProductBottomShadow(doc, row) {
   const config = getCurrentTemplateConfig().productBottomShadow;
   if (!config || !config.enabled) return;
+  if (!hasProductShadowTemplateLayer(doc)) {
+    log("  Product bottom shadow skipped: template shadow layer not found in current artboard.");
+    return;
+  }
 
-  const items = collectProductGroupItems(doc, row || state.currentRow || {}, { excludeCoupon: !!config.excludeCoupon });
+  const shadowRow = row || state.currentRow || {};
+  const items = collectProductGroupItems(doc, shadowRow, { excludeCoupon: !!config.excludeCoupon && !shouldIncludeCouponInProductShadow(shadowRow) });
   if (!items.length) {
     log("  Product bottom shadow skipped: no current product layer found.");
     return;
@@ -7593,7 +7858,7 @@ async function applyProductBottomShadow(doc, row) {
   }
 
   const visibleShadowLayers = shadowLayers.filter((layer) => layer && layer.visible !== false);
-  const backmostProductLayer = getBackmostProductLayerForShadow(items, row || state.currentRow || {});
+  const backmostProductLayer = getBackmostProductLayerForShadow(items, shadowRow);
   if (backmostProductLayer) {
     for (const shadowLayer of visibleShadowLayers) {
       try {
@@ -7611,6 +7876,10 @@ async function applyProductBottomShadow(doc, row) {
 async function applyProductShadow(doc) {
   const config = getCurrentTemplateConfig().productShadow;
   if (!config || !config.enabled) return;
+  if (!hasProductShadowTemplateLayer(doc)) {
+    log("  Product shadow skipped: template shadow layer not found in current artboard.");
+    return;
+  }
 
   const productGroup = findLayerByName(doc, config.sourceGroupName || "PRODUCT");
   const sourceMode = String(config.sourceMode || "").trim().toLowerCase();
@@ -8306,8 +8575,14 @@ async function replaceSmartObjectLayer(layer, file) {
     }
     if (prefix === "product") {
       await alignLayerBottomToBox(layer, areaBox);
-      const alignedBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
-      log(`  Product bottom aligned: layerBottom=${alignedBox ? Math.round(alignedBox.bottom) : "?"}, areaBottom=${Math.round(areaBox.bottom)}.`);
+      let productItems = await scaleProductItemsToAreaHeight([{
+        layer,
+        index: 1,
+        box: getBoundsBox(layer.boundsNoEffects || layer.bounds)
+      }], row, areaBox);
+      productItems = await alignProductGroupBottomCenter(productItems, areaBox);
+      const alignedBox = getItemsGroupBox(productItems);
+      log(`  Product bottom aligned: layerBottom=${alignedBox ? Math.round(alignedBox.bottom) : "?"}, areaBottom=${Math.round(areaBox.bottom)}, layerH=${alignedBox ? Math.round(alignedBox.height) : "?"}.`);
     }
     return;
   }
@@ -9196,7 +9471,7 @@ function expandGiftNameToSet(row) {
   if (!source.value) return expanded;
 
   const resolvedSet = resolveProductNameTokensToImages(splitProductNameList(source.value), { view: getProductImageView(expanded) });
-  const images = Array.from(new Set(resolvedSet.images.filter(Boolean)));
+  const images = resolvedSet.images.filter(Boolean);
 
   if (images.length === 1) {
     expanded["img.gift"] = images[0];
@@ -10780,21 +11055,46 @@ function findSubtitleTextLayer(doc, finalText, variantSourceText = finalText, ro
   return layer;
 }
 
-function hideAlternateSubtitleLayers(doc, activeLayer, row = null) {
-  const names = ["txt.subtitle", "txt.subtitle.1", "txt.subtitle.2"];
+function getCurrentMechanismOrArtboardScope(doc, row = null) {
   const mechanismLayer = findDailyMechanismLayer(doc, row || state.currentRow || {});
-  names.forEach((name) => {
-    const layer = mechanismLayer ? findLayerByNameInLayer(mechanismLayer, name) : findLayerByName(doc, name);
-    if (layer && layer !== activeLayer) {
-      layer.visible = false;
-    }
-  });
+  if (mechanismLayer) return mechanismLayer;
+  return shouldUseCurrentArtboardScope() ? state.currentArtboardLayer : null;
 }
 
-function hideSubtitleModule(doc) {
-  hideAlternateSubtitleLayers(doc, null);
-  hideAlternateSubtitleRectangleLayers(doc, null);
-  log("  Subtitle hidden: empty txt.subtitle.");
+function findLayersByNameInCurrentScope(doc, row, name) {
+  const scopeLayer = getCurrentMechanismOrArtboardScope(doc, row);
+  return scopeLayer ? findLayersByNameInLayer(scopeLayer, name, []) : findLayersByName(doc, name);
+}
+
+function findLayersByPatternInCurrentScope(doc, row, pattern) {
+  const config = getCurrentTemplateConfig();
+  const useArtboardScope = config && config.id === "baibuMiaoshaMain" && shouldUseCurrentArtboardScope();
+  const scopeLayer = useArtboardScope ? state.currentArtboardLayer : getCurrentMechanismOrArtboardScope(doc, row);
+  const layers = scopeLayer ? getAllLayers(scopeLayer.layers || []) : getAllLayers(doc.layers || []);
+  const regex = pattern instanceof RegExp ? pattern : new RegExp(String(pattern || ""));
+  return layers.filter((layer) => regex.test(String(layer && layer.name || "").trim()));
+}
+
+function hideAlternateSubtitleLayers(doc, activeLayer, row = null) {
+  const layers = findLayersByPatternInCurrentScope(doc, row, /^txt\.subtitle(?:[._-].*)?$/i);
+  const seen = new Set();
+  let hiddenCount = 0;
+  layers.forEach((layer) => {
+    const key = layer.id || layer;
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (layer && layer !== activeLayer) {
+      layer.visible = false;
+      hiddenCount += 1;
+    }
+  });
+  return hiddenCount;
+}
+
+function hideSubtitleModule(doc, row = null) {
+  const hiddenText = hideAlternateSubtitleLayers(doc, null, row);
+  const hiddenRect = hideAlternateSubtitleRectangleLayers(doc, null, row);
+  log(`  Subtitle hidden: empty txt.subtitle, textLayers=${hiddenText}, rectangles=${hiddenRect}.`);
 }
 function findSubtitleRectangleLayer(doc, variant, config, row = null) {
   const names = [
@@ -10805,7 +11105,7 @@ function findSubtitleRectangleLayer(doc, variant, config, row = null) {
     .map((name) => findLayerByNameInCurrentMechanismOnly(doc, row, name))
     .find(Boolean) || names.map((name) => findLayerByName(doc, name)).find(Boolean);
   if (layer) {
-    hideAlternateSubtitleRectangleLayers(doc, layer);
+    hideAlternateSubtitleRectangleLayers(doc, layer, row);
     if (layer.name !== (config.layerName || "txt.subtitle.rectangle")) {
       log(`  Subtitle rectangle layer selected: ${layer.name}.`);
     }
@@ -10813,13 +11113,20 @@ function findSubtitleRectangleLayer(doc, variant, config, row = null) {
   return layer;
 }
 
-function hideAlternateSubtitleRectangleLayers(doc, activeLayer) {
-  ["txt.subtitle.rectangle", "txt.subtitle.rectangle.1", "txt.subtitle.rectangle.2"].forEach((name) => {
-    const layer = findLayerByName(doc, name);
+function hideAlternateSubtitleRectangleLayers(doc, activeLayer, row = null) {
+  const layers = findLayersByPatternInCurrentScope(doc, row, /^txt\.subtitle\.rectangle(?:[._-].*)?$/i);
+  const seen = new Set();
+  let hiddenCount = 0;
+  layers.forEach((layer) => {
+    const key = layer.id || layer;
+    if (seen.has(key)) return;
+    seen.add(key);
     if (layer && layer !== activeLayer) {
       layer.visible = false;
+      hiddenCount += 1;
     }
   });
+  return hiddenCount;
 }
 
 function getTitleNoteLayerNames() {
@@ -11105,7 +11412,7 @@ async function applyTitleAndProductNote(doc, row) {
   }
 
   if (Object.prototype.hasOwnProperty.call(row || {}, "txt.subtitle") && !hasValue(row, "txt.subtitle")) {
-    hideSubtitleModule(doc);
+    hideSubtitleModule(doc, row);
     handled["txt.subtitle"] = true;
   }
 
@@ -11186,13 +11493,13 @@ async function applyTitleAndProductNote(doc, row) {
 function isGiftControlColumn(column) {
   return PRODUCT_NAME_COLUMNS.includes(column) ||
     GIFT_NAME_COLUMNS.includes(column) ||
-    /^(giftLeft|giftRight|gift|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|slotFill|slotSpan|category|categoryGapMode|categoryGap|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
+    /^(giftLeft|giftRight|gift|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|fillAreaHeight|fillHeight|areaHeightFill|maxHeightToArea|slotFill|slotSpan|category|categoryGapMode|categoryGap|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
     /^product\.gap\.\d+$/.test(column) ||
     /^product\.gap\.[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
-    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
-    /^productShadow\.(top|opacity|style|gift|giftShadow|includeGift|includeGiftShadow)$/.test(column) ||
-    /^productBottomShadow\.(opacity|widthRatio|heightRatio|offsetXRatio|bottomOffsetRatio|blur)$/.test(column) ||
+    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|fillAreaHeight|fillHeight|areaHeightFill|maxHeightToArea|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
+    /^productShadow\.(top|opacity|style|gift|giftShadow|includeGift|includeGiftShadow|coupon|couponShadow|includeCoupon|includeCouponShadow)$/.test(column) ||
+    /^productBottomShadow\.(opacity|widthRatio|heightRatio|offsetXRatio|bottomOffsetRatio|blur|coupon|couponShadow|includeCoupon|includeCouponShadow)$/.test(column) ||
     /^(giftshadow|giftshadow\.enabled|gift\.shadow|giftShadow|gift\.shadow\.enabled|giftShadow\.enabled)$/.test(column) ||
     /^(shadow\.style|shadowStyle)$/.test(column) ||
     isAddOnCouponColumn(column) ||
@@ -11490,6 +11797,11 @@ function ensureProductProjectVisibleBeforeExport(doc) {
     log(`  Product project group visible before export: ${projectGroup.name}.`);
   }
 
+  if (!hasProductShadowTemplateLayer(doc)) {
+    log("  Product shadow export visibility skipped: template shadow layer not found in current artboard.");
+    return;
+  }
+
   const shadowLayer = findLayerByName(doc, config.name || "PRODUCT.shadow") || findLayerByName(doc, "PRODUCT.shadow");
   if (shadowLayer) {
     shadowLayer.visible = true;
@@ -11565,6 +11877,9 @@ async function applyRowToDocument(doc, row) {
   const handledTextColumns = await applyTitleAndProductNote(doc, expandedRow);
 
   applyDailyMechanismSwitch(doc, expandedRow);
+  if (Object.prototype.hasOwnProperty.call(expandedRow || {}, "txt.subtitle") && !hasValue(expandedRow, "txt.subtitle")) {
+    hideSubtitleModule(doc, expandedRow);
+  }
   await prepareImageGroupLayers(doc, expandedRow, "product");
   await prepareImageGroupLayers(doc, expandedRow, "giftLeft");
   await prepareImageGroupLayers(doc, expandedRow, "giftRight");
@@ -11671,9 +11986,15 @@ async function applyRowToDocument(doc, row) {
 
   hideUnusedTemplateImageLayers(doc, expandedRow);
   applyDailyMechanismSwitch(doc, expandedRow);
+  if (Object.prototype.hasOwnProperty.call(expandedRow || {}, "txt.subtitle") && !hasValue(expandedRow, "txt.subtitle")) {
+    hideSubtitleModule(doc, expandedRow);
+  }
   applyGiftTagVisibility(doc, expandedRow);
   await alignGiftTagToPlacedGiftLayer(doc, expandedRow);
   await applyGeneratedBottomTextIfNeeded(doc, expandedRow);
+  if (Object.prototype.hasOwnProperty.call(expandedRow || {}, "txt.subtitle") && !hasValue(expandedRow, "txt.subtitle")) {
+    hideSubtitleModule(doc, expandedRow);
+  }
   log("  Before product arrange.");
   await arrangeProductLineAfterReplace(doc, expandedRow);
   log("  After product arrange.");
@@ -11682,6 +12003,7 @@ async function applyRowToDocument(doc, row) {
   await alignGiftLeftImageGroupToArea(doc);
   await alignGiftImageGroupToArea(doc);
   await applyGiftCouponGapFromProduct(doc, expandedRow);
+  await alignBaibuGiftItemsBottomToArea(doc, expandedRow);
   await applyConfiguredProductShadows(doc, expandedRow);
   if (getCurrentTemplateConfig().keepPersonOnTop) {
     await keepPersonOnTop(doc);

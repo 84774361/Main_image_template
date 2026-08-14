@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260811-reference-height-ratio";
+const SCRIPT_VERSION = "20260811-product-area-fit-bounds";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -2340,8 +2340,7 @@ function applyTitleFontToTemplateStyle(style, kind) {
     impliedFontPostScriptName: font.postScriptName,
     impliedFontName: font.fontName
   };
-}
-function isTitleLatinStyleChar(char) {
+}function isTitleLatinStyleChar(char) {
   return !isCjkTextChar(char);
 }
 
@@ -3520,7 +3519,19 @@ async function prepareImageGroupLayers(doc, row, prefix) {
     delete state.groupAreaNames[prefix];
   }
 
-  if ((count <= 1 && prefix !== "giftLeft") || !baseLayer) return;
+  if (!baseLayer) return;
+  if (count <= 1 && prefix === "product") {
+    const singleBox = getBoundsBox(baseLayer.boundsNoEffects || baseLayer.bounds);
+    if (singleBox && areaBox) {
+      const singleItems = await scaleProductItemsToAreaHeight([{
+        layer: baseLayer,
+        box: singleBox
+      }], row, areaBox);
+      await arrangeProductLayerStacking(singleItems, getImageGroupZOrder(row, "product"));
+    }
+    return;
+  }
+  if (count <= 1 && prefix !== "giftLeft") return;
 
   const baseBox = getBoundsBox(baseLayer.boundsNoEffects || baseLayer.bounds);
   if (!baseBox) return;
@@ -3578,10 +3589,13 @@ async function prepareImageGroupLayers(doc, row, prefix) {
   }
 
   if (prefix === "product") {
-    const productItems = layers.map((layer) => ({
+    let productItems = layers.map((layer) => ({
       layer,
       box: getBoundsBox(layer.boundsNoEffects || layer.bounds)
     })).filter((item) => item.box);
+    if (count <= 1 && areaBox) {
+      productItems = await scaleProductItemsToAreaHeight(productItems, row, areaBox);
+    }
     await arrangeProductLayerStacking(productItems, getImageGroupZOrder(row, "product"));
   }
 
@@ -3879,10 +3893,13 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
   }
 
   if (prefix === "product") {
-    const productItems = layers.map((layer) => ({
+    let productItems = layers.map((layer) => ({
       layer,
       box: getBoundsBox(layer.boundsNoEffects || layer.bounds)
     })).filter((item) => item.box);
+    if (count <= 1 && areaBox) {
+      productItems = await scaleProductItemsToAreaHeight(productItems, row, areaBox);
+    }
     await arrangeProductLayerStacking(productItems, getImageGroupZOrder(row, "product"));
   }
 
@@ -4003,9 +4020,29 @@ function collectProductGroupItems(doc, row) {
   return layer && box ? [{ layer, box }] : [];
 }
 
+function shouldFillProductAreaHeight(row) {
+  const explicit = firstTextValue(row || {}, [
+    "product.fillAreaHeight",
+    "product.areaHeightFill",
+    "product.maxHeightToArea",
+    "product.fillHeight"
+  ]);
+  if (explicit !== undefined) return parseVisibilityValue(explicit, true);
+  return getCurrentTemplateConfig().productFillAreaHeight !== false;
+}
+
+function getProductAreaFillHeightRatio(row) {
+  const ratio = readNumber(row || {}, "product.fillAreaHeightRatio", readNumber(row || {}, "product.areaHeightFillRatio", 1));
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+}
+
 async function scaleProductItemsToHeight(items, row, areaBox) {
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
+    if (item.fixedSize) {
+      log(`  Product height rule skipped for fixed-size layer: ${item.layer.name}.`);
+      continue;
+    }
     const ratio = getProductHeightRatio(row, i + 1, items.length);
     const targetHeight = areaBox.height * ratio;
     if (targetHeight > 0 && item.box.height > 0) {
@@ -4013,6 +4050,33 @@ async function scaleProductItemsToHeight(items, row, areaBox) {
     }
     log(`  Product height rule: ${item.layer.name}, mode=${getProductHeightMode(row, items.length)}, category=${getProductCategory(row, i + 1)}, ratio=${ratio}, targetH=${Math.round(targetHeight)}`);
   }
+  return refreshProductItems(items);
+}
+
+async function scaleProductItemsToAreaHeight(items, row, areaBox) {
+  if (!shouldFillProductAreaHeight(row) || !areaBox) return refreshProductItems(items);
+
+  const freshItems = refreshProductItems(items);
+  const scalableItems = freshItems.filter((item) => !item.fixedSize && item.box && item.box.height > 0);
+  if (!scalableItems.length) return freshItems;
+
+  const maxHeight = Math.max(...scalableItems.map((item) => item.box.height));
+  const groupBox = getItemsGroupBox(freshItems);
+  const targetHeight = areaBox.height * getProductAreaFillHeightRatio(row);
+  const heightFactor = targetHeight / maxHeight;
+  const widthFactor = groupBox && groupBox.width > 0 ? areaBox.width / groupBox.width : heightFactor;
+  const factor = Math.min(heightFactor, widthFactor);
+  if (!Number.isFinite(factor) || factor <= 0 || Math.abs(factor - 1) <= 0.001) return freshItems;
+
+  const anchorPoint = { x: areaBox.centerX, y: areaBox.bottom };
+  for (const item of scalableItems) {
+    await scaleLayerAroundPoint(item.layer, factor, anchorPoint);
+  }
+
+  const filledItems = refreshProductItems(freshItems);
+  const filledBox = getItemsGroupBox(filledItems);
+  log(`  Product area fill applied: factor=${factor.toFixed(3)}, anchor=areaCenterBottom, heightFactor=${heightFactor.toFixed(3)}, widthFactor=${widthFactor.toFixed(3)}, maxH=${Math.round(maxHeight)}->${Math.round(targetHeight)}, groupW=${filledBox ? Math.round(filledBox.width) : "?"}/${Math.round(areaBox.width)}, groupH=${filledBox ? Math.round(filledBox.height) : "?"}.`);
+  return filledItems;
 }
 
 async function scaleProductItemsByFactor(items, factor) {
@@ -4142,6 +4206,7 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
   freshItems = refreshProductItems(freshItems);
   freshItems = await scaleProductItemsToFitArea(freshItems, areaBox);
   freshItems = await alignProductGroupBottomCenter(freshItems, areaBox);
+  freshItems = await scaleProductItemsToAreaHeight(freshItems, row, areaBox);
   const finalGroupBox = getItemsGroupBox(freshItems);
 
   await arrangeProductLayerStacking(freshItems, getImageGroupZOrder(row, "product"));
@@ -4189,8 +4254,10 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
     left += item.box.width + (Array.isArray(gaps) ? gaps[i] || 0 : gap);
   }
 
-  await arrangeProductLayerStacking(finalItems, getImageGroupZOrder(row, "product"));
-  log(`  Arranged product ${layout} after replace. overlapRatio=${overlapRatio}, gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, totalWidth=${Math.round(finalTotalWidth)}, items=${finalItems.length}`);
+  const filledItems = await scaleProductItemsToAreaHeight(finalItems, row, areaBox);
+  const filledBox = getItemsGroupBox(filledItems);
+  await arrangeProductLayerStacking(filledItems, getImageGroupZOrder(row, "product"));
+  log(`  Arranged product ${layout} after replace. overlapRatio=${overlapRatio}, gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, totalWidth=${Math.round(finalTotalWidth)}, groupH=${filledBox ? Math.round(filledBox.height) : "?"}, items=${filledItems.length}`);
 }
 
 async function arrangeProductLineAfterReplace(doc, row) {
@@ -4202,18 +4269,22 @@ async function arrangeProductLineAfterReplace(doc, row) {
     log("  Product arrange skipped: count <= 1.");
     return;
   }
-  if (!shouldTouchProductEdges(row) && shouldUseProductCategoryPairGaps(row)) {
-    const preparedLayers = collectProductItems(doc, count);
-    await arrangeProductLayerStacking(preparedLayers, getImageGroupZOrder(row, "product"));
-    log(`  Product arrange skipped: using prepared category-gap ${layout} layout.`);
-    return;
-  }
   const areaBox = state.groupAreaBoxes.product;
   if (!areaBox) {
     log("  Product arrange skipped: product.area not found.");
     return;
   }
-
+  if (!shouldTouchProductEdges(row) && shouldUseProductCategoryPairGaps(row)) {
+    const preparedLayers = collectProductItems(doc, count);
+    let preparedItems = await scaleProductItemsToHeight(preparedLayers, row, areaBox);
+    preparedItems = await scaleProductItemsToFitArea(preparedItems, areaBox);
+    preparedItems = await alignProductGroupBottomCenter(preparedItems, areaBox);
+    preparedItems = await scaleProductItemsToAreaHeight(preparedItems, row, areaBox);
+    const preparedBox = getItemsGroupBox(preparedItems);
+    await arrangeProductLayerStacking(preparedItems, getImageGroupZOrder(row, "product"));
+    log(`  Product arrange skipped: using prepared category-gap ${layout} layout, groupH=${preparedBox ? Math.round(preparedBox.height) : "?"}.`);
+    return;
+  }
   const layers = collectProductItems(doc, count);
   if (!layers.length) {
     log("  Product arrange skipped: no product layers found.");
@@ -5995,8 +6066,14 @@ async function replaceSmartObjectLayer(layer, file) {
     }
     if (prefix === "product") {
       await alignLayerBottomToBox(layer, areaBox);
-      const alignedBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
-      log(`  Product bottom aligned: layerBottom=${alignedBox ? Math.round(alignedBox.bottom) : "?"}, areaBottom=${Math.round(areaBox.bottom)}.`);
+      let productItems = await scaleProductItemsToAreaHeight([{
+        layer,
+        index: 1,
+        box: getBoundsBox(layer.boundsNoEffects || layer.bounds)
+      }], row, areaBox);
+      productItems = await alignProductGroupBottomCenter(productItems, areaBox);
+      const alignedBox = getItemsGroupBox(productItems);
+      log(`  Product bottom aligned: layerBottom=${alignedBox ? Math.round(alignedBox.bottom) : "?"}, areaBottom=${Math.round(areaBox.bottom)}, layerH=${alignedBox ? Math.round(alignedBox.height) : "?"}.`);
     }
     return;
   }
@@ -7234,11 +7311,11 @@ async function applyTitleAndProductNote(doc, row) {
 
 function isGiftControlColumn(column) {
   return PRODUCT_NAME_COLUMNS.includes(column) ||
-    /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|heightRatioscale|heightRatioScale|scale|slotFill|slotSpan|category|categoryGap|categoryGapMode|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio|align|alignX|areaAlign|areaAlignX|imageAlign|imageAlignX|xAlign)(\.\d+)?$/.test(column) ||
+    /^(giftLeft|giftRight|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|heightRatioscale|heightRatioScale|scale|fillAreaHeight|fillHeight|areaHeightFill|maxHeightToArea|slotFill|slotSpan|category|categoryGap|categoryGapMode|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio|align|alignX|areaAlign|areaAlignX|imageAlign|imageAlignX|xAlign)(\.\d+)?$/.test(column) ||
     /^product\.gap\.\d+$/.test(column) ||
     /^product\.gap\.[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/.test(column) ||
     /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
-    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
+    /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|fillAreaHeight|fillHeight|areaHeightFill|maxHeightToArea|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
     /^productShadow\.(top|opacity)$/.test(column) ||
     /^(mechanism|daily\.(mechanism|giftMiddleType|giftRightType|left298))$/.test(column) ||
     /^(?:daily\.icon|pdd\.icon|icon)\.[a-zA-Z0-9.+_-]+$/.test(column) ||
