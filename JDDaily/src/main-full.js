@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260811-product-area-fit-bounds";
+const SCRIPT_VERSION = "20260819-private-aw-scoped-gift";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -65,6 +65,14 @@ const BASE_TEMPLATE_CONFIG = {
   productShadow: null,
   dailyMechanismSwitch: null,
   layerVisibilitySwitches: [],
+  dynamicIconSwitch: {
+    enabled: true,
+    groupNames: ["ICON", "Icon", "icon"],
+    prefixes: ["icon.", "daily.icon.", "pdd.icon."],
+    listColumns: ["icon.layers", "icon.names", "icon.list", "daily.icons", "pdd.icons"],
+    defaultVisible: false,
+    directColumnMatching: true
+  },
   blockedAssetFolders: [],
   productOverlapGapRatio: -0.42,
   giftLeftOverlapGapRatio: -0.18
@@ -116,6 +124,14 @@ const TEMPLATE_CONFIGS = {
       },
       left298Layers: ["img.giftLeft.298"]
     },
+    dynamicIconSwitch: {
+      enabled: true,
+      groupNames: ["ICON", "Icon", "icon"],
+      prefixes: ["icon.", "daily.icon.", "pdd.icon."],
+      listColumns: ["icon.layers", "icon.names", "icon.list", "daily.icons", "pdd.icons"],
+      defaultVisible: false,
+      directColumnMatching: true
+    },
     productAssetPriority: {
       enabled: true,
       folder: "babyproduct_icefrosteffect"
@@ -129,6 +145,8 @@ const TEMPLATE_CONFIGS = {
     bottomTextSubscriptSuffixes: ["/\u74f6"],
     bottomTextCenterX: 500,
     bottomTextAreaName: "bottomText.area",
+    preserveBottomTextTemplatePosition: true,
+    finalProductBottomAlign: true,
     bottomTextOverflowScale: 0.8,
     bottomTextShortMaxUnits: 7.0,
     bottomTextShortFitRatio: 0.88,
@@ -510,6 +528,24 @@ function getMechanismControlColumns(config = getCurrentTemplateConfig()) {
   const switchConfig = getMechanismSwitchConfig(config) || {};
   return getMechanismColumnCandidates(switchConfig);
 }
+
+const DEFAULT_DYNAMIC_ICON_ALIASES = {
+  baby0: ["baby0", "baby0icon"],
+  baby0icon: ["baby0", "baby0icon"],
+  "6-12": ["612", "6-12icon"],
+  "6-12icon": ["612", "6-12icon"],
+  "612": ["612", "6-12icon"],
+  "612icon": ["612", "6-12icon"],
+  cosmetic: ["cosmetic", "cosmeticicon", "cosmeticicon "],
+  cosmeticicon: ["cosmetic", "cosmeticicon", "cosmeticicon "],
+  youth12: ["12+", "12+icon", "12plusicon", "youth12icon", "teen12icon"],
+  youth12icon: ["12+", "12+icon", "12plusicon", "youth12icon", "teen12icon"],
+  "12+": ["12+", "12+icon", "12plusicon", "youth12icon", "teen12icon"],
+  "12+icon": ["12+", "12+icon", "12plusicon", "youth12icon", "teen12icon"],
+  "1218": ["12+", "12+icon", "12plusicon", "youth12icon", "teen12icon"],
+  "1218icon": ["12+", "12+icon", "12plusicon", "youth12icon", "teen12icon"]
+};
+
 function sanitizeFileBaseName(value, fallback = "image") {
   const cleaned = String(value || "")
     .trim()
@@ -773,6 +809,7 @@ function compactSpecHyphenKey(key) {
 function compactProductNameMatchKey(key) {
   return String(key || "")
     .replace(/[×✕＊*]/g, "x")
+    .replace(/(\d+(?:\.\d+)?(?:kg|ml|g|l))x(\d+)$/gi, "$1$2x")
     .replace(/((?:kg|ml|g|l))x(?=\d)/gi, "$1")
     .replace(/[\\/_\-\s]+/g, "")
     .toLowerCase();
@@ -1042,12 +1079,25 @@ function findLayerByAnyName(doc, names) {
 
 function findLayerByNameInLayer(parentLayer, name) {
   if (!parentLayer || !parentLayer.layers) return null;
+  const normalized = String(name || "").trim().toLowerCase();
   for (const layer of parentLayer.layers) {
-    if (layer.name === name) return layer;
+    const layerName = String(layer.name || "");
+    if (layerName === name || layerName.trim().toLowerCase() === normalized) return layer;
     const child = findLayerByNameInLayer(layer, name);
     if (child) return child;
   }
   return null;
+}
+
+function findLayersByNameInLayer(parentLayer, name, result = []) {
+  if (!parentLayer || !parentLayer.layers) return result;
+  const normalized = String(name || "").trim().toLowerCase();
+  for (const layer of parentLayer.layers) {
+    const layerName = String(layer.name || "");
+    if (layerName === name || layerName.trim().toLowerCase() === normalized) result.push(layer);
+    findLayersByNameInLayer(layer, name, result);
+  }
+  return result;
 }
 
 function findLayerByAnyNameInLayer(parentLayer, names) {
@@ -1130,6 +1180,236 @@ function applyLayerVisibilitySwitches(doc, row) {
     setLayersVisibleByAnyName(doc, switchConfig.names || [], visible, switchConfig.label || columns[0]);
     log(`  Layer switch: ${columns[0]}=${visible ? "on" : "off"}.`);
   }
+}
+
+function normalizeSwitchToken(value) {
+  return String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+function getDynamicIconSwitchConfig(config = getCurrentTemplateConfig()) {
+  const switchConfig = config && config.dynamicIconSwitch;
+  if (!switchConfig || !switchConfig.enabled) return null;
+  return {
+    groupNames: ["ICON"],
+    prefixes: ["icon.", "daily.icon.", "pdd.icon."],
+    listColumns: ["icon.layers", "icon.names", "icon.list", "daily.icons", "pdd.icons"],
+    defaultVisible: false,
+    directColumnMatching: true,
+    aliases: {},
+    ...switchConfig
+  };
+}
+
+function isDynamicIconListColumn(column, switchConfig) {
+  return (switchConfig.listColumns || []).includes(column);
+}
+
+function isIgnoredDynamicIconToken(token, switchConfig) {
+  const normalized = normalizeSwitchToken(token);
+  return (switchConfig.ignoredTokens || [])
+    .map((item) => normalizeSwitchToken(item))
+    .filter(Boolean)
+    .includes(normalized);
+}
+
+function getDynamicIconColumnToken(column, switchConfig) {
+  if (!column || isDynamicIconListColumn(column, switchConfig)) return "";
+  for (const prefix of switchConfig.prefixes || []) {
+    if (column.startsWith(prefix)) {
+      const token = column.slice(prefix.length).trim();
+      return isIgnoredDynamicIconToken(token, switchConfig) ? "" : token;
+    }
+  }
+  return "";
+}
+
+function addUnique(items, value) {
+  const text = String(value || "");
+  if (text && !items.includes(text)) items.push(text);
+}
+
+function addDynamicIconAliasKeys(map, key, names) {
+  const rawKey = String(key || "").trim().toLowerCase();
+  const normalizedKey = normalizeSwitchToken(key);
+  if (rawKey) map[rawKey] = names;
+  if (normalizedKey) map[normalizedKey] = names;
+}
+
+function getDynamicIconAliasMap(switchConfig) {
+  const map = {};
+  const aliases = { ...DEFAULT_DYNAMIC_ICON_ALIASES, ...(switchConfig.aliases || {}) };
+  for (const [key, value] of Object.entries(aliases)) {
+    addDynamicIconAliasKeys(map, key, Array.isArray(value) ? value : [value]);
+  }
+  return map;
+}
+
+function getDynamicIconLayerNames(token, switchConfig) {
+  const raw = String(token || "").trim();
+  if (!raw) return [];
+
+  const names = [];
+  const aliases = getDynamicIconAliasMap(switchConfig);
+  const rawKey = raw.toLowerCase();
+  const normalizedKey = normalizeSwitchToken(raw);
+  for (const name of aliases[rawKey] || aliases[normalizedKey] || []) addUnique(names, name);
+  addUnique(names, raw);
+  if (!/icon$/i.test(raw)) addUnique(names, `${raw}icon`);
+  return names;
+}
+
+function setLayerVisibleRecursive(layer, visible) {
+  if (!layer) return;
+  layer.visible = visible;
+  if (visible) {
+    let parent = layer.parent;
+    while (parent && parent.layers) {
+      try {
+        parent.visible = true;
+      } catch (error) {
+        break;
+      }
+      parent = parent.parent;
+    }
+  }
+}
+
+function setLayersVisibleByAnyNameInLayer(parentLayer, names, visible, label) {
+  const seen = new Set();
+  let count = 0;
+  for (const name of names || []) {
+    const layers = findLayersByNameInLayer(parentLayer, name, []);
+    for (const layer of layers) {
+      if (!layer || seen.has(layer)) continue;
+      seen.add(layer);
+      setLayerVisibleRecursive(layer, visible);
+      count += 1;
+    }
+  }
+  if (!count && label) {
+    log(`  Skip: scoped layer not found: ${label}`);
+  }
+  return count;
+}
+
+function getDynamicIconGroupLayers(doc, switchConfig) {
+  const seen = new Set();
+  const groups = [];
+  for (const groupName of switchConfig.groupNames || []) {
+    for (const layer of findLayersByName(doc, groupName)) {
+      if (!layer || !layer.layers || seen.has(layer)) continue;
+      seen.add(layer);
+      groups.push(layer);
+    }
+  }
+  return groups;
+}
+
+function getDynamicIconLayerNameKeys(doc, switchConfig) {
+  const keys = new Set();
+  for (const group of getDynamicIconGroupLayers(doc, switchConfig)) {
+    for (const layer of getAllLayers(group.layers)) {
+      const raw = String(layer && layer.name || "").trim();
+      if (!raw) continue;
+      keys.add(raw.toLowerCase());
+      keys.add(normalizeSwitchToken(raw));
+    }
+  }
+  return keys;
+}
+
+function getDirectDynamicIconColumnToken(column, iconNameKeys, switchConfig) {
+  if (!switchConfig.directColumnMatching || !column || isDynamicIconListColumn(column, switchConfig)) return "";
+  if (getDynamicIconColumnToken(column, switchConfig)) return "";
+  const raw = String(column || "").trim();
+  if (!raw || isIgnoredDynamicIconToken(raw, switchConfig)) return "";
+  return iconNameKeys.has(raw.toLowerCase()) || iconNameKeys.has(normalizeSwitchToken(raw)) ? raw : "";
+}
+
+function hasDynamicIconControls(doc, row, switchConfig) {
+  const iconNameKeys = getDynamicIconLayerNameKeys(doc, switchConfig);
+  return Object.keys(row || {}).some((column) => {
+    return isDynamicIconListColumn(column, switchConfig) ||
+      !!getDynamicIconColumnToken(column, switchConfig) ||
+      !!getDirectDynamicIconColumnToken(column, iconNameKeys, switchConfig);
+  });
+}
+
+function setChildLayersVisibleRecursive(layer, visible) {
+  let count = 0;
+  for (const child of layer && layer.layers || []) {
+    setLayerVisibleRecursive(child, visible);
+    count += 1;
+    count += setChildLayersVisibleRecursive(child, visible);
+  }
+  return count;
+}
+
+function hideDynamicIconGroups(doc, switchConfig) {
+  let childCount = 0;
+  const groups = getDynamicIconGroupLayers(doc, switchConfig);
+  for (const group of groups) {
+    group.visible = true;
+    childCount += setChildLayersVisibleRecursive(group, false);
+  }
+  if (groups.length) {
+    log(`  Dynamic icon reset: groups=${groups.length}, layers=${childCount}.`);
+  } else {
+    log("  Dynamic icon reset skipped: ICON group not found.");
+  }
+}
+
+function splitDynamicIconList(value) {
+  return String(value || "")
+    .split(/[,\n\r;|，、；]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function applyDynamicIconSwitch(doc, row) {
+  const switchConfig = getDynamicIconSwitchConfig();
+  if (!switchConfig || !hasDynamicIconControls(doc, row, switchConfig)) return;
+
+  hideDynamicIconGroups(doc, switchConfig);
+  const iconGroups = getDynamicIconGroupLayers(doc, switchConfig);
+  const iconNameKeys = getDynamicIconLayerNameKeys(doc, switchConfig);
+  const openIconNames = (names, label) => {
+    let opened = 0;
+    for (const group of iconGroups) {
+      opened += setLayersVisibleByAnyNameInLayer(group, names, true, label);
+    }
+    return opened;
+  };
+
+  for (const column of switchConfig.listColumns || []) {
+    if (!hasValue(row, column)) continue;
+    for (const token of splitDynamicIconList(row[column])) {
+      openIconNames(getDynamicIconLayerNames(token, switchConfig), `dynamic icon ${token}`);
+      log(`  Dynamic icon switch: ${column}:${token}=on.`);
+    }
+  }
+
+  for (const [column, value] of Object.entries(row || {})) {
+    const token = getDynamicIconColumnToken(column, switchConfig) ||
+      getDirectDynamicIconColumnToken(column, iconNameKeys, switchConfig);
+    if (!token) continue;
+    const visible = parseVisibilityValue(value, switchConfig.defaultVisible);
+    if (!visible) {
+      log(`  Dynamic icon switch: ${column}=off.`);
+      continue;
+    }
+    openIconNames(getDynamicIconLayerNames(token, switchConfig), `dynamic icon ${token}`);
+    log(`  Dynamic icon switch: ${column}=on.`);
+  }
+}
+
+function isDynamicIconControlColumn(doc, row, column) {
+  const switchConfig = getDynamicIconSwitchConfig();
+  if (!switchConfig) return false;
+  const iconNameKeys = getDynamicIconLayerNameKeys(doc, switchConfig);
+  return isDynamicIconListColumn(column, switchConfig) ||
+    !!getDynamicIconColumnToken(column, switchConfig) ||
+    !!getDirectDynamicIconColumnToken(column, iconNameKeys, switchConfig);
 }
 function getBoundsBox(bounds) {
   if (!bounds) return null;
@@ -2019,7 +2299,7 @@ function getDailyGiftLayerCandidateNames(position, type, configuredNames) {
   ]));
 }
 
-function setDailyGiftLayerVisibility(doc, switchConfig, position, giftType) {
+function setDailyGiftLayerVisibility(doc, switchConfig, position, giftType, row = null) {
   const giftLayers = position === "right"
     ? switchConfig.rightGiftLayers || {}
     : switchConfig.middleGiftLayers || {};
@@ -2039,7 +2319,10 @@ function setDailyGiftLayerVisibility(doc, switchConfig, position, giftType) {
   }
 
   const activeNames = getDailyGiftLayerCandidateNames(position, giftType, giftLayers[giftType]);
-  const opened = setLayersVisibleByAnyName(doc, activeNames, true, `img.gift${position === "right" ? "Right" : "Middle"}.${giftType}`);
+  const activeMechanismLayer = row ? findDailyMechanismLayer(doc, row) : null;
+  const opened = activeMechanismLayer
+    ? setLayersVisibleByAnyNameInLayer(activeMechanismLayer, activeNames, true, `img.gift${position === "right" ? "Right" : "Middle"}.${giftType}`)
+    : setLayersVisibleByAnyName(doc, activeNames, true, `img.gift${position === "right" ? "Right" : "Middle"}.${giftType}`);
   log(`  ${label} switch: closed ${giftLayerList.length}, active=${giftType}, opened=${opened}.`);
 }
 
@@ -2055,16 +2338,16 @@ function applyDailyMechanismSwitch(doc, row) {
   });
 
   const requestedMiddleType = getDailyGiftMiddleType(row);
-  const middleType = type === "2" ? "" : requestedMiddleType;
-  setDailyGiftLayerVisibility(doc, switchConfig, "middle", middleType);
+  const middleType = requestedMiddleType;
+  setDailyGiftLayerVisibility(doc, switchConfig, "middle", middleType, row);
 
   const requestedRightType = getDailyGiftRightType(row);
-  const rightType = type === "2" ? "" : requestedRightType;
-  setDailyGiftLayerVisibility(doc, switchConfig, "right", rightType);
+  const rightType = requestedRightType;
+  setDailyGiftLayerVisibility(doc, switchConfig, "right", rightType, row);
 
   const showLeft298 = type === "4" || String(row && row["daily.left298"] || "").trim() === "1";
   setLayersVisibleByAnyName(doc, switchConfig.left298Layers || [], showLeft298, "img.giftLeft.298");
-  log(`  Daily switch: mechanism=${type}, middleGift=${middleType || "none"}, rightGift=${rightType || "none"}${type === "2" && (requestedMiddleType || requestedRightType) ? `, ignoredGift=${requestedMiddleType || requestedRightType}` : ""}.`);
+  log(`  Daily switch: mechanism=${type}, middleGift=${middleType || "none"}, rightGift=${rightType || "none"}.`);
 }
 function getPersonTemplateType(row) {
   const config = getCurrentTemplateConfig();
@@ -3826,7 +4109,7 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
   const setImages = parseImageSpec(row[`img.${prefix}Set`]).images;
   for (let i = 1; i <= count; i += 1) {
     const imagePath = row[`img.${prefix}.${i}`] || setImages[i - 1] || row[`img.${prefix}`];
-    if (!imagePath) continue;
+    if (!imagePath || isDisabledImageValue(imagePath)) continue;
 
     const asset = await getAssetEntry(imagePath, {
       disableTrimmed: prefix === "giftRight",
@@ -3919,15 +4202,14 @@ async function alignGiftLeftImageGroupToArea(doc) {
   const type = getDailyMechanismType(state.currentRow || {}, switchConfig);
   const mechanismNames = getMechanismGroupNames(switchConfig, type);
   const mechanismLayer = findDailyMechanismLayerForGiftLeft(doc, mechanismNames);
-  if (!mechanismLayer) {
-    log(`  GiftLeft group align skipped: active daily.mechanism.${type} group not found.`);
-    return;
+  let targetLayer = null;
+  if (mechanismLayer) {
+    targetLayer = findGiftLeftImageGroupInLayer(mechanismLayer);
   }
-
-  const targetLayer = findGiftLeftImageGroupInLayer(mechanismLayer);
-  if (!targetLayer) {
+  if (!mechanismLayer) {
+    log(`  GiftLeft template group not found for mechanism.${type}; generated giftLeft layers will be aligned directly.`);
+  } else if (!targetLayer) {
     log(`  GiftLeft group align skipped: giftLeftimage not found under ${mechanismLayer.name}.`);
-    return;
   }
 
   const collectVisibleChildBoxes = (layer, result = []) => {
@@ -3942,7 +4224,7 @@ async function alignGiftLeftImageGroupToArea(doc) {
     }
     return result;
   };
-  const childBoxes = collectVisibleChildBoxes(targetLayer);
+  const childBoxes = targetLayer ? collectVisibleChildBoxes(targetLayer) : [];
   const generatedBoxes = [];
   const giftCount = Math.max(getGiftCount(state.currentRow || {}, "giftLeft") || 0, 0);
   for (let i = 1; i <= giftCount; i += 1) {
@@ -3957,9 +4239,9 @@ async function alignGiftLeftImageGroupToArea(doc) {
     Math.min(...alignItems.map((item) => item.box.top)),
     Math.max(...alignItems.map((item) => item.box.right)) - Math.min(...alignItems.map((item) => item.box.left)),
     Math.max(...alignItems.map((item) => item.box.bottom)) - Math.min(...alignItems.map((item) => item.box.top))
-  ) : getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds);
+  ) : targetLayer ? getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds) : null;
   if (!box) {
-    log(`  GiftLeft group align skipped: ${targetLayer.name} has no visible child bounds.`);
+    log("  GiftLeft group align skipped: no generated giftLeft layers or template group bounds.");
     return;
   }
 
@@ -3982,20 +4264,21 @@ async function alignGiftLeftImageGroupToArea(doc) {
     for (const item of alignItems) {
       await moveLayerByOffset(item.layer, dx, dy, item.layer.name);
     }
-  } else {
+  } else if (targetLayer) {
     await moveLayerByOffset(targetLayer, dx, dy, targetLayer.name);
   }
   const alignedItems = alignItems.length ? alignItems.map((item) => {
     const box = getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds);
     return box ? { layer: item.layer, box } : null;
-  }).filter(Boolean) : collectVisibleChildBoxes(targetLayer);
+  }).filter(Boolean) : targetLayer ? collectVisibleChildBoxes(targetLayer) : [];
   const alignedBox = alignedItems.length ? makeBox(
     Math.min(...alignedItems.map((item) => item.box.left)),
     Math.min(...alignedItems.map((item) => item.box.top)),
     Math.max(...alignedItems.map((item) => item.box.right)) - Math.min(...alignedItems.map((item) => item.box.left)),
     Math.max(...alignedItems.map((item) => item.box.bottom)) - Math.min(...alignedItems.map((item) => item.box.top))
-  ) : getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds);
-  log(`  GiftLeft align: area=${areaName}, moved=${alignItems.length ? alignItems.map((item) => item.layer.name).join("+") : targetLayer.name}, dx=${Math.round(dx)}, dy=${Math.round(dy)}, after=${alignedBox ? `${Math.round(alignedBox.left)},${Math.round(alignedBox.bottom)}` : "?"}, target=${Math.round(areaBox.left)},${Math.round(areaBox.bottom)}.`);
+  ) : targetLayer ? getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds) : null;
+  const movedLabel = alignItems.length ? alignItems.map((item) => item.layer.name).join("+") : targetLayer ? targetLayer.name : "none";
+  log(`  GiftLeft align: area=${areaName}, moved=${movedLabel}, dx=${Math.round(dx)}, dy=${Math.round(dy)}, after=${alignedBox ? `${Math.round(alignedBox.left)},${Math.round(alignedBox.bottom)}` : "?"}, target=${Math.round(areaBox.left)},${Math.round(areaBox.bottom)}.`);
 }
 
 function collectProductItems(doc, count) {
@@ -4018,6 +4301,27 @@ function collectProductGroupItems(doc, row) {
   const layer = findLayerByName(doc, "img.product");
   const box = layer && layer.visible !== false && getBoundsBox(layer.boundsNoEffects || layer.bounds);
   return layer && box ? [{ layer, box }] : [];
+}
+
+async function alignCurrentProductLayersToArea(doc, row) {
+  const config = getCurrentTemplateConfig();
+  if (!config.finalProductBottomAlign) return;
+
+  const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.product;
+  if (!areaBox) {
+    log("  Final product bottom align skipped: product.area not found.");
+    return;
+  }
+
+  const items = collectProductGroupItems(doc, row);
+  const groupBox = getItemsGroupBox(items);
+  if (!items.length || !groupBox) {
+    log("  Final product bottom align skipped: no product layers found.");
+    return;
+  }
+
+  await translateProductItems(items, areaBox.centerX - groupBox.centerX, areaBox.bottom - groupBox.bottom);
+  log(`  Final product group center-bottom aligned to ${state.groupAreaNames.product || "product.area"}.`);
 }
 
 function shouldFillProductAreaHeight(row) {
@@ -4158,7 +4462,7 @@ function refreshProductItems(items) {
 async function translateProductItems(items, dx, dy) {
   if (!dx && !dy) return;
   for (const item of items) {
-    await item.layer.translate(dx, dy);
+    await moveLayerByOffset(item.layer, dx, dy, item.layer.name);
   }
 }
 
@@ -5153,12 +5457,13 @@ async function replaceTextLayersByName(doc, name, value, options = {}) {
   if (!layers.length) return false;
 
   for (const layer of layers) {
+    const textValue = isPriceLabelColumn(name, layer) ? formatPriceLabelText(value) : value;
     if (name === "txt.price" && options.priceDecimalTail) {
-      await replacePriceLayerWithDecimalTailStyle(layer, value);
+      await replacePriceLayerWithDecimalTailStyle(layer, textValue);
     } else if (options.subscriptSuffixes && options.subscriptSuffixes.length) {
-      await replaceTextLayerWithSubscriptSuffix(layer, value, options.subscriptSuffixes);
+      await replaceTextLayerWithSubscriptSuffix(layer, textValue, options.subscriptSuffixes);
     } else {
-      await replaceTextLayer(layer, value);
+      await replaceTextLayer(layer, textValue);
     }
   }
   return true;
@@ -5832,6 +6137,26 @@ function getBottomTextShortFitRatio(row) {
   return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
 }
 
+function isPriceLabelColumn(column, layer) {
+  return column === "txt.priceLabel" || String(layer && layer.name || "") === "txt.priceLabel";
+}
+
+function formatPriceLabelText(value) {
+  if (value === undefined || value === null) return value;
+  const text = String(value);
+  if (!text || /\r|\n/.test(text)) return value;
+  const chars = Array.from(text);
+  return chars.length > 2 ? `${chars.slice(0, 2).join("")}\n${chars.slice(2).join("")}` : text;
+}
+
+async function restoreTextLayerOriginalAnchor(layer, originalBox, label = "text") {
+  if (!layer || !originalBox) return;
+  const afterBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!afterBox) return;
+  await layer.translate(originalBox.left - afterBox.left, originalBox.top - afterBox.top);
+  log(`  Text layer anchor restored: ${label}.`);
+}
+
 async function applyBottomTextTemplateStyle(layer, value, scale = 1) {
   if (!layer || value === undefined || value === null) return;
   if (!layer.textItem) {
@@ -5907,16 +6232,27 @@ async function applyBottomTextVariantRules(doc, value, row = {}) {
   const config = getCurrentTemplateConfig();
   const areaLayer = findLayerByName(doc, config.bottomTextAreaName || "bottomText.area");
   const areaBox = getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
+  const preserveTemplatePosition = config.preserveBottomTextTemplatePosition;
   const baseLayers = findLayersByName(doc, "txt.bottomText").filter((layer) => layer && layer.textItem);
   const shortLayers = findLayersByName(doc, "txt.bottomText.1").filter((layer) => layer && layer.textItem);
   const longLayers = findLayersByName(doc, "txt.bottomText.2").filter((layer) => layer && layer.textItem);
   const shortLayer = shortLayers.find((layer) => layer.visible !== false) || shortLayers[0] || null;
   const longLayer = longLayers.find((layer) => layer.visible !== false) || longLayers[0] || null;
+  const applyVariantLayerContents = async (layer, layerValue) => {
+    const originalTextBox = preserveTemplatePosition ? getBoundsBox(layer.boundsNoEffects || layer.bounds) : null;
+    await applyBottomTextLayerTemplateContents(layer, layerValue);
+    if (preserveTemplatePosition) {
+      await restoreTextLayerOriginalAnchor(layer, originalTextBox, layer.name);
+    }
+  };
 
   if (!shortLayer && !longLayer) {
     const fallbackLayer = baseLayers.find((layer) => layer.visible !== false) || baseLayers[0] || null;
     if (!fallbackLayer) return false;
-    await applyBottomTextRules(fallbackLayer, value);
+    await applyVariantLayerContents(fallbackLayer, value);
+    if (preserveTemplatePosition) {
+      log(`  Bottom text template position kept: ${fallbackLayer.name}.`);
+    }
     return true;
   }
 
@@ -5927,7 +6263,7 @@ async function applyBottomTextVariantRules(doc, value, row = {}) {
   let selectedLayer = shortLayer || longLayer;
   if (shortLayer) {
     shortLayer.visible = true;
-    await applyBottomTextLayerTemplateContents(shortLayer, value);
+    await applyVariantLayerContents(shortLayer, value);
     const shortBox = await getLayerBox(shortLayer);
     const shortMaxUnits = getBottomTextShortMaxUnits(row);
     const visualUnits = getBottomTextVisualUnits(value);
@@ -5948,13 +6284,16 @@ async function applyBottomTextVariantRules(doc, value, row = {}) {
 
   if (selectedLayer && selectedLayer !== shortLayer) {
     selectedLayer.visible = true;
-    await applyBottomTextLayerTemplateContents(selectedLayer, value);
+    await applyVariantLayerContents(selectedLayer, value);
     log(`  Bottom text variant selected: ${selectedLayer.name}.`);
   }
 
   [...baseLayers, ...shortLayers, ...longLayers].forEach((layer) => {
     if (layer !== selectedLayer) layer.visible = false;
   });
+  if (selectedLayer && preserveTemplatePosition) {
+    log(`  Bottom text template position kept: ${selectedLayer.name}.`);
+  }
   return !!selectedLayer;
 }
 
@@ -6087,7 +6426,8 @@ async function replaceSmartObjectLayer(layer, file) {
 async function getAssetEntry(filename, options = {}) {
   if (!filename) return null;
 
-  const normalized = String(filename).replace(/\\/g, "/");
+  if (isDisabledImageValue(filename)) return null;
+  const normalized = stripBlobPathPrefix(String(filename).replace(/\\/g, "/"));
   const productViewFallbacks = getProductImageViewFallbacks(normalized);
   for (const fallback of productViewFallbacks) {
     try {
@@ -6384,8 +6724,20 @@ function splitImageList(value) {
   return String(value || "")
     .split(/[|;]/)
     .map((item) => item.trim())
-    .filter(Boolean)
+    .filter((item) => item && !isDisabledImageValue(item))
     .flatMap(expandRepeatedImageToken);
+}
+
+function isDisabledImageValue(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  return ["0", "1", "false", "no", "n", "off", "hide", "hidden", "none", "null", "undefined", "否", "关", "关闭", "隐藏", "无"].includes(raw);
+}
+
+function stripBlobPathPrefix(filename) {
+  return String(filename || "")
+    .replace(/^blob:\/+blob-\d+\//i, "")
+    .replace(/^blob:(?:\/\/)?blob-\d+\//i, "")
+    .replace(/^blob:\/+/i, "");
 }
 
 function expandRepeatedImageToken(token) {
@@ -7148,6 +7500,16 @@ function findTitleLayerForRow(doc, row, text, options = {}) {
   return selectedLayer;
 }
 
+function hasSubtitleTextForTitleNote(row) {
+  return ["txt.subtitle", "txt.subtitle.1", "txt.subtitle.2", "subtitle"].some((key) => hasValue(row || {}, key));
+}
+
+function hasExplicitEmptySubtitle(row) {
+  const keys = ["txt.subtitle", "txt.subtitle.1", "txt.subtitle.2", "subtitle"];
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(row || {}, key)) &&
+    !keys.some((key) => hasValue(row || {}, key));
+}
+
 async function applyTitleAndProductNote(doc, row) {
   const handled = {};
   const titleStyle = String(row["txt.titleStyle"] || row["title.style"] || row["titleStyle"] || "").trim().toLowerCase();
@@ -7189,11 +7551,12 @@ async function applyTitleAndProductNote(doc, row) {
     `txt.subtitle.${subtitleVariantIndex}`,
     "txt.subtitle"
   ]);
-  [subtitleLayer1, subtitleLayer2, subtitleBaseLayer].forEach((layer) => {
+  const subtitleLayers = [subtitleLayer1, subtitleLayer2, subtitleBaseLayer];
+  subtitleLayers.forEach((layer) => {
     if (layer && layer !== subtitleLayer) layer.visible = false;
   });
   let subtitleLineCount = 0;
-  if (subtitleLayer && subtitleText !== undefined && subtitleText !== null) {
+  if (subtitleLayer && subtitleText !== undefined && subtitleText !== null && String(subtitleText).trim() !== "") {
     subtitleLayer.visible = true;
     const parsedSubtitle = parseTitleSuperscriptMarkup(subtitleText);
     await replaceTextLayerMixedStyle(subtitleLayer, parsedSubtitle.text, SUBTITLE_FONT_RULE, "Subtitle", {
@@ -7205,15 +7568,16 @@ async function applyTitleAndProductNote(doc, row) {
     handled["txt.subtitle.1"] = true;
     handled["txt.subtitle.2"] = true;
     log(`  Subtitle variant used: ${subtitleLayer.name}, titleLines=${titleLineCount}, subtitleLines=${subtitleLineCount}; mixed font applied, superscripts=${parsedSubtitle.superscripts.length}.`);
-  } else if (subtitleLayer) {
-    subtitleLayer.visible = false;
+  } else if (hasExplicitEmptySubtitle(row) || subtitleLayer) {
+    subtitleLayers.forEach((layer) => {
+      if (layer) layer.visible = false;
+    });
     handled["txt.subtitle"] = true;
     handled["txt.subtitle.1"] = true;
     handled["txt.subtitle.2"] = true;
   }
 
-  const titleNoteLineBasis = Math.max(titleLineCount, 1);
-  const titleNoteVariantIndex = Math.min(Math.max(titleNoteLineBasis, 1), 3);
+  const titleNoteVariantIndex = titleLineCount >= 2 ? 3 : hasSubtitleTextForTitleNote(row) ? 2 : 1;
   const titleNoteText = firstTextValue(row, [
     `txt.titleNote.${titleNoteVariantIndex}`,
     "txt.titleNote"
@@ -7238,7 +7602,7 @@ async function applyTitleAndProductNote(doc, row) {
     handled["txt.titleNote.1"] = true;
     handled["txt.titleNote.2"] = true;
     handled["txt.titleNote.3"] = true;
-    log(`  Title note variant used: ${titleNoteLayer.name}, hiddenAlternates=${Math.max(titleNoteLayers.length - 1, 0)}, titleLines=${titleLineCount}, lineBasis=${titleNoteLineBasis}.`);
+    log(`  Title note variant used: ${titleNoteLayer.name}, hiddenAlternates=${Math.max(titleNoteLayers.length - 1, 0)}, titleLines=${titleLineCount}, subtitle=${hasSubtitleTextForTitleNote(row) ? "yes" : "no"}.`);
   } else {
     titleNoteLayers.forEach((layer) => {
       if (layer) layer.visible = false;
@@ -7581,6 +7945,7 @@ async function applyRowToDocument(doc, row) {
 
   applyDailyMechanismSwitch(doc, expandedRow);
   applyLayerVisibilitySwitches(doc, expandedRow);
+  applyDynamicIconSwitch(doc, expandedRow);
   await prepareImageGroupLayers(doc, expandedRow, "product");
   await prepareImageGroupLayers(doc, expandedRow, "giftLeft");
   await prepareImageGroupLayers(doc, expandedRow, "giftRight");
@@ -7604,6 +7969,7 @@ async function applyRowToDocument(doc, row) {
       column.endsWith(".count") ||
       column.endsWith(".layout") ||
       isGiftControlColumn(column) ||
+      isDynamicIconControlColumn(doc, expandedRow, column) ||
       (column === "img.product" && getGiftCount(expandedRow, "product") > 1) ||
       column === "img.giftLeft"
     ) {
@@ -7631,6 +7997,7 @@ async function applyRowToDocument(doc, row) {
     }
 
     if (column.startsWith("txt.")) {
+      const textValue = isPriceLabelColumn(column, layer) ? formatPriceLabelText(value) : value;
       if (shouldPreserveTemplateTextStyle()) {
         const replaced = await replaceTextLayersByName(doc, column, value, {
           bottomText: column === "txt.bottomText",
@@ -7642,9 +8009,9 @@ async function applyRowToDocument(doc, row) {
           log(`  Skip: layer not found: ${column}`);
         }
       } else if (column === "txt.bottomText") {
-        await applyBottomTextRules(layer, value);
+        await applyBottomTextRules(layer, textValue);
       } else {
-        await replaceTextLayer(layer, value);
+        await replaceTextLayer(layer, textValue);
       }
       continue;
     }
@@ -7664,11 +8031,13 @@ async function applyRowToDocument(doc, row) {
 
   applyDailyMechanismSwitch(doc, expandedRow);
   applyLayerVisibilitySwitches(doc, expandedRow);
+  applyDynamicIconSwitch(doc, expandedRow);
   hideGiftLeftGroupsWhenTitleEmpty(doc, expandedRow);
   log("  Before product arrange.");
   await arrangeProductLineAfterReplace(doc, expandedRow);
   log("  After product arrange.");
   await applyProductGroupScale(doc, expandedRow);
+  await alignCurrentProductLayersToArea(doc, expandedRow);
   await applyProductShadow(doc);
   await alignGiftLeftImageGroupToArea(doc);
   if (getCurrentTemplateConfig().keepPersonOnTop) {
