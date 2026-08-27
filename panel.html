@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="src/styles.css?v=20260807-flex-options" />
-    <script src="src/main-full.js?v=20260827-jd-aw-giftleft-height-priority-fill"></script>
+    <script src="src/main-full.js?v=20260827-title-star-giftleft-group"></script>
   </head>
   <body>
     <main class="panel">
@@ -103,11 +103,23 @@
             <input id="mergeExportedPsds" type="checkbox" />
             <span>&#21512;&#24182;&#26412;&#27425;&#23548;&#20986;&#30340; PSD &#20026;&#27719;&#24635; PSD</span>
           </label>
+
+          <label class="checkboxRow">
+            <input id="sortProductCnByHeight" type="checkbox" checked />
+            <span>&#29983;&#22270;&#21069;&#25353;&#39640;&#24230;&#25972;&#29702; product.cn &#39034;&#24207;</span>
+          </label>
+
+          <label class="checkboxRow">
+            <input id="checkCsvProductNames" type="checkbox" checked />
+            <span>&#29983;&#22270;&#21069;&#26816;&#26597; CSV &#20135;&#21697;/&#36192;&#21697;&#21517;&#31216;</span>
+          </label>
         </div>
       </div>
 
       <div class="status">
         <button id="runBatch" class="primary" type="button">&#24320;&#22987;&#25209;&#37327;&#29983;&#25104;</button>
+        <button id="checkCsvNamesOnly" class="secondary" type="button">&#26816;&#26597;&#21517;&#31216;</button>
+        <button id="sortProductCnOnly" class="secondary" type="button">&#25353;&#39640;&#24230;&#25972;&#29702;&#39034;&#24207;</button>
         <div id="summary">&#31561;&#24453;&#24320;&#22987;</div>
         <progress id="progress" value="0" max="1"></progress>
         <button id="scrollLogBottom" class="secondary logButton" type="button">&#26085;&#24535;&#21040;&#24213;&#37096;</button>

@@ -7,7 +7,7 @@ let uxpStorage = null;
 let fs = null;
 let configuredAssetsFolder = null;
 let configuredAssetsFolderPath = "";
-const SCRIPT_VERSION = "20260827-jd-aw-giftleft-height-priority-fill";
+const SCRIPT_VERSION = "20260827-title-star-giftleft-group";
 const MAX_SINGLE_ITEM_REPEAT_COUNT = 12;
 
 const TITLE_FONT_RULE = {
@@ -1449,6 +1449,16 @@ function shouldMergeExportedPsds() {
   return !!(el && el.checked);
 }
 
+function shouldSortProductCnByHeight() {
+  const el = $("sortProductCnByHeight");
+  return !el || el.checked;
+}
+
+function shouldCheckCsvProductNames() {
+  const el = $("checkCsvProductNames");
+  return !el || el.checked;
+}
+
 function parseCsv(text) {
   const rows = [];
   let row = [];
@@ -2544,6 +2554,28 @@ function getImageGroupAlignX(row, prefix, fallback = "left") {
   }
 
   return isHorizontalAlignValue(alignX) ? alignX : fallback;
+}
+
+function isCenterAlignX(value) {
+  return /^(center|middle|c|\u5c45\u4e2d)$/.test(String(value || "").trim().toLowerCase());
+}
+
+function isRightAlignX(value) {
+  return /^(right|r|\u53f3|\u53f3\u5bf9\u9f50)$/.test(String(value || "").trim().toLowerCase());
+}
+
+function getAlignedLeftForWidth(areaBox, width, alignX) {
+  if (!areaBox || !Number.isFinite(width)) return null;
+  if (isCenterAlignX(alignX)) return areaBox.centerX - width / 2;
+  if (isRightAlignX(alignX)) return areaBox.right - width;
+  return areaBox.left;
+}
+
+function getHorizontalAlignDx(alignX, areaBox, box) {
+  if (!areaBox || !box) return 0;
+  if (isCenterAlignX(alignX)) return areaBox.centerX - box.centerX;
+  if (isRightAlignX(alignX)) return areaBox.right - box.right;
+  return areaBox.left - box.left;
 }
 
 function getImageGroupZOrder(row, prefix) {
@@ -3900,12 +3932,14 @@ function getTitleFontConfig(row) {
   };
 }
 
-function parseTitleSuperscriptMarkup(value) {
+function parseTitleSuperscriptMarkup(value, options = {}) {
   const input = String(value || "");
   const superscripts = [];
   let output = "";
   let index = 0;
-  const pattern = /<sup\s*([0-9A-Za-z*]+)\s*>|<sup>(.*?)<\/sup>|[\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079]/g;
+  const pattern = options.literalStar
+    ? /<sup\s*([0-9A-Za-z*]+)\s*>|<sup>(.*?)<\/sup>|[\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079]|\*/g
+    : /<sup\s*([0-9A-Za-z*]+)\s*>|<sup>(.*?)<\/sup>|[\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079]/g;
   const superscriptMap = {
     "\u2070": "0",
     "\u00b9": "1",
@@ -4369,7 +4403,7 @@ async function replaceTitleLayerKeepTemplateStyle(layer, value, options = {}) {
             textStyleRange: applySuperscriptsToTextStyleRanges(
               buildTitleTemplateTextStyleRanges(textValue, styleByKind, baseStyle, { ...options, superscripts }),
               superscripts,
-              { templateSuperscriptStyle: getTemplateSuperscriptStyle(textKey) }
+              { templateSuperscriptStyle: getTemplateSuperscriptStyle(textKey, { marker: "*" }) }
             ),
             ...(paragraphStyleRange ? { paragraphStyleRange } : {})
           },
@@ -4913,10 +4947,18 @@ function isTemplateSuperscriptStyle(style) {
   return Number.isFinite(shift) && shift > 0;
 }
 
-function getTemplateSuperscriptStyle(textKey) {
+function getTemplateSuperscriptStyle(textKey, options = {}) {
   const ranges = textKey && Array.isArray(textKey.textStyleRange) ? textKey.textStyleRange : [];
   const source = ranges.find((range) => range && isTemplateSuperscriptStyle(range.textStyle));
-  return source && source.textStyle ? clonePlainObject(source.textStyle) : null;
+  if (source && source.textStyle) return clonePlainObject(source.textStyle);
+
+  const marker = String(options.marker || "");
+  if (marker) {
+    const markerStyle = getTemplateStyleForChar(textKey, (char) => char === marker);
+    if (markerStyle) return clonePlainObject(markerStyle);
+  }
+
+  return null;
 }
 
 function makeSuperscriptTextStyle(baseStyle, options = {}) {
@@ -5758,6 +5800,35 @@ function getProductItemGaps(row, items, layout, itemWidth, fallbackGap) {
   return gaps;
 }
 
+function shouldLockUniformProductGapsByRepeatedName(row, items) {
+  const field = getProductNameField(row || {});
+  if (!field.value || !Array.isArray(items) || items.length < 2) return false;
+
+  const tokens = splitProductNameList(field.value);
+  if (tokens.length !== 1) return false;
+
+  const expandedNames = expandRepeatedProductNameToken(tokens[0]);
+  if (expandedNames.length !== items.length) return false;
+
+  const normalizedNames = expandedNames
+    .map((name) => normalizeProductNameKey(name))
+    .filter(Boolean);
+  return normalizedNames.length === items.length && new Set(normalizedNames).size === 1;
+}
+
+function shouldLockUniformProductGaps(row, items) {
+  if (!Array.isArray(items) || items.length < 2) return false;
+  if (hasValue(row, "product.gap") || hasValue(row, "product.spacing") || hasProductCategoryGap(row)) return false;
+  if (Number.isFinite(readNumber(row, "product.overlapRatio", null))) return false;
+
+  const sources = items
+    .map((item) => String(getImageSourceForIndex(row || {}, "product", item.index) || "").trim().toLowerCase())
+    .filter(Boolean);
+  if (sources.length === items.length && new Set(sources).size === 1) return true;
+
+  return shouldLockUniformProductGapsByRepeatedName(row, items);
+}
+
 function shouldTouchProductEdges(row) {
   const value = String(row && (row["product.touchEdges"] || row["product.touch"] || "") || "").trim().toLowerCase();
   return /^(1|true|yes|y|on|贴边)$/.test(value);
@@ -5852,7 +5923,9 @@ function getImageGroupTargetBoxes(row, prefix, baseBox, areaFallbackBox, count, 
 
   const bottom = readNumber(row, `${prefix}.bottom`, areaBox.bottom);
   const centerY = bottom - itemHeight / 2;
-  const startX = areaBox.centerX - totalWidth / 2 + itemWidth / 2;
+  const alignX = prefix === "giftLeft" ? getImageGroupAlignX(row, prefix, "left") : "center";
+  const groupLeft = getAlignedLeftForWidth(areaBox, totalWidth, alignX);
+  const startX = (Number.isFinite(groupLeft) ? groupLeft : areaBox.centerX - totalWidth / 2) + itemWidth / 2;
   const boxes = [];
 
   for (let i = 0; i < count; i += 1) {
@@ -5899,11 +5972,16 @@ async function prepareGiftLeftAmpouleLayers(doc, row, baseLayer, areaBox) {
     : rowHeight * readNumber(row, "giftLeft.ampouleHeightRatio", 0.95);
 
   const asset = await getAssetEntry(imagePath);
+  const giftLeftImageGroup = findCurrentGiftLeftImageGroup(doc, row);
   const layers = [];
   for (let i = 1; i <= groupCount; i += 1) {
     const layer = await placeAssetAsLayer(asset);
     layer.name = `img.giftLeft.${i}`;
     layer.visible = true;
+    const movedInside = await moveLayerInsideGroup(layer, giftLeftImageGroup, "current giftLeftimage");
+    if (!movedInside && giftLeftImageGroup) {
+      await moveLayerBesideReferenceBestEffort(layer, giftLeftImageGroup, `${layer.name} -> ${giftLeftImageGroup.name}`);
+    }
     const box = getBoundsBox(layer.boundsNoEffects || layer.bounds);
     if (box) {
       layers.push({ layer, box });
@@ -5960,8 +6038,9 @@ async function prepareGiftLeftAmpouleLayers(doc, row, baseLayer, areaBox) {
   }
 
   if (baseLayer) baseLayer.visible = false;
+  state.giftLeftPlacedLayers = layers.map((item) => item.layer);
 
-  log(`  GiftLeft ampoule layout: groups=${groupCount}, rows=${rows.join("+")}, groupH=${Math.round(groupHeight)}, gap=${colGap}, rowGap=${rowGap}.`);
+  log(`  GiftLeft ampoule layout: groups=${groupCount}, rows=${rows.join("+")}, groupH=${Math.round(groupHeight)}, gap=${colGap}, rowGap=${rowGap}, parent=${giftLeftImageGroup ? giftLeftImageGroup.name : "none"}.`);
   return true;
 }
 
@@ -6351,7 +6430,13 @@ function findCurrentGiftLeftImageGroup(doc, row) {
   const type = getDailyMechanismType(row || state.currentRow || {}, switchConfig);
   const mechanismNames = getMechanismGroupNames(switchConfig, type);
   const mechanismLayer = findDailyMechanismLayerForGiftLeft(doc, mechanismNames);
-  return mechanismLayer ? findGiftLeftImageGroupInLayer(mechanismLayer) : null;
+  const mechanismGroup = mechanismLayer ? findGiftLeftImageGroupInLayer(mechanismLayer) : null;
+  if (mechanismGroup) return mechanismGroup;
+  return findLayerByAnyName(doc, [
+    "giftLeftimage",
+    "giftLeftImage",
+    "giftLeft.image"
+  ]);
 }
 
 async function prepareSingleGiftLeftBagTemplateLayer(doc, row, baseLayer, areaBox) {
@@ -6370,8 +6455,10 @@ async function prepareSingleGiftLeftBagTemplateLayer(doc, row, baseLayer, areaBo
   const ratio = getGiftLeftEffectiveHeightRatio(row, 1);
   const targetHeight = areaBox.height * ratio;
   const targetWidth = targetHeight * (currentBox.width / currentBox.height);
+  const alignX = getImageGroupAlignX(row, "giftLeft", "left");
+  const targetLeft = getAlignedLeftForWidth(areaBox, targetWidth, alignX);
   const targetBox = makeBox(
-    areaBox.centerX - targetWidth / 2,
+    Number.isFinite(targetLeft) ? targetLeft : areaBox.left,
     areaBox.bottom - targetHeight,
     targetWidth,
     targetHeight
@@ -6857,9 +6944,7 @@ async function alignGiftLeftImageGroupToArea(doc, row = null) {
       ? areaBox.right - box.right
       : areaBox.left - box.left;
   const dy = areaBox.bottom - box.bottom;
-  if (config.id === "tianmao88" && targetLayer) {
-    await targetLayer.translate(dx, dy);
-  } else if (alignItems.length) {
+  if (alignItems.length) {
     for (const item of alignItems) {
       await moveLayerByOffset(item.layer, dx, dy, item.layer.name);
     }
@@ -7883,14 +7968,16 @@ async function arrangeTmall88ProductOverlapItems(items, row, areaBox, layout) {
 
 async function finalizeTmall88ProductSpacing(doc, row, label = "Tmall88 final product spacing") {
   const config = getCurrentTemplateConfig();
-  const count = Math.max(getGiftCount(row || {}, "product") || 1, 1);
+  const rowCount = Math.max(getGiftCount(row || {}, "product") || 1, 1);
+  const visibleItems = collectProductItems(doc, Math.max(rowCount, 6), row);
+  const count = Math.max(rowCount, visibleItems.length || rowCount);
   const layout = resolveImageGroupLayout(row || {}, "product", count);
   const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.product;
   const enabled = config && (config.id === "tianmao88" || config.finalizeProductOverlapSpacing);
   if (!enabled || count <= 1 || layout === "line" || !areaBox) return false;
 
-  let items = collectProductItems(doc, count, row);
-  const backdropCount = collectProductItems(doc, count, row, { onlyBackdrop: true }).length;
+  let items = visibleItems.length ? visibleItems : collectProductItems(doc, count, row);
+  const backdropCount = collectProductItems(doc, Math.max(count, 6), row, { onlyBackdrop: true }).length;
   const expectedCount = Math.max(0, count - backdropCount);
   if (items.length !== expectedCount) {
     log(`  ${label} skipped: product layers=${items.length}/${expectedCount}, total=${count}, backdrop=${backdropCount}.`);
@@ -7901,8 +7988,11 @@ async function finalizeTmall88ProductSpacing(doc, row, label = "Tmall88 final pr
   const minWidth = Math.min(...items.map((item) => item.box.width));
   const fallbackGap = getImageGroupGap(row, "product", layout, minWidth);
   const useManualIndexedGaps = hasProductCategoryGap(row);
-  const useCategoryGaps = !useManualIndexedGaps && shouldUseProductCategoryPairGaps(row);
-  let gaps = useManualIndexedGaps
+  const lockUniformSourceGaps = shouldLockUniformProductGaps(row, items);
+  const useCategoryGaps = !lockUniformSourceGaps && !useManualIndexedGaps && shouldUseProductCategoryPairGaps(row);
+  let gaps = lockUniformSourceGaps
+    ? Array(Math.max(0, items.length - 1)).fill(fallbackGap)
+    : useManualIndexedGaps
     ? getProductItemGaps(row, items, layout, minWidth, fallbackGap)
     : useCategoryGaps
       ? getProductItemPairGaps(row, items, fallbackGap, layout)
@@ -7938,7 +8028,7 @@ async function finalizeTmall88ProductSpacing(doc, row, label = "Tmall88 final pr
   groupBox = getItemsGroupBox(items);
   const finalGaps = items.slice(0, -1).map((item, index) => Math.round(items[index + 1].box.left - item.box.right));
   await arrangeProductLayerStacking(items, getImageGroupZOrder(row, "product"));
-  log(`  ${label}: items=${items.length}, requestedGap=${Math.round(fallbackGap)}, categoryGaps=${useCategoryGaps ? "yes" : "no"}, finalGaps=${finalGaps.join("|")}, group=${groupBox ? `${Math.round(groupBox.left)},${Math.round(groupBox.top)},${Math.round(groupBox.right)},${Math.round(groupBox.bottom)}` : "?"}, area=${Math.round(areaBox.left)},${Math.round(areaBox.top)},${Math.round(areaBox.right)},${Math.round(areaBox.bottom)}.`);
+  log(`  ${label}: items=${items.length}, requestedGap=${Math.round(fallbackGap)}, sameSourceFixedGap=${lockUniformSourceGaps ? "yes" : "no"}, categoryGaps=${useCategoryGaps ? "yes" : "no"}, finalGaps=${finalGaps.join("|")}, group=${groupBox ? `${Math.round(groupBox.left)},${Math.round(groupBox.top)},${Math.round(groupBox.right)},${Math.round(groupBox.bottom)}` : "?"}, area=${Math.round(areaBox.left)},${Math.round(areaBox.top)},${Math.round(areaBox.right)},${Math.round(areaBox.bottom)}.`);
   return true;
 }
 
@@ -10145,6 +10235,19 @@ async function replaceSmartObjectLayer(layer, file) {
     if (prefix !== "giftRight") {
       await clampLayerToBox(layer, areaBox);
     }
+    if (prefix === "giftLeft") {
+      const giftLeftBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+      if (giftLeftBox) {
+        const alignX = getImageGroupAlignX(row, "giftLeft", "left");
+        const dx = getHorizontalAlignDx(alignX, areaBox, giftLeftBox);
+        const dy = areaBox.bottom - giftLeftBox.bottom;
+        if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+          await moveLayerByOffset(layer, dx, dy, layer.name);
+        }
+        const alignedBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+        log(`  GiftLeft single layer aligned: align=${alignX}, final=${alignedBox ? `${Math.round(alignedBox.left)},${Math.round(alignedBox.bottom)}` : "?"}, area=${Math.round(areaBox.left)},${Math.round(areaBox.bottom)}.`);
+      }
+    }
     if (prefix === "product") {
       await alignLayerBottomToBox(layer, areaBox);
       let productItems = await scaleProductItemsToAreaHeight([{
@@ -10571,6 +10674,276 @@ function getGiftNameField(row) {
   return { key: "", value: "" };
 }
 
+const PRODUCT_TITLE_HEIGHT_SORT_COLUMNS = [
+  "product.cn",
+  "product.name.cn",
+  "productName.cn",
+  "productName",
+  "product.names",
+  "product.names.cn",
+  "productSet.cn",
+  "产品名称",
+  "中文产品名称",
+  "产品中文",
+  "产品组合"
+];
+
+function getProductTitleHeightSortField(row) {
+  for (const key of PRODUCT_TITLE_HEIGHT_SORT_COLUMNS) {
+    if (hasValue(row, key)) {
+      return { key, value: row[key] };
+    }
+  }
+  return { key: "", value: "" };
+}
+
+function parseProductTitleSortSpec(value) {
+  const text = String(value || "");
+  const specs = { ml: 0, g: 0 };
+  const mergedVersionSpec = text.match(/2\.0(\d{2,3})\s*(ml|g|毫升|克)/i);
+  if (mergedVersionSpec) {
+    const unit = /ml|毫升/i.test(mergedVersionSpec[2]) ? "ml" : "g";
+    specs[unit] = Number(mergedVersionSpec[1]) || 0;
+    return specs;
+  }
+
+  const matcher = /(\d+(?:\.\d+)?)\s*(ml|毫升|g|克)/gi;
+  let match = matcher.exec(text);
+  while (match) {
+    const valueNumber = Number(match[1]);
+    const unit = /ml|毫升/i.test(match[2]) ? "ml" : "g";
+    if (Number.isFinite(valueNumber)) {
+      specs[unit] = Math.max(specs[unit], valueNumber);
+    }
+    match = matcher.exec(text);
+  }
+  return specs;
+}
+
+function normalizeProductTitleSortName(value) {
+  return normalizeProductNameKey(value)
+    .replace(/2\.0(?=\d)/g, "")
+    .replace(/[\s\-_.（）()]/g, "");
+}
+
+function getProductTitleSortCategoryFromMapRow(row) {
+  const file = String(row.file || row.filename || row["文件"] || "");
+  const fromFile = getProductCategoryFromSource(file);
+  if (fromFile && fromFile !== "default") return fromFile;
+
+  const category = String(row.category_cn || row["品类"] || "");
+  if (/(ampoule|次抛|安瓶|精华露|贴片)/i.test(category)) return "ampoule";
+  if (/(tube|软管)/i.test(category)) return "tube";
+  if (/(pump|泵|按压)/i.test(category)) return "pump";
+  if (/(jar|pot|罐装|罐)/i.test(category)) return "jar";
+  if (/(canvas[-_\s]*bag|gift[-_\s]*bag|帆布袋|礼袋|袋装)/i.test(category)) return "bag";
+  if (/(bottle|瓶装|瓶)/i.test(category)) return "bottle";
+  return "default";
+}
+
+function getProductTitleSortMapRowNames(row) {
+  const fullName = String(row.standard_cn || row["标准中文"] || row["中文标准"] || "").trim();
+  const product = String(row.product_cn || row["产品"] || "").trim();
+  const standardProduct = fullName.split("-").map((part) => part.trim()).filter(Boolean)[1] || "";
+  return [fullName, product, standardProduct]
+    .map(normalizeProductTitleSortName)
+    .filter(Boolean);
+}
+
+function resolveProductTitleSortItem(label, mapRows) {
+  const value = String(label || "").trim();
+  const withoutCount = value.replace(/(?:\*|x|×)\s*\d+\s*$/i, "");
+  const normalized = normalizeProductTitleSortName(withoutCount);
+  const spec = parseProductTitleSortSpec(value);
+  const size = getProductSpecSize(spec);
+  const baseName = normalized.replace(/\d+(?:\.\d+)?(?:ml|g|毫升|克)/gi, "");
+  const rows = Array.isArray(mapRows) ? mapRows : [];
+
+  const choices = rows
+    .map((row) => {
+      const rowSpec = parseProductTitleSortSpec([
+        row.spec,
+        row.standard_cn,
+        row["规格"],
+        row["标准中文"],
+        row.file,
+        row.filename
+      ].filter(Boolean).join(" "));
+      const rowSize = getProductSpecSize(rowSpec);
+      if (size > 0 && rowSize > 0 && size !== rowSize) return null;
+
+      const names = getProductTitleSortMapRowNames(row);
+      const productMatch = names.some((name) => (
+        normalized.includes(name)
+        || name.includes(baseName)
+        || name.replace(/20$/, "") === baseName.replace(/2$/, "")
+      ));
+      if (!productMatch) return null;
+
+      const file = String(row.file || row.filename || row["文件"] || "");
+      const category = getProductTitleSortCategoryFromMapRow(row);
+      const score = Math.max(...names.map((name) => name.length), 0) * 100
+        + (size > 0 && rowSize === size ? 1000 : 0)
+        + (category !== "default" ? 100 : 0);
+
+      return {
+        label: value,
+        row,
+        score,
+        category,
+        spec: rowSize > 0 ? rowSpec : spec,
+        source: file
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score || String(a.source).localeCompare(String(b.source)));
+
+  if (!choices.length) return { label: value, unresolved: true };
+  return choices[0];
+}
+
+function sortProductTitleByHeightValue(value, mapRows) {
+  const raw = String(value || "");
+  if (!/[+＋]/.test(raw)) return { value: raw, changed: false, skipped: true };
+
+  const parts = raw.split(/[+＋]/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length <= 1) return { value: raw, changed: false, skipped: true };
+
+  const fixed = parts.filter((part) => /礼盒|礼袋/.test(part));
+  const items = parts
+    .filter((part) => !/礼盒|礼袋/.test(part))
+    .map((part) => resolveProductTitleSortItem(part, mapRows));
+  const missing = items.filter((item) => item.unresolved);
+  if (missing.length) {
+    return { value: raw, changed: false, unresolved: missing.map((item) => item.label) };
+  }
+
+  const mode = new Set(items.map((item) => item.category)).size > 1 ? "mixed" : "same";
+  items.forEach((item, originalIndex) => {
+    item.originalIndex = originalIndex;
+    item.ratio = getChartProductHeightRatio({}, item.category, item.spec, mode, item.source);
+  });
+
+  const sorted = items.slice().sort((a, b) => a.ratio - b.ratio || a.originalIndex - b.originalIndex);
+  const nextValue = [...fixed, ...sorted.map((item) => item.label)].join("+");
+  return { value: nextValue, changed: nextValue !== raw };
+}
+
+function applyProductTitleHeightSortToRows(rows, options = {}) {
+  if (!options.force && !shouldSortProductCnByHeight()) {
+    log("Product CN height sort skipped by option.");
+    return { changes: [], unresolved: [] };
+  }
+
+  const mapRows = state.productNameRows || [];
+  if (!mapRows.length) {
+    log("Product CN height sort skipped: 产品名称.csv not loaded.");
+    return { changes: [], unresolved: [] };
+  }
+
+  const result = { changes: [], unresolved: [] };
+  (rows || []).forEach((row, rowIndex) => {
+    const field = getProductTitleHeightSortField(row);
+    if (!field.key || !field.value) return;
+
+    const sorted = sortProductTitleByHeightValue(field.value, mapRows);
+    if (sorted.unresolved) {
+      result.unresolved.push({ row: rowIndex + 2, key: field.key, products: sorted.unresolved });
+      return;
+    }
+
+    if (!sorted.changed) return;
+    row[field.key] = sorted.value;
+    result.changes.push({ row: rowIndex + 2, key: field.key, oldValue: field.value, nextValue: sorted.value });
+  });
+
+  log(`Product CN height sort: changed ${result.changes.length} rows${result.unresolved.length ? `, unresolved ${result.unresolved.length}` : ""}.`);
+  result.changes.slice(0, 10).forEach((item) => {
+    log(`  R${item.row} ${item.key}: ${item.oldValue} -> ${item.nextValue}`);
+  });
+  if (result.changes.length > 10) {
+    log(`  ...${result.changes.length - 10} more product CN height sort changes.`);
+  }
+  result.unresolved.slice(0, 10).forEach((item) => {
+    log(`  R${item.row} ${item.key} unresolved: ${item.products.join(" | ")}`);
+  });
+  if (result.unresolved.length > 10) {
+    log(`  ...${result.unresolved.length - 10} more unresolved product CN cells.`);
+  }
+  return result;
+}
+
+function shouldSkipCsvNameCheckToken(token) {
+  const text = String(token || "").trim();
+  if (!text) return true;
+  if (/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(text)) return true;
+  return /^(?:礼盒|礼袋|护理盒|组合装|套装|大号礼袋)$/i.test(text);
+}
+
+function getCsvProductNameCheckFields(row) {
+  const fields = [];
+  const seen = new Set();
+  const add = (field, type) => {
+    if (!field || !field.key || !field.value || seen.has(field.key)) return;
+    seen.add(field.key);
+    fields.push({ ...field, type });
+  };
+
+  add(getProductTitleHeightSortField(row), "product");
+  add(getProductNameField(row), "product");
+  add(getGiftNameField(row), "gift");
+  return fields;
+}
+
+function checkCsvNameField(row, field) {
+  const tokens = splitProductNameList(field.value)
+    .filter((token) => !shouldSkipCsvNameCheckToken(token));
+  if (!tokens.length) return [];
+
+  const resolved = resolveProductNameTokensToImages(tokens, { view: getProductImageView(row) });
+  return resolved.missing || [];
+}
+
+function checkCsvProductNamesBeforeBatch(rows, options = {}) {
+  if (!options.force && !shouldCheckCsvProductNames()) {
+    log("CSV name check skipped by option.");
+    return [];
+  }
+
+  if (!state.productNameMap && !(state.productNameRows || []).length) {
+    log("CSV name check skipped: 产品名称.csv not loaded.");
+    return [];
+  }
+
+  const issues = [];
+  (rows || []).forEach((row, rowIndex) => {
+    getCsvProductNameCheckFields(row).forEach((field) => {
+      const missing = checkCsvNameField(row, field);
+      if (!missing.length) return;
+      issues.push({
+        row: rowIndex + 2,
+        key: field.key,
+        type: field.type,
+        names: missing
+      });
+    });
+  });
+
+  if (!issues.length) {
+    log("CSV name check: no unresolved product/gift names.");
+    return issues;
+  }
+
+  log(`CSV name check: ${issues.length} cells have unresolved product/gift names.`);
+  issues.slice(0, 30).forEach((issue) => {
+    log(`  R${issue.row} ${issue.key}: ${issue.names.join(" | ")}`);
+  });
+  if (issues.length > 30) {
+    log(`  ...${issues.length - 30} more CSV name check issues.`);
+  }
+  return issues;
+}
+
 function splitProductNameList(value) {
   return String(value || "")
     .split(/[|+;；、\n\r]+/)
@@ -10640,6 +11013,76 @@ function resolveGiftLeftTokenDirectSetImage(token) {
   const directImage = aliasImage || resolveProductNameToImage(token);
   if (!directImage) return "";
   return isCombinedSetProductImagePath(directImage) ? directImage : "";
+}
+
+function parseAmpouleSetRepeatToken(token) {
+  const normalized = String(token || "")
+    .trim()
+    .replace(/×/g, "x")
+    .replace(/＊/g, "*")
+    .replace(/[×Ｘｘ]/g, "x")
+    .replace(/[×Ｘｘ]/g, "x");
+  if (!/(精华露|次抛|安瓶|ampoule|essence)/i.test(normalized)) return null;
+
+  const match = normalized.match(/^(.*?\d+(?:\.\d+)?\s*(?:g|ml|kg|l))\s*(?:\*|x)\s*(\d+)\s*(?:\*|x)\s*(\d+)\s*$/i);
+  if (!match) return null;
+
+  const baseWithSpec = match[1].trim();
+  const innerCount = Number(match[2]);
+  const repeatCount = Number(match[3]);
+  if (!baseWithSpec || !Number.isFinite(innerCount) || !Number.isFinite(repeatCount)) return null;
+  if (innerCount <= 0 || repeatCount <= 0) return null;
+
+  return {
+    baseWithSpec,
+    innerCount,
+    repeatCount: Math.max(1, Math.min(repeatCount, MAX_SINGLE_ITEM_REPEAT_COUNT)),
+    totalCount: innerCount * repeatCount
+  };
+}
+
+function getAmpouleCountLookupNames(baseWithSpec, count) {
+  const base = String(baseWithSpec || "").trim();
+  const safeCount = Number(count);
+  if (!base || !Number.isFinite(safeCount) || safeCount <= 0) return [];
+  return Array.from(new Set([
+    `${base}*${safeCount}`,
+    `${base}x${safeCount}`,
+    `${base}×${safeCount}`
+  ]));
+}
+
+function resolveFirstAmpouleCountImage(baseWithSpec, count, options = {}) {
+  for (const lookupName of getAmpouleCountLookupNames(baseWithSpec, count)) {
+    const image = resolveProductNameToImage(lookupName, options);
+    if (image && isGiftLeftAmpouleAssetPath(image)) {
+      return { image, lookupName };
+    }
+  }
+  return null;
+}
+
+function resolveAmpouleSetRepeatImages(token, options = {}) {
+  const parsed = parseAmpouleSetRepeatToken(token);
+  if (!parsed) return null;
+
+  const lookupOptions = { ...options };
+  delete lookupOptions.logPrefix;
+  const logPrefix = options.logPrefix || "Ampoule";
+
+  const totalMatch = resolveFirstAmpouleCountImage(parsed.baseWithSpec, parsed.totalCount, lookupOptions);
+  if (totalMatch) {
+    log(`  ${logPrefix} ampoule set repeat uses total image: ${token} -> ${totalMatch.lookupName}`);
+    return [totalMatch.image];
+  }
+
+  const innerMatch = resolveFirstAmpouleCountImage(parsed.baseWithSpec, parsed.innerCount, lookupOptions);
+  if (innerMatch) {
+    log(`  ${logPrefix} ampoule set repeat split: ${token} -> ${parsed.repeatCount} x ${innerMatch.lookupName}`);
+    return Array.from({ length: parsed.repeatCount }, () => innerMatch.image);
+  }
+
+  return null;
 }
 
 function resolveKnownProductAliasImage(name) {
@@ -10884,6 +11327,14 @@ function toProductViewAssetPath(filename, view) {
 }
 
 function resolveProductNameTokenToImages(token, options = {}) {
+  const repeatedAmpouleSetImages = resolveAmpouleSetRepeatImages(token, {
+    view: options.view,
+    logPrefix: "Product"
+  });
+  if (repeatedAmpouleSetImages && repeatedAmpouleSetImages.length) {
+    return { images: repeatedAmpouleSetImages, missing: [] };
+  }
+
   if (!shouldExpandProductRepeatBeforeDirectLookup(token)) {
     const directImage = resolveProductNameToImage(token, { allowRows: false, view: options.view });
     if (directImage) {
@@ -11044,6 +11495,12 @@ function isLooseProductAliasMatch(query, alias) {
 }
 
 function extractProductSpec(value) {
+  // Some CSVs omit the separator between the 2.0 product version and a
+  // three-digit specification, e.g. "洗发水2.0500g".  Treat that as 500g
+  // rather than the invalid 2.0500g, so every repeated item resolves to the
+  // intended asset.
+  const mergedVersionSpec = String(value || "").match(/2\.0(\d{2,3})\s*(ml|g|kg|l)/i);
+  if (mergedVersionSpec) return `${mergedVersionSpec[1]}${mergedVersionSpec[2]}`;
   const match = String(value || "").match(/(\d+(?:\.\d+)?(?:g|ml|kg|l))/i);
   return match ? match[1] : "";
 }
@@ -11566,6 +12023,12 @@ function expandGiftLeftFromDescription(row) {
   const images = [];
   const missing = [];
   tokens.forEach((token) => {
+    const repeatedAmpouleSetImages = resolveAmpouleSetRepeatImages(token, { logPrefix: "GiftLeft" });
+    if (repeatedAmpouleSetImages && repeatedAmpouleSetImages.length) {
+      images.push(...repeatedAmpouleSetImages);
+      return;
+    }
+
     const directSetImage = resolveGiftLeftTokenDirectSetImage(token);
     if (directSetImage) {
       images.push(directSetImage);
@@ -13438,7 +13901,7 @@ async function applyTitleAndProductNote(doc, row) {
   };
   const titleSwitch = getTitleLayerSwitch(row);
   const titleText = getTitleTextForRow(row, titleSwitch);
-  const titlePreviewText = titleText !== undefined && titleText !== null ? parseTitleSuperscriptMarkup(titleText).text : "";
+  const titlePreviewText = titleText !== undefined && titleText !== null ? parseTitleSuperscriptMarkup(titleText, { literalStar: true }).text : "";
   const titleLayer = titleText !== undefined && titleText !== null
     ? findTitleLayerForRow(doc, row, titlePreviewText, { switchInfo: titleSwitch })
     : findTextLayerForColumn(doc, "txt.title", row);
@@ -13447,7 +13910,7 @@ async function applyTitleAndProductNote(doc, row) {
   let titleLongSecondLine = false;
 
   if (titleLayer && titleText !== undefined && titleText !== null) {
-    const parsedTitle = parseTitleSuperscriptMarkup(titleText);
+    const parsedTitle = parseTitleSuperscriptMarkup(titleText, { literalStar: true });
     if (getCurrentTemplateConfig().preserveTemplateTextOnly) {
       titleLineCount = String(parsedTitle.text).split(/\r\n|\r|\n/).length;
       await replaceTitleLayerKeepTemplateStyle(titleLayer, parsedTitle.text, { superscripts: parsedTitle.superscripts });
@@ -13967,6 +14430,10 @@ async function exportDocument(doc, row, index) {
     ensureCurrentProductImagesVisibleBeforeExport(doc, row);
     ensureBaibuMainProductLabelVisible(doc, row, "Raster export prep");
   }
+  await finalizeTmall88ProductSpacing(doc, row, "Pre-save final product spacing");
+  await arrangeProductBackdropLayers(doc, row);
+  await enforceGiftLeftAreaLayout(doc, row, "Pre-save giftLeft area");
+  await forceLargeGiftLeftBagToArea(doc, row, "Pre-save");
   const outputNames = [];
   for (const format of formats) {
     if (format === "psd") {
@@ -14212,35 +14679,118 @@ async function processOne(row, index) {
   }
 }
 
-async function runBatch() {
+function resetBatchRuntimeState() {
+  state.giftTargets = {};
+  state.groupAreaBoxes = {};
+  state.groupAreaNames = {};
+  state.placedImageLayers = {};
+  state.templateLayerBoxes = {};
+  state.giftLeftPlacedLayers = [];
+  state.currentRow = null;
+  state.currentArtboardLayer = null;
+  state.currentArtboardName = "";
+  state.currentArtboardKey = "";
+  state.exportedPsdEntries = [];
+}
+
+function setActionButtonsDisabled(disabled) {
+  ["runBatch", "checkCsvNamesOnly", "sortProductCnOnly"].forEach((id) => {
+    const button = $(id);
+    if (button) button.disabled = disabled;
+  });
+}
+
+function getCsvActionInputError(requireExportTargets = false) {
+  if (!csvFile || !assetsFolder) {
+    return "Please select CSV data and assets folder.";
+  }
+  if (requireExportTargets && (!templateFile || !outputFolder)) {
+    return "Please select PSD, CSV, assets folder, and output folder.";
+  }
+  return "";
+}
+
+async function loadCsvRowsAndProductMapForAction() {
+  applyInferredTemplateProfile();
+  state.rows = await readCsvRows(csvFile);
+  setProgress(0, state.rows.length);
+  log(`Script version: ${SCRIPT_VERSION}`);
+  log(`Loaded ${state.rows.length} rows.`);
+  state.productNameMap = await loadProductNameMap();
+  return state.rows;
+}
+
+async function runCsvNameCheckOnly() {
   if (state.busy) return;
-  if (!templateFile || !csvFile || !assetsFolder || !outputFolder) {
-    setSummary("Please select PSD, CSV, assets folder, and output folder.");
+  const inputError = getCsvActionInputError(false);
+  if (inputError) {
+    setSummary(inputError);
     return;
   }
 
   state.busy = true;
-    state.giftTargets = {};
-    state.groupAreaBoxes = {};
-    state.groupAreaNames = {};
-    state.placedImageLayers = {};
-    state.templateLayerBoxes = {};
-    state.giftLeftPlacedLayers = [];
-    state.currentRow = null;
-    state.currentArtboardLayer = null;
-    state.currentArtboardName = "";
-    state.currentArtboardKey = "";
-  $("runBatch").disabled = true;
+  setActionButtonsDisabled(true);
   $("log").textContent = "";
+  resetBatchRuntimeState();
 
   try {
-    applyInferredTemplateProfile();
-    state.rows = await readCsvRows(csvFile);
-    setProgress(0, state.rows.length);
-    log(`Script version: ${SCRIPT_VERSION}`);
-    log(`Loaded ${state.rows.length} rows.`);
-    state.productNameMap = await loadProductNameMap();
-    state.exportedPsdEntries = [];
+    const rows = await loadCsvRowsAndProductMapForAction();
+    const issues = checkCsvProductNamesBeforeBatch(rows, { force: true });
+    setSummary(issues.length ? `Name check done: ${issues.length} cells need review.` : "Name check done: no unresolved names.");
+  } catch (error) {
+    console.error(error);
+    setSummary("Name check failed. See log.");
+    log(`Error: ${formatError(error)}`);
+  } finally {
+    state.busy = false;
+    setActionButtonsDisabled(false);
+  }
+}
+
+async function runProductCnHeightSortOnly() {
+  if (state.busy) return;
+  const inputError = getCsvActionInputError(false);
+  if (inputError) {
+    setSummary(inputError);
+    return;
+  }
+
+  state.busy = true;
+  setActionButtonsDisabled(true);
+  $("log").textContent = "";
+  resetBatchRuntimeState();
+
+  try {
+    const rows = await loadCsvRowsAndProductMapForAction();
+    const result = applyProductTitleHeightSortToRows(rows, { force: true });
+    setSummary(`Height sort done: ${result.changes.length} rows changed${result.unresolved.length ? `, ${result.unresolved.length} unresolved` : ""}.`);
+  } catch (error) {
+    console.error(error);
+    setSummary("Height sort failed. See log.");
+    log(`Error: ${formatError(error)}`);
+  } finally {
+    state.busy = false;
+    setActionButtonsDisabled(false);
+  }
+}
+
+async function runBatch() {
+  if (state.busy) return;
+  const inputError = getCsvActionInputError(true);
+  if (inputError) {
+    setSummary(inputError);
+    return;
+  }
+
+  state.busy = true;
+  setActionButtonsDisabled(true);
+  $("log").textContent = "";
+  resetBatchRuntimeState();
+
+  try {
+    await loadCsvRowsAndProductMapForAction();
+    checkCsvProductNamesBeforeBatch(state.rows);
+    applyProductTitleHeightSortToRows(state.rows);
 
     ensureModules();
     let successCount = 0;
@@ -14309,7 +14859,7 @@ async function runBatch() {
     log(`Error: ${formatError(error)}`);
   } finally {
     state.busy = false;
-    $("runBatch").disabled = false;
+    setActionButtonsDisabled(false);
   }
 }
 
@@ -14433,6 +14983,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("pickAssets").addEventListener("click", pickAssets);
   $("pickOutput").addEventListener("click", pickOutput);
   $("runBatch").addEventListener("click", runBatch);
+  $("checkCsvNamesOnly").addEventListener("click", runCsvNameCheckOnly);
+  $("sortProductCnOnly").addEventListener("click", runProductCnHeightSortOnly);
   $("scrollLogBottom").addEventListener("click", scrollLogToBottom);
   loadDefaultPaths();
 });
