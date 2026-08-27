@@ -7,7 +7,7 @@ let uxpStorage = null;
 let fs = null;
 let configuredAssetsFolder = null;
 let configuredAssetsFolderPath = "";
-const SCRIPT_VERSION = "20260823-export-expanded-product-row";
+const SCRIPT_VERSION = "20260827-jd-aw-giftleft-height-priority-fill";
 const MAX_SINGLE_ITEM_REPEAT_COUNT = 12;
 
 const TITLE_FONT_RULE = {
@@ -15,6 +15,11 @@ const TITLE_FONT_RULE = {
     postScriptName: "LINESeedSansApp-Regular",
     fontName: "LINE Seed Sans App Regular",
     fontStyleName: "Regular"
+  },
+  rankingLatin: {
+    postScriptName: "LINESeedSansApp-Bold",
+    fontName: "LINE Seed Sans App Bold",
+    fontStyleName: "Bold"
   },
   chinese: {
     postScriptName: "FZLanTingHei_GBK",
@@ -55,7 +60,7 @@ const BASE_TEMPLATE_CONFIG = {
   subtitleRectangle: null,
   bottomTextMixedStyle: null,
   bottomTextAreaName: "bottomText.area",
-  bottomTextShortMaxUnits: 7.0,
+  bottomTextShortMaxUnits: 10.0,
   bottomTextShortFitRatio: 0.88,
   productShadow: null,
   productBottomShadow: null,
@@ -70,6 +75,8 @@ const BASE_TEMPLATE_CONFIG = {
     layout: "overlap"
   },
   giftLeftAssetSource: null,
+  giftLeftDescPlusWrap: null,
+  giftLeftAreaFillWidthCap: true,
   backgroundSwitch: null,
   layerVisibilitySwitches: [],
   dynamicIconSwitch: {
@@ -89,6 +96,7 @@ const BASE_TEMPLATE_CONFIG = {
   bottomTextFromProductName: null,
   productOverlapGapRatio: -0.42,
   giftLeftOverlapGapRatio: -0.18,
+  giftLeftDenseOverlapGapRatio: -0.55,
   productCategoryGapDefault: true
 };
 
@@ -484,7 +492,7 @@ const TEMPLATE_CONFIGS = {
     bottomTextAreaName: "bottomText.area",
     scopeBottomTextVariantsCurrentMechanism: true,
     preserveBottomTextTemplatePosition: true,
-    bottomTextShortMaxUnits: 7.0,
+    bottomTextShortMaxUnits: 10.0,
     bottomTextShortFitRatio: 0.88,
     productOverlapGapRatio: -0.5,
     giftLeftOverlapGapRatio: -0.18
@@ -600,18 +608,39 @@ defineTemplateProfile("jddaily750", createTemplateProfile(BASE_TEMPLATE_CONFIG, 
     enabled: true,
     folder: "babyproduct_icefrosteffect"
   },
+  giftLeftAssetSource: {
+    enabled: true,
+    sourceColumn: "txt.giftLeftDesc",
+    forceFront: true
+  },
+  giftLeftDescPlusWrap: {
+    enabled: true,
+    minDisplayLength: 10,
+    wrapBeforeAreaCheck: false,
+    mode: "balancedTwoLine"
+  },
+  giftLeftAreaFillWidthCap: false,
   bottomTextSubscriptSuffixes: ["/"],
   bottomTextCenterX: 500,
   bottomTextAreaName: "bottomText.area",
   preserveBottomTextTemplatePosition: true,
   finalProductBottomAlign: true,
+  subtitleScopeCurrentMechanism: false,
+  strictSubtitleVisibilityByTitleLines: true,
+  productBackdrop: {
+    enabled: true,
+    heightRatio: 1
+  },
   bottomTextOverflowScale: 0.8,
-  bottomTextShortMaxUnits: 7.0,
+  bottomTextShortMaxUnits: 10.0,
   bottomTextShortFitRatio: 0.88,
   productDefaultHeightBoost: 1.08,
+  useTmallProductOverlapFlow: true,
+  finalizeProductOverlapSpacing: true,
   productStackScale: 1.35,
   productOverlapGapRatio: -0.5,
-  giftLeftOverlapGapRatio: -0.18
+  giftLeftOverlapGapRatio: -0.18,
+  giftLeftDenseOverlapGapRatio: -0.55
 }));
 
 defineTemplateProfile("tianmao88", createTemplateProfile(TEMPLATE_CONFIGS.jddaily750, {
@@ -649,7 +678,10 @@ defineTemplateProfile("tianmao88", createTemplateProfile(TEMPLATE_CONFIGS.jddail
     enabled: true,
     sourceColumn: "txt.giftLeftDesc",
     forceFront: true
-  }
+  },
+  giftLeftDescPlusWrap: null,
+  giftLeftAreaFillWidthCap: true,
+  giftLeftDenseOverlapGapRatio: -0.18
 }));
 
 defineTemplateProfile("pddPopMain", createTemplateProfile(TEMPLATE_CONFIGS.tianmao88, {
@@ -1697,10 +1729,14 @@ function getAgeCnCanonicalFromText(value) {
 
 function getDefaultProductAgeForQuery(value) {
   const normalized = normalizeProductNameKey(value);
+  const hasExplicitAge = /(儿童|kids|学龄|612|青春|1218|婴童|婴儿|新生儿)/.test(normalized);
   if (/洁面泡/.test(normalized) && !/(儿童|kids|学龄|612|青春|1218|婴童|婴儿|新生儿)/.test(normalized)) {
     return "儿童";
   }
   if (/^一页页洁面泡/.test(normalized)) {
+    return "儿童";
+  }
+  if (/护发素|conditioner/.test(normalized) && !hasExplicitAge) {
     return "儿童";
   }
   return getAgeCnCanonicalFromText(value) || "婴童";
@@ -2482,8 +2518,32 @@ async function moveLayerCenterTo(layer, centerX, centerY) {
 
 function getImageGroupLayout(row, prefix) {
   const layout = String(getImageGroupValue(row, prefix, "layout", "") || "").trim().toLowerCase();
+  if (prefix === "giftLeft" && isHorizontalAlignValue(layout)) return "overlap";
   if (layout) return layout;
   return prefix === "product" ? "auto" : "overlap";
+}
+
+function isHorizontalAlignValue(value) {
+  return /^(left|l|center|middle|c|right|r|\u5de6|\u5de6\u5bf9\u9f50|\u5c45\u4e2d|\u53f3|\u53f3\u5bf9\u9f50)$/.test(String(value || "").trim().toLowerCase());
+}
+
+function getImageGroupAlignX(row, prefix, fallback = "left") {
+  let alignX = String(firstTextValue(row, [
+    `${prefix}.align`,
+    `${prefix}.alignX`,
+    `${prefix}.areaAlign`,
+    `${prefix}.areaAlignX`,
+    `${prefix}.imageAlign`,
+    `${prefix}.imageAlignX`,
+    `${prefix}.xAlign`
+  ]) || "").trim().toLowerCase();
+
+  if (!isHorizontalAlignValue(alignX) && prefix === "giftLeft") {
+    const layout = String(getImageGroupValue(row, prefix, "layout", "") || "").trim().toLowerCase();
+    if (isHorizontalAlignValue(layout)) alignX = layout;
+  }
+
+  return isHorizontalAlignValue(alignX) ? alignX : fallback;
 }
 
 function getImageGroupZOrder(row, prefix) {
@@ -2551,6 +2611,50 @@ function getProductCategoryFromSource(source) {
   return "default";
 }
 
+function getProductBackdropConfig() {
+  const config = getCurrentTemplateConfig();
+  const backdrop = config && config.productBackdrop;
+  return backdrop && backdrop.enabled ? backdrop : null;
+}
+
+function isProductBackdropSource(source, prefix = "product") {
+  if (String(prefix || "product").trim() !== "product") return false;
+  if (!getProductBackdropConfig()) return false;
+  const text = String(source || "")
+    .toLowerCase()
+    .replace(/\\/g, "/")
+    .replace(/[_\s]+/g, "-");
+  return /(?:^|\/)(?:horse-year-gift-box|star-gift-box|large-gift-bag|.+-gift-box|.+-gift-bag)(?:-|\.|\/|$)|(?:马年礼盒|星礼盒|护理盒|礼盒|礼袋)/i.test(text);
+}
+
+function isProductBackdropIndex(row, index, prefix = "product") {
+  if (String(prefix || "product").trim() !== "product") return false;
+  if (!getProductBackdropConfig()) return false;
+  const explicit = firstTextValue(row || {}, [
+    `product.backdrop.${index}`,
+    `product.background.${index}`,
+    `product.backdrop`
+  ]);
+  if (explicit !== undefined) return parseVisibilityValue(explicit, false);
+  return isProductBackdropSource(getImageSourceForIndex(row || {}, "product", index), "product");
+}
+
+function isGiftLeftBagSource(source) {
+  const text = String(source || "")
+    .toLowerCase()
+    .replace(/\\/g, "/")
+    .replace(/[_\s]+/g, "-");
+  return getProductCategoryFromSource(text) === "bag" || /(?:^|\/)(?:large-gift-bag|drawstring-bag|cosmetic-bag|.+-gift-bag)(?:-|\.|\/|$)|(?:大号礼袋|礼袋|帆布袋)/i.test(text);
+}
+
+function isLargeGiftLeftBagSource(source) {
+  const text = String(source || "")
+    .toLowerCase()
+    .replace(/\\/g, "/")
+    .replace(/[_\s]+/g, "-");
+  return /(?:^|\/)large-gift-bag(?:-|\.|\/|$)|(?:大号礼袋)/i.test(text);
+}
+
 function isSmallBagSachetSource(source) {
   const text = String(source || "")
     .toLowerCase()
@@ -2580,6 +2684,7 @@ function getProductCategory(row, index) {
 function normalizeProductCategory(category) {
   const value = String(category || "default").trim().toLowerCase();
   if (value === "pump") return "bottle";
+  if (value === "backdrop") return "backdrop";
   if (["jar", "bottle", "tube", "ampoule", "bag"].includes(value)) return value;
   return "default";
 }
@@ -2626,6 +2731,28 @@ function getProductHeightMode(row, count) {
   const categories = Array.from({ length: Math.max(count, 1) }, (_, index) => getProductCategory(row, index + 1));
   const unique = Array.from(new Set(categories.filter(Boolean)));
   return unique.length > 1 ? "mixed" : "same";
+}
+
+function getProductHeightModeForIndices(row, indices) {
+  const modeOverride = String(row["product.heightMode"] || "").trim().toLowerCase();
+  if (modeOverride === "mixed" || modeOverride === "same") return modeOverride;
+
+  const list = (Array.isArray(indices) ? indices : [])
+    .map((index) => Number(index))
+    .filter((index) => Number.isFinite(index) && index > 0);
+  if (!list.length) return getProductHeightMode(row, 1);
+
+  const categories = list.map((index) => getProductCategory(row, index));
+  const unique = Array.from(new Set(categories.filter(Boolean)));
+  return unique.length > 1 ? "mixed" : "same";
+}
+
+function getProductIndicesFromItems(items, row = null) {
+  const indices = (Array.isArray(items) ? items : [])
+    .map((item, fallbackIndex) => Number(item && item.index || fallbackIndex + 1))
+    .filter((index) => Number.isFinite(index) && index > 0);
+  if (!row) return indices;
+  return indices.filter((index) => !isProductBackdropIndex(row, index));
 }
 
 function getAutoProductLayout(row, count) {
@@ -2706,6 +2833,7 @@ function isGiftLeftAmpouleSet(row) {
 
   const paths = getGiftLeftResolvedImagePaths(row);
   if (!paths.length || !paths.every(isGiftLeftAmpouleAssetPath)) return false;
+  if (paths.length === 1 && isCombinedSetProductImagePath(paths[0])) return false;
   return new Set(paths.map((path) => path.toLowerCase())).size === 1;
 }
 
@@ -3018,8 +3146,8 @@ function getTubeHeightRatioBySpec(row, size, mode) {
   if (size >= 30) return readProductHeightRatio(row, "tube30", same ? 0.68 : 0.62);
   if (size >= 25) return readProductHeightRatio(row, "tube25", same ? 0.62 : 0.58);
   if (size >= 15) return readProductHeightRatio(row, "tube15", same ? 0.72 : 0.7);
-  if (size >= 10) return readProductHeightRatio(row, "tube10", same ? 0.5 : 0.42);
-  if (size > 0) return readProductHeightRatio(row, "tube5", same ? 0.42 : 0.36);
+  if (size >= 10) return readProductHeightRatio(row, "tube10", same ? 0.465 : 0.444);
+  if (size > 0) return readProductHeightRatio(row, "tube5", same ? 0.406 : 0.388);
   return readProductHeightRatio(row, "tubeDefault", same ? 0.84 : 0.7);
 }
 
@@ -3042,6 +3170,10 @@ function getBagHeightRatio(row, mode) {
 
 function getChartProductHeightRatio(row, category, specs, mode, source, options = {}) {
   const size = getProductSpecSize(specs);
+  if (category === "backdrop") {
+    const backdrop = getProductBackdropConfig() || {};
+    return readNumber(row, "product.backdrop.heightRatio", Number(backdrop.heightRatio) || 1);
+  }
   if (options.useReference && !isYouthSeriesProductSource(source)) {
     const referenceRatio = getReferenceProductHeightRatio(row, category, specs, source);
     if (Number.isFinite(referenceRatio)) return referenceRatio;
@@ -3061,7 +3193,7 @@ function getChartProductHeightRatio(row, category, specs, mode, source, options 
   return readProductHeightRatio(row, "default", mode === "same" ? 0.86 : 0.76);
 }
 
-function getProductHeightRatio(row, index, count = 1) {
+function getProductHeightRatio(row, index, count = 1, options = {}) {
   const categoryRank = getProductCategoryRank(row, index, count);
   const explicitCategoryRatio = readNumber(row, `product.heightRatio.${categoryRank}`, null);
   if (Number.isFinite(explicitCategoryRatio)) return explicitCategoryRatio;
@@ -3069,19 +3201,23 @@ function getProductHeightRatio(row, index, count = 1) {
   const explicitRatio = readNumber(row, "product.heightRatio", null);
   if (Number.isFinite(explicitRatio)) return explicitRatio;
 
-  const mode = getProductHeightMode(row, count);
+  const indices = Array.isArray(options.indices) ? options.indices : null;
+  const effectiveCount = indices && indices.length ? indices.length : count;
+  const mode = indices && indices.length ? getProductHeightModeForIndices(row, indices) : getProductHeightMode(row, count);
   const category = getProductCategory(row, index);
   const source = getImageSourceForIndex(row, "product", index);
   const specs = getProductSpecFromSource(source);
   return getChartProductHeightRatio(row, category, specs, mode, source, {
-    useReference: shouldUseReferenceProductHeightRatio(row, count)
+    useReference: shouldUseReferenceProductHeightRatio(row, effectiveCount)
   });
 }
 
 function applyProductHeightRatioToBox(row, index, areaBox, box, count = 1) {
   if (!row || !areaBox || !box) return box;
 
-  const ratio = getProductHeightRatio(row, index, count);
+  const ratio = isProductBackdropIndex(row, index)
+    ? readNumber(row, "product.backdrop.heightRatio", Number((getProductBackdropConfig() || {}).heightRatio) || 1)
+    : getProductHeightRatio(row, index, count);
   const height = areaBox.height * ratio;
   if (!Number.isFinite(height) || height <= 0) return box;
 
@@ -3108,16 +3244,44 @@ function getGiftLeftHeightRatio(row, index) {
   const source = getImageSourceForIndex(row, "giftLeft", index);
   const category = getProductCategoryFromSource(source);
   const specs = getProductSpecFromSource(source);
+  const size = getProductSpecSize(specs);
 
-  if (category === "tube" && (specs.ml >= 80 || specs.g >= 80)) {
+  if (category === "tube" && size >= 80) {
     return readNumber(row, "giftLeft.tube100HeightRatio", 0.9);
   }
 
-  if (category === "tube" && specs.g > 0 && specs.g <= 30) {
+  if (category === "tube" && size > 0 && size <= 10) {
+    const mixedRatio = getGiftLeftSmallTubeMixedHeightRatio(row);
+    if (Number.isFinite(mixedRatio)) return mixedRatio;
+    return readNumber(row, "giftLeft.tube25HeightRatio", 0.85);
+  }
+
+  if (category === "tube" && size > 0 && size <= 30) {
     return readNumber(row, "giftLeft.tube25HeightRatio", 0.85);
   }
 
   return getDefaultHeightRatio(makeSingleGiftLeftSourceRow(row, source), "giftLeft");
+}
+
+function getGiftLeftSmallTubeMixedHeightRatio(row) {
+  const explicit = readNumber(row, "giftLeft.smallTubeMixedHeightRatio", null);
+  if (Number.isFinite(explicit)) return explicit;
+
+  const count = Math.max(getGiftCount(row || {}, "giftLeft") || 0, 0);
+  if (count <= 1) return null;
+
+  let hasSmallTube = false;
+  let hasLargeTube = false;
+  for (let i = 1; i <= count; i += 1) {
+    const source = getImageSourceForIndex(row || {}, "giftLeft", i);
+    if (getProductCategoryFromSource(source) !== "tube") continue;
+
+    const size = getProductSpecSize(getProductSpecFromSource(source));
+    if (size > 0 && size <= 10) hasSmallTube = true;
+    if (size >= 80) hasLargeTube = true;
+  }
+
+  return hasSmallTube && hasLargeTube ? 0.55 : null;
 }
 
 function getGiftLeftEffectiveHeightRatio(row, index) {
@@ -4014,18 +4178,41 @@ function isTitleTemplateLatinChar(char) {
 }
 
 function applyTitleFontToTemplateStyle(style, kind) {
-  if (kind !== "latin") {
+  if (kind !== "rankingLatin") {
     return { ...(style || {}) };
   }
-  const font = TITLE_FONT_RULE.latin;
+  const font = TITLE_FONT_RULE.rankingLatin;
   return {
     ...(style || {}),
     fontPostScriptName: font.postScriptName,
     fontName: font.fontName,
-    fontStyleName: font.fontStyleName || "Regular",
+    fontStyleName: font.fontStyleName || "Bold",
     impliedFontPostScriptName: font.postScriptName,
     impliedFontName: font.fontName
   };
+}
+
+function getTitleRankingEnglishRanges(text, superscripts = []) {
+  const value = toPhotoshopText(text);
+  const ranges = [];
+  const pattern = /(^|[^A-Za-z0-9])((?:TOP\s*1|NO\.?\s*1))/gi;
+  let match;
+  while ((match = pattern.exec(value)) !== null) {
+    const tokenStart = match.index + (match[1] || "").length;
+    const tokenText = match[2] || "";
+    let from = Array.from(value.slice(0, tokenStart)).length;
+    let to = Array.from(value.slice(0, tokenStart + tokenText.length)).length;
+    const adjacentSup = (superscripts || []).find((range) => Number(range && range.from) === to);
+    if (adjacentSup && Number(adjacentSup.to) > to) {
+      to = Number(adjacentSup.to);
+    }
+    ranges.push({ from, to });
+  }
+  return ranges;
+}
+
+function isIndexInTitleRankingEnglishRange(index, ranges) {
+  return (ranges || []).some((range) => index >= range.from && index < range.to);
 }
 function applyLeadingToTemplateTextStyle(style, leadingRatio, fallbackStyle) {
   if (!Number.isFinite(leadingRatio) || leadingRatio <= 0) return style;
@@ -4042,12 +4229,17 @@ function applyLeadingToTemplateTextStyle(style, leadingRatio, fallbackStyle) {
 
 function buildTitleTemplateTextStyleRanges(text, styleByKind, baseStyle, options = {}) {
   const chars = Array.from(toPhotoshopText(text));
+  const rankingRanges = getTitleRankingEnglishRanges(text, options.superscripts || []);
   const ranges = [];
   let start = 0;
   let currentKind = null;
 
   chars.forEach((char, index) => {
-    const kind = isTitleTemplateLatinChar(char) ? "latin" : "chinese";
+    const kind = isIndexInTitleRankingEnglishRange(index, rankingRanges)
+      ? "rankingLatin"
+      : isTitleTemplateLatinChar(char)
+        ? "latin"
+        : "chinese";
     if (currentKind === null) {
       currentKind = kind;
       start = index;
@@ -4066,7 +4258,7 @@ function buildTitleTemplateTextStyleRanges(text, styleByKind, baseStyle, options
 
   const leadingRatio = Number(options.leadingRatio);
   return ranges.map((range) => {
-    const style = applyTitleFontToTemplateStyle(styleByKind[range.kind] || baseStyle, range.kind);
+    const style = applyTitleFontToTemplateStyle(styleByKind[range.kind] || styleByKind.latin || baseStyle, range.kind);
     return {
       _obj: "textStyleRange",
       from: range.from,
@@ -4074,6 +4266,55 @@ function buildTitleTemplateTextStyleRanges(text, styleByKind, baseStyle, options
       textStyle: applyLeadingToTemplateTextStyle(style, leadingRatio, baseStyle)
     };
   });
+}
+
+function getTemplateTitleLineBreakSequence(textKey) {
+  const templateText = toPhotoshopText(textKey && textKey.textKey || "");
+  const matches = templateText.match(/\r+/g) || [];
+  if (!matches.length) return "\r";
+  return matches.reduce((longest, item) => item.length > longest.length ? item : longest, "\r");
+}
+
+function buildTitleTextWithTemplateLineBreaks(textValue, textKey) {
+  const source = toPhotoshopText(textValue);
+  const templateBreak = getTemplateTitleLineBreakSequence(textKey);
+  const chars = Array.from(source);
+  const map = [0];
+  const output = [];
+  let outputLength = 0;
+
+  for (let i = 0; i < chars.length; i += 1) {
+    if (chars[i] !== "\r") {
+      output.push(chars[i]);
+      outputLength += 1;
+      map[i + 1] = outputLength;
+      continue;
+    }
+
+    let end = i + 1;
+    while (end < chars.length && chars[end] === "\r") end += 1;
+    const breakText = templateBreak.length > 1 ? templateBreak : chars.slice(i, end).join("");
+    output.push(breakText);
+    outputLength += Array.from(breakText).length;
+    for (let j = i; j < end; j += 1) {
+      map[j + 1] = outputLength;
+    }
+    i = end - 1;
+  }
+
+  return {
+    text: output.join(""),
+    mapIndex: (index) => map[Math.max(0, Math.min(Number(index) || 0, chars.length))]
+  };
+}
+
+function mapTextRangesByIndexMap(ranges, mapIndex) {
+  if (!Array.isArray(ranges) || typeof mapIndex !== "function") return ranges || [];
+  return ranges.map((range) => ({
+    ...range,
+    from: mapIndex(range.from),
+    to: mapIndex(range.to)
+  })).filter((range) => Number.isFinite(range.from) && Number.isFinite(range.to) && range.to > range.from);
 }
 
 async function replaceTitleLayerKeepTemplateStyle(layer, value, options = {}) {
@@ -4084,8 +4325,7 @@ async function replaceTitleLayerKeepTemplateStyle(layer, value, options = {}) {
 
   ensureModules();
   photoshop.app.activeDocument.activeLayers = [layer];
-  const textValue = toPhotoshopText(value);
-  const textLength = Array.from(textValue).length;
+  const rawTextValue = toPhotoshopText(value);
 
   try {
     const result = await photoshop.action.batchPlay(
@@ -4110,6 +4350,10 @@ async function replaceTitleLayerKeepTemplateStyle(layer, value, options = {}) {
       return;
     }
 
+    const normalizedTitle = buildTitleTextWithTemplateLineBreaks(rawTextValue, textKey);
+    const textValue = normalizedTitle.text;
+    const superscripts = mapTextRangesByIndexMap(options.superscripts || [], normalizedTitle.mapIndex);
+    const paragraphStyleRange = buildTemplateParagraphStyleRanges(textKey, textValue);
     const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle, { symbolsAsLatin: true });
     await photoshop.action.batchPlay(
       [
@@ -4122,14 +4366,19 @@ async function replaceTitleLayerKeepTemplateStyle(layer, value, options = {}) {
             _obj: "textLayer",
             ...textKey,
             textKey: textValue,
-            textStyleRange: applySuperscriptsToTextStyleRanges(buildTitleTemplateTextStyleRanges(textValue, styleByKind, baseStyle, options), options.superscripts || [], { styleByKind })
+            textStyleRange: applySuperscriptsToTextStyleRanges(
+              buildTitleTemplateTextStyleRanges(textValue, styleByKind, baseStyle, { ...options, superscripts }),
+              superscripts,
+              { templateSuperscriptStyle: getTemplateSuperscriptStyle(textKey) }
+            ),
+            ...(paragraphStyleRange ? { paragraphStyleRange } : {})
           },
           _options: { dialogOptions: "dontDisplay" }
         }
       ],
       { synchronousExecution: false, modalBehavior: "execute" }
     );
-    log(`  Title text replaced; template title font/style preserved, superscripts=${(options.superscripts || []).length}.`);
+    log(`  Title text replaced; template title font/style/paragraph preserved, superscripts=${superscripts.length}.`);
   } catch (error) {
     log(`  Title template style replace skipped: ${formatError(error)}`);
     await replaceTextLayerPreserveFirstStyle(layer, value);
@@ -4171,6 +4420,74 @@ function buildMixedTextTemplateStyleRanges(text, styleByKind, styleConfig) {
       }
     };
   });
+}
+
+function isGiftLeftPriceTextLayerName(name) {
+  return String(name || "").trim().replace(/\.\d+$/, "") === "txt.giftLeftprice";
+}
+
+function isPriceSymbolChar(char) {
+  return char === "\u00a5" || char === "\uffe5";
+}
+
+function getTemplatePriceSymbol(textKey, fallback = "\u00a5") {
+  const text = String(textKey && textKey.textKey || "");
+  const chars = Array.from(text);
+  const symbol = chars.find(isPriceSymbolChar);
+  return symbol || fallback;
+}
+
+function normalizeGiftLeftPriceTextValue(value, textKey) {
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  if (!raw) return raw;
+  const csvSymbol = isPriceSymbolChar(raw[0]) ? raw[0] : "\u00a5";
+  const templateSymbol = getTemplatePriceSymbol(textKey, csvSymbol);
+  const withoutSymbol = raw.replace(/^[\u00a5\uffe5]\s*/, "");
+  return `${templateSymbol}${withoutSymbol}`;
+}
+
+function getTemplateStyleForChar(textKey, predicate) {
+  const text = String(textKey && textKey.textKey || "");
+  const chars = Array.from(text);
+  const ranges = textKey && textKey.textStyleRange;
+  for (let index = 0; index < chars.length; index += 1) {
+    if (!predicate(chars[index])) continue;
+    const range = getStyleRangeForIndex(ranges, index);
+    if (range && range.textStyle) return range.textStyle;
+  }
+  return null;
+}
+
+function makeTemplateTextStyleRange(from, to, textStyle) {
+  return {
+    _obj: "textStyleRange",
+    from,
+    to,
+    textStyle
+  };
+}
+
+function buildGiftLeftPriceTemplateStyleRanges(text, textKey, styleByKind, styleConfig) {
+  const chars = Array.from(toPhotoshopText(text));
+  const symbolStyle = getTemplateStyleForChar(textKey, isPriceSymbolChar) || styleByKind.chinese;
+  const ranges = [];
+
+  chars.forEach((char, index) => {
+    if (isPriceSymbolChar(char)) {
+      ranges.push(makeTemplateTextStyleRange(index, index + 1, symbolStyle));
+      return;
+    }
+
+    const kind = getMixedTextKind(char, styleConfig);
+    const config = styleConfig[kind] || {};
+    const baseStyle = styleByKind[kind] || styleByKind.chinese;
+    ranges.push(makeTemplateTextStyleRange(index, index + 1, {
+      ...baseStyle,
+      color: makeRgbColor(config.color || (baseStyle && baseStyle.color))
+    }));
+  });
+
+  return ranges;
 }
 
 function scaleTemplateTextStyle(style, scale = 1) {
@@ -4269,7 +4586,9 @@ async function applyBottomTextTemplateStyle(layer, value, options = {}) {
     const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle, { symbolsAsLatin: true });
     let textStyleRange = buildBottomTextTemplateStyleRanges(textValue, styleByKind, Number(options.scale) || 1, { symbolsAsLatin: true });
     if (parsed.superscripts.length) {
-      textStyleRange = applySuperscriptsToTextStyleRanges(textStyleRange, parsed.superscripts, { styleByKind });
+      textStyleRange = applySuperscriptsToTextStyleRanges(textStyleRange, parsed.superscripts, {
+        templateSuperscriptStyle: getTemplateSuperscriptStyle(textKey)
+      });
     }
 
     await photoshop.action.batchPlay(
@@ -4548,9 +4867,6 @@ function makeSuperscriptTextStylePreserveFont(baseStyle, metricStyle = baseStyle
   const supSize = baseSize * TITLE_SUPERSCRIPT_STYLE.sizeRatio;
   const supLeading = baseSize * TITLE_SUPERSCRIPT_STYLE.leadingRatio;
   const supShift = getTitleSuperscriptShift(baseSize);
-  style.fontPostScriptName = TITLE_SUPERSCRIPT_FONT.postScriptName;
-  style.fontName = TITLE_SUPERSCRIPT_FONT.fontName;
-  style.fontStyleName = TITLE_SUPERSCRIPT_FONT.fontStyleName || "Regular";
   style.size = makePointValue(supSize);
   style.impliedFontSize = makePointValue(supSize);
   style.autoLeading = false;
@@ -4562,6 +4878,53 @@ function makeSuperscriptTextStylePreserveFont(baseStyle, metricStyle = baseStyle
   style.impliedBaselineShift = makePointValue(supShift);
   style.tracking = 0;
   return style;
+}
+
+function getPointStyleValue(value) {
+  if (value && typeof value._value === "number") return value._value;
+  if (typeof value === "number") return value;
+  return NaN;
+}
+
+function getBaselineEnumValue(style) {
+  const baseline = style && style.baseline;
+  if (!baseline) return "";
+  if (typeof baseline === "string") return baseline;
+  return String(baseline._value || baseline.value || baseline._enum || "").trim();
+}
+
+function getTextStyleBaselineShift(style) {
+  const candidates = [
+    style && style.baselineShift,
+    style && style.baseLineShift,
+    style && style.impliedBaselineShift
+  ];
+  for (const value of candidates) {
+    const numeric = getPointStyleValue(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return NaN;
+}
+
+function isTemplateSuperscriptStyle(style) {
+  if (!style) return false;
+  if (/super/i.test(getBaselineEnumValue(style))) return true;
+  const shift = getTextStyleBaselineShift(style);
+  return Number.isFinite(shift) && shift > 0;
+}
+
+function getTemplateSuperscriptStyle(textKey) {
+  const ranges = textKey && Array.isArray(textKey.textStyleRange) ? textKey.textStyleRange : [];
+  const source = ranges.find((range) => range && isTemplateSuperscriptStyle(range.textStyle));
+  return source && source.textStyle ? clonePlainObject(source.textStyle) : null;
+}
+
+function makeSuperscriptTextStyle(baseStyle, options = {}) {
+  const templateStyle = options && options.templateStyle;
+  if (templateStyle) {
+    return clonePlainObject(templateStyle);
+  }
+  return makeSuperscriptTextStylePreserveFont(baseStyle);
 }
 
 function applySuperscriptsToTextStyleRanges(textStyleRanges, superscripts, options = {}) {
@@ -4597,7 +4960,7 @@ function applySuperscriptsToTextStyleRanges(textStyleRanges, superscripts, optio
     return baseRanges.find((range) => index >= (Number(range.from) || 0) && index < (Number(range.to) || 0)) || baseRanges[0];
   };
   const isSuperscriptSegment = (from, to) => supRanges.some((range) => from >= range.from && to <= range.to);
-  const styleByKind = options && options.styleByKind || {};
+  const templateSuperscriptStyle = options && options.templateSuperscriptStyle;
   const result = [];
 
   for (let i = 0; i < sortedPoints.length - 1; i += 1) {
@@ -4607,7 +4970,7 @@ function applySuperscriptsToTextStyleRanges(textStyleRanges, superscripts, optio
     const source = styleForIndex(from);
     const baseStyle = source && source.textStyle || baseRanges[0].textStyle;
     const textStyle = isSuperscriptSegment(from, to)
-      ? makeSuperscriptTextStylePreserveFont(baseStyle)
+      ? makeSuperscriptTextStyle(baseStyle, { templateStyle: templateSuperscriptStyle })
       : baseStyle;
     const last = result[result.length - 1];
     if (last && last.to === from && last.textStyle === textStyle) {
@@ -4770,10 +5133,13 @@ function getImageGroupGap(row, prefix, layout, itemWidth) {
 
   if (layout === "stack" || layout === "overlap") {
     const config = getCurrentTemplateConfig();
+    const giftLeftCount = prefix === "giftLeft" ? Math.max(getGiftCount(row || {}, "giftLeft") || 0, 0) : 0;
     const configuredRatio = prefix === "product"
       ? Number(config.productOverlapGapRatio)
       : prefix === "giftLeft"
-        ? Number(config.giftLeftOverlapGapRatio)
+        ? giftLeftCount >= 4 && Number.isFinite(Number(config.giftLeftDenseOverlapGapRatio))
+          ? Number(config.giftLeftDenseOverlapGapRatio)
+          : Number(config.giftLeftOverlapGapRatio)
         : NaN;
     if (Number.isFinite(configuredRatio)) {
       return itemWidth * configuredRatio;
@@ -4796,6 +5162,39 @@ function isProductCategoryGapEnabled(row) {
   if (/^(0|false|no|off|disable|disabled|\u5173\u95ed)$/.test(mode)) return false;
   if (/^(1|true|yes|on|enable|enabled|\u5f00|\u5f00\u542f)$/.test(mode)) return true;
   return true;
+}
+
+function tightenOverlapCategoryGapRatio(ratio, leftCategory, rightCategory) {
+  if (!Number.isFinite(ratio)) return ratio;
+  const groups = [leftCategory, rightCategory].map((item) => String(item || "").trim().toLowerCase());
+  const has = (pattern) => groups.some((item) => pattern.test(item));
+  const same = groups[0] && groups[0] === groups[1];
+  const hasBottle = has(/bottle/);
+  const hasJar = has(/jar/);
+  const hasTube = has(/tube/);
+  const hasBag = has(/bag|sachet|refill/);
+  const hasAmpoule = has(/ampoule/);
+
+  let target = -0.25;
+  if (hasAmpoule) {
+    target = same ? -0.45 : -0.70;
+  } else if (same && hasBottle) {
+    target = -0.60;
+  } else if (same && hasJar) {
+    target = -0.35;
+  } else if (same && hasTube) {
+    target = -0.45;
+  } else if (hasJar && hasBottle) {
+    target = -0.65;
+  } else if (hasJar && hasTube) {
+    target = -0.80;
+  } else if (hasBottle && hasBag) {
+    target = -0.26;
+  } else if (hasBottle && hasTube) {
+    target = -0.55;
+  }
+
+  return Math.min(ratio, target);
 }
 
 function getProductCategoryPairGapRatio(leftCategory, rightCategory, layout = "overlap") {
@@ -4832,7 +5231,7 @@ function getProductCategoryPairGapRatio(leftCategory, rightCategory, layout = "o
     return lineRatios[pair] !== undefined ? lineRatios[pair] : 0.12;
   }
 
-  return ratios[pair] !== undefined ? ratios[pair] : -0.08;
+  return tightenOverlapCategoryGapRatio(ratios[pair] !== undefined ? ratios[pair] : -0.08, left, right);
 }
 
 function formatProductSpecToken(size) {
@@ -5038,16 +5437,25 @@ function getYouthProductPairGapRatio(row, leftIndex, rightIndex, layout = "overl
   for (const left of leftGroups) {
     for (const right of rightGroups) {
       const pair = [left, right].sort().join("|");
-      if (ratios[pair] !== undefined) return ratios[pair];
+      if (ratios[pair] !== undefined) {
+        return layout === "line" ? ratios[pair] : tightenOverlapCategoryGapRatio(ratios[pair], left, right);
+      }
     }
   }
 
   const left = leftGroups[0];
   const right = rightGroups[0];
-  if (left === right) return layout === "line" ? 0.02 : left === "jar" ? 0.03 : -0.06;
-  if (left.startsWith("ampoule") || right.startsWith("ampoule")) return layout === "line" ? 0 : -0.08;
-  if (left === "jar" || right === "jar") return layout === "line" ? 0.08 : 0.03;
-  return layout === "line" ? 0.02 : -0.02;
+  let fallbackRatio;
+  if (left === right) {
+    fallbackRatio = layout === "line" ? 0.02 : left === "jar" ? 0.03 : -0.06;
+  } else if (left.startsWith("ampoule") || right.startsWith("ampoule")) {
+    fallbackRatio = layout === "line" ? 0 : -0.08;
+  } else if (left === "jar" || right === "jar") {
+    fallbackRatio = layout === "line" ? 0.08 : 0.03;
+  } else {
+    fallbackRatio = layout === "line" ? 0.02 : -0.02;
+  }
+  return layout === "line" ? fallbackRatio : tightenOverlapCategoryGapRatio(fallbackRatio, left, right);
 }
 function getProductLayoutSlotSpan(row, index) {
   const source = getImageSourceForIndex(row, "product", index);
@@ -5217,10 +5625,57 @@ function getProductCategoryPairGap(row, leftIndex, rightIndex, leftWidth, rightW
     : Number.isFinite(specRatio)
       ? specRatio
       : getProductCategoryPairGapRatio(leftCategory, rightCategory, layout);
-  const basisWidth = Math.min(leftWidth, rightWidth);
+  const adjustedRatio = tightenProductPairGapRatioBySource(row, leftIndex, rightIndex, ratio, layout);
+  const basisWidth = getProductCategoryGapBasisWidth(leftWidth, rightWidth, leftCategory, rightCategory, layout);
   if (!Number.isFinite(basisWidth) || basisWidth <= 0) return fallbackGap;
-  const gap = Math.round(basisWidth * ratio);
+  const gap = Math.round(basisWidth * adjustedRatio);
   return layout === "line" ? Math.max(0, gap) : gap;
+}
+
+function getProductCategoryGapBasisWidth(leftWidth, rightWidth, leftCategory, rightCategory, layout = "overlap") {
+  const minWidth = Math.min(leftWidth, rightWidth);
+  const maxWidth = Math.max(leftWidth, rightWidth);
+  if (layout === "line") return minWidth;
+  if (!Number.isFinite(minWidth) || !Number.isFinite(maxWidth) || minWidth <= 0) return minWidth;
+
+  const left = normalizeProductCategory(leftCategory);
+  const right = normalizeProductCategory(rightCategory);
+  if (left === right) return minWidth;
+
+  const groups = [left, right];
+  const has = (value) => groups.includes(value);
+  const hasAmpoule = has("ampoule");
+  const hasJar = has("jar");
+  const hasBottle = has("bottle");
+  const hasTube = has("tube");
+  const hasBag = has("bag");
+  const averageWidth = (leftWidth + rightWidth) / 2;
+
+  if (hasAmpoule) return maxWidth;
+  if (hasJar && (hasBottle || hasTube)) return maxWidth;
+  if (hasBottle && (hasTube || hasBag)) return averageWidth;
+  return averageWidth;
+}
+
+function tightenProductPairGapRatioBySource(row, leftIndex, rightIndex, ratio, layout = "overlap") {
+  if (layout === "line" || !Number.isFinite(ratio)) return ratio;
+
+  const leftSource = getImageSourceForIndex(row || {}, "product", leftIndex);
+  const rightSource = getImageSourceForIndex(row || {}, "product", rightIndex);
+  const leftCategory = normalizeProductCategory(getProductCategory(row || {}, leftIndex));
+  const rightCategory = normalizeProductCategory(getProductCategory(row || {}, rightIndex));
+  const leftSize = getProductSpecSize(getProductSpecFromSource(leftSource));
+  const rightSize = getProductSpecSize(getProductSpecFromSource(rightSource));
+  const maxSize = Math.max(leftSize || 0, rightSize || 0);
+  const sameSource = leftSource && rightSource && leftSource === rightSource;
+
+  if (sameSource && maxSize > 0 && maxSize <= 15 && leftCategory === rightCategory) {
+    return Math.min(ratio, -0.9);
+  }
+  if ((leftCategory === "jar" && rightCategory === "tube") || (leftCategory === "tube" && rightCategory === "jar")) {
+    return Math.min(ratio, -0.8);
+  }
+  return ratio;
 }
 
 function getProductCategoryPairGaps(row, itemBoxes, fallbackGap, layout = "overlap") {
@@ -5232,6 +5687,29 @@ function getProductCategoryPairGaps(row, itemBoxes, fallbackGap, layout = "overl
       i + 2,
       itemBoxes[i].width,
       itemBoxes[i + 1].width,
+      fallbackGap,
+      layout
+    ));
+  }
+  return gaps;
+}
+
+function getProductItemPairGaps(row, items, fallbackGap, layout = "overlap") {
+  const gaps = [];
+  const list = Array.isArray(items) ? items : [];
+  for (let i = 0; i < Math.max(0, list.length - 1); i += 1) {
+    const left = list[i];
+    const right = list[i + 1];
+    const leftIndex = Number(left && left.index || i + 1);
+    const rightIndex = Number(right && right.index || i + 2);
+    const leftBox = left && (left.box || left);
+    const rightBox = right && (right.box || right);
+    gaps.push(getProductCategoryPairGap(
+      row,
+      leftIndex,
+      rightIndex,
+      leftBox && leftBox.width,
+      rightBox && rightBox.width,
       fallbackGap,
       layout
     ));
@@ -5488,6 +5966,9 @@ async function prepareGiftLeftAmpouleLayers(doc, row, baseLayer, areaBox) {
 }
 
 async function prepareImageGroupLayers(doc, row, prefix) {
+  if (prefix === "giftLeft") {
+    state.giftLeftPlacedLayers = [];
+  }
   if (prefix === "giftRight") {
     hideGeneratedGiftRightLayers(doc);
     log("  GiftRight uses template smart object only; skipped group layout.");
@@ -5530,7 +6011,15 @@ async function prepareImageGroupLayers(doc, row, prefix) {
     baseLayer.visible = false;
     log("  Hidden template base image before gift layout: img.gift.");
   }
-  if (!baseLayer) return;
+  if (!baseLayer) {
+    if (prefix === "giftLeft" && count > 0 && areaBox && shouldPlaceGroupFromFiles(row, prefix)) {
+      const fallbackLayout = resolveImageGroupLayout(row, prefix, count);
+      const fallbackBoxes = getImageGroupTargetBoxes(row, prefix, areaBox, areaBox, count, fallbackLayout);
+      await preparePlacedImageGroupLayers(doc, row, prefix, null, fallbackBoxes, areaBox, count, fallbackLayout);
+      log("  GiftLeft placed from files without template base layer.");
+    }
+    return;
+  }
   if (count <= 1 && prefix === "product" && !hasSingleCouponSource) {
     const singleBox = getBoundsBox(baseLayer.boundsNoEffects || baseLayer.bounds);
     if (singleBox && areaBox) {
@@ -5677,7 +6166,36 @@ function getImageGroupAreaLayer(doc, prefix, count, row) {
       findLayerByName(doc, "gift.area.4");
   }
 
+  if (prefix === "giftLeft") {
+    return findGiftLeftAreaLayer(doc, row);
+  }
+
   return findLayerByName(doc, `${prefix}.area`);
+}
+
+function findGiftLeftAreaLayer(doc, row = null) {
+  const config = getCurrentTemplateConfig();
+  const switchConfig = getMechanismSwitchConfig(config) || {};
+  const rowForArea = row || state.currentRow || {};
+  const type = switchConfig.enabled ? getDailyMechanismType(rowForArea, switchConfig) : "";
+  const lineCount = getGiftLeftDescLineCount(rowForArea);
+  const names = [];
+  if (lineCount > 0) {
+    const primary = lineCount >= 2 ? "giftLeft.area.2" : "giftLeft.area.1";
+    const alternate = lineCount >= 2 ? "giftLeft.area.1" : "giftLeft.area.2";
+    names.push(primary, "giftLeft.area", alternate);
+    if (type && type !== "1" && type !== "2") names.push(`giftLeft.area.${type}`);
+    names.push("giftLeft.area.3", "giftLeft.area.4");
+  } else {
+    if (type) names.push(`giftLeft.area.${type}`);
+    names.push("giftLeft.area", "giftLeft.area.1", "giftLeft.area.2", "giftLeft.area.3", "giftLeft.area.4");
+  }
+
+  for (const name of Array.from(new Set(names.filter(Boolean)))) {
+    const layer = findLayerByName(doc, name);
+    if (layer) return layer;
+  }
+  return null;
 }
 
 function hideImageGroupAreaLayers(doc, prefix) {
@@ -5691,7 +6209,9 @@ function hideImageGroupAreaLayers(doc, prefix) {
 
   const areaNames = prefix === "gift"
     ? ["gift.area", "gift.area.1", "gift.area.2", "gift.area.3", "gift.area.4"]
-    : [`${prefix}.area`];
+    : prefix === "giftLeft"
+      ? ["giftLeft.area", "giftLeft.area.1", "giftLeft.area.2", "giftLeft.area.3", "giftLeft.area.4"]
+      : [`${prefix}.area`];
   areaNames.forEach((name) => {
     const layer = findLayerByName(doc, name);
     if (layer) layer.visible = false;
@@ -5833,6 +6353,40 @@ function findCurrentGiftLeftImageGroup(doc, row) {
   const mechanismLayer = findDailyMechanismLayerForGiftLeft(doc, mechanismNames);
   return mechanismLayer ? findGiftLeftImageGroupInLayer(mechanismLayer) : null;
 }
+
+async function prepareSingleGiftLeftBagTemplateLayer(doc, row, baseLayer, areaBox) {
+  if (!baseLayer || !areaBox) return false;
+  const source = getImageSourceForIndex(row, "giftLeft", 1);
+  if (!source || !isGiftLeftBagSource(source)) return false;
+
+  const asset = await getAssetEntry(source);
+  await replaceSmartObjectLayer(baseLayer, asset);
+  baseLayer.name = "img.giftLeft.1";
+  baseLayer.visible = true;
+
+  const currentBox = getBoundsBox(baseLayer.boundsNoEffects || baseLayer.bounds);
+  if (!currentBox) return false;
+
+  const ratio = getGiftLeftEffectiveHeightRatio(row, 1);
+  const targetHeight = areaBox.height * ratio;
+  const targetWidth = targetHeight * (currentBox.width / currentBox.height);
+  const targetBox = makeBox(
+    areaBox.centerX - targetWidth / 2,
+    areaBox.bottom - targetHeight,
+    targetWidth,
+    targetHeight
+  );
+  await fitLayerToBox(baseLayer, targetBox, { alignY: "bottom", fitBy: "height" });
+  await clampLayerToBox(baseLayer, areaBox);
+
+  state.placedImageLayers = state.placedImageLayers || {};
+  state.placedImageLayers[baseLayer.name] = true;
+  state.giftLeftPlacedLayers = [baseLayer];
+
+  const finalBox = getBoundsBox(baseLayer.boundsNoEffects || baseLayer.bounds);
+  log(`  GiftLeft single bag uses template layer: source=${source}, targetH=${Math.round(targetHeight)}, final=${finalBox ? `${Math.round(finalBox.left)},${Math.round(finalBox.top)},${Math.round(finalBox.right)},${Math.round(finalBox.bottom)}` : "?"}.`);
+  return true;
+}
 async function moveLayerByOffset(layer, dx, dy, label) {
   if (!layer || (!dx && !dy)) return;
   try {
@@ -5862,9 +6416,15 @@ async function moveLayerByOffset(layer, dx, dy, label) {
 
 async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, targetBoxes, areaBox, count, layout) {
   state.placedImageLayers = state.placedImageLayers || {};
+  if (prefix === "giftLeft") {
+    state.giftLeftPlacedLayers = [];
+  }
 
   for (let i = 1; i <= 6; i += 1) {
-    const oldLayer = findLayerByName(doc, `img.${prefix}.${i}`);
+    const giftLeftImageGroup = prefix === "giftLeft" ? findCurrentGiftLeftImageGroup(doc, row) : null;
+    const oldLayer = giftLeftImageGroup
+      ? findLayerByNameInLayer(giftLeftImageGroup, `img.${prefix}.${i}`)
+      : findLayerByName(doc, `img.${prefix}.${i}`);
     if (oldLayer) {
       oldLayer.visible = false;
       oldLayer.name = `__ignored.img.${prefix}.${i}`;
@@ -5953,6 +6513,8 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     if (prefix === "product" && areaBox) {
       if (isCoupon) {
         log(`  AddOn coupon fixed size: ${layer.name}, target=${Math.round(targetBox.width)}x${Math.round(targetBox.height)}.`);
+      } else if (isProductBackdropIndex(row, i)) {
+        log(`  Product backdrop height rule: ${layer.name}, ratio=${readNumber(row, "product.backdrop.heightRatio", Number((getProductBackdropConfig() || {}).heightRatio) || 1)}, targetH=${Math.round(targetBox.height)}.`);
       } else {
         log(`  Product height rule: ${layer.name}, mode=${getProductHeightMode(row, count)}, category=${getProductCategory(row, i)}, ratio=${getProductHeightRatio(row, i, count)}, targetH=${Math.round(targetBox.height)}`);
       }
@@ -5969,6 +6531,9 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
     }
 
     state.placedImageLayers[layer.name] = true;
+    if (prefix === "giftLeft") {
+      state.giftLeftPlacedLayers.push(layer);
+    }
     layers.push(layer);
   }
 
@@ -6004,16 +6569,74 @@ async function preparePlacedImageGroupLayers(doc, row, prefix, baseLayer, target
         layer,
         index,
         fixedSize: isAddOnCouponProductIndex(row, index),
+        backdrop: isProductBackdropIndex(row, index),
         box: getBoundsBox(layer.boundsNoEffects || layer.bounds)
       };
-    }).filter((item) => item.box);
+    }).filter((item) => item.box && !item.backdrop);
     if (count <= 1 && areaBox) {
       productItems = await scaleProductItemsToAreaHeight(productItems, row, areaBox);
     }
     await arrangeProductLayerStacking(productItems, getImageGroupZOrder(row, "product"));
+    await arrangeProductBackdropLayers(doc, row, layers, areaBox);
   }
 
   log(`  Placed ${layers.length} independent ${prefix} image layers with ${layout} layout.`);
+}
+
+async function arrangeProductBackdropLayers(doc, row, knownLayers = null, areaBox = null) {
+  const backdropConfig = getProductBackdropConfig();
+  if (!backdropConfig) return;
+
+  const productAreaBox = areaBox || state.groupAreaBoxes && state.groupAreaBoxes.product;
+  if (!productAreaBox) {
+    log("  Product backdrop skipped: product.area not found.");
+    return;
+  }
+
+  const count = Math.max(getGiftCount(row || {}, "product") || 0, 0);
+  const getLayerIndex = (layer) => {
+    const match = String(layer && layer.name || "").match(/\.([0-9]+)$/);
+    return match ? Number(match[1]) : 0;
+  };
+  const backdropItems = [];
+  for (let i = 1; i <= count; i += 1) {
+    if (!isProductBackdropIndex(row || {}, i)) continue;
+    const layer = knownLayers && knownLayers.find((item) => getLayerIndex(item) === i) || findCurrentProductLayer(doc, row, `img.product.${i}`);
+    const box = layer && layer.visible !== false && getBoundsBox(layer.boundsNoEffects || layer.bounds);
+    if (layer && box) backdropItems.push({ layer, index: i, box });
+  }
+  if (!backdropItems.length) return;
+
+  const heightRatio = readNumber(row || {}, "product.backdrop.heightRatio", Number(backdropConfig.heightRatio) || 1);
+  for (const item of backdropItems) {
+    const sourceBox = getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds);
+    if (!sourceBox) continue;
+    const targetHeight = productAreaBox.height * (Number.isFinite(heightRatio) && heightRatio > 0 ? heightRatio : 1);
+    const targetWidth = targetHeight * (sourceBox.width / sourceBox.height);
+    const targetBox = makeBox(
+      productAreaBox.centerX - targetWidth / 2,
+      productAreaBox.bottom - targetHeight,
+      targetWidth,
+      targetHeight
+    );
+    await fitLayerToBox(item.layer, targetBox, { alignY: "bottom", fitBy: "height" });
+  }
+
+  let regularItems = collectProductItems(doc, count, row);
+  if (regularItems.length) {
+    const orderedRegularItems = getImageGroupFrontToBackItems(regularItems, getImageGroupZOrder(row, "product"));
+    for (const item of backdropItems) {
+      for (const regularItem of orderedRegularItems) {
+        try {
+          await regularItem.layer.move(item.layer, photoshop.constants.ElementPlacement.PLACEBEFORE);
+        } catch (error) {
+          log(`  Product backdrop z-order skipped for ${regularItem.layer.name} above ${item.layer.name}: ${formatError(error)}`);
+        }
+      }
+    }
+  }
+
+  log(`  Product backdrop arranged: ${backdropItems.map((item) => item.layer.name).join(", ")}, heightRatio=${heightRatio}.`);
 }
 
 async function alignCurrentProductLayersToArea(doc, row) {
@@ -6159,7 +6782,8 @@ async function alignGiftTagToPlacedGiftLayer(doc, row) {
   }
 }
 
-async function alignGiftLeftImageGroupToArea(doc) {
+async function alignGiftLeftImageGroupToArea(doc, row = null) {
+  const currentRow = row || state.currentRow || {};
   const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.giftLeft;
   const areaName = state.groupAreaNames && state.groupAreaNames.giftLeft || "giftLeft.area";
   if (!areaBox) {
@@ -6169,7 +6793,7 @@ async function alignGiftLeftImageGroupToArea(doc) {
 
   const config = getCurrentTemplateConfig();
   const switchConfig = getMechanismSwitchConfig(config) || {};
-  const type = getDailyMechanismType(state.currentRow || {}, switchConfig);
+  const type = getDailyMechanismType(currentRow, switchConfig);
   const mechanismNames = getMechanismGroupNames(switchConfig, type);
   const mechanismLayer = findDailyMechanismLayerForGiftLeft(doc, mechanismNames);
   let targetLayer = null;
@@ -6196,14 +6820,25 @@ async function alignGiftLeftImageGroupToArea(doc) {
   };
   const childBoxes = targetLayer ? collectVisibleChildBoxes(targetLayer) : [];
   const generatedBoxes = [];
-  const giftCount = Math.max(getGiftCount(state.currentRow || {}, "giftLeft") || 0, 0);
-  for (let i = 1; i <= giftCount; i += 1) {
-    findLayersByName(doc, `img.giftLeft.${i}`).forEach((layer) => {
-      const box = layer && layer.visible !== false && getBoundsBox(layer.boundsNoEffects || layer.bounds);
-      if (box) generatedBoxes.push({ layer, box });
-    });
+  const placedGiftLeftLayers = Array.isArray(state.giftLeftPlacedLayers) ? state.giftLeftPlacedLayers : [];
+  placedGiftLeftLayers.forEach((layer) => {
+    const box = layer && layer.visible !== false && getBoundsBox(layer.boundsNoEffects || layer.bounds);
+    if (box) generatedBoxes.push({ layer, box });
+  });
+  const giftCount = Math.max(getGiftCount(currentRow, "giftLeft") || 0, 0);
+  if (!generatedBoxes.length) {
+    for (let i = 1; i <= giftCount; i += 1) {
+      const scopedLayers = targetLayer
+        ? findLayersByNameInLayer(targetLayer, `img.giftLeft.${i}`, [])
+        : findLayersByNameInCurrentScope(doc, currentRow, `img.giftLeft.${i}`);
+      scopedLayers.forEach((layer) => {
+        const box = layer && layer.visible !== false && getBoundsBox(layer.boundsNoEffects || layer.bounds);
+        if (box) generatedBoxes.push({ layer, box });
+      });
+    }
   }
-  const alignItems = generatedBoxes.length ? generatedBoxes : childBoxes;
+  let alignItems = generatedBoxes.length ? generatedBoxes : childBoxes;
+  alignItems = await scaleGiftLeftItemsToAreaHeight(alignItems, currentRow, areaBox);
   const box = alignItems.length ? makeBox(
     Math.min(...alignItems.map((item) => item.box.left)),
     Math.min(...alignItems.map((item) => item.box.top)),
@@ -6215,15 +6850,7 @@ async function alignGiftLeftImageGroupToArea(doc) {
     return;
   }
 
-  const alignX = String(firstTextValue(state.currentRow || {}, [
-    "giftLeft.align",
-    "giftLeft.alignX",
-    "giftLeft.areaAlign",
-    "giftLeft.areaAlignX",
-    "giftLeft.imageAlign",
-    "giftLeft.imageAlignX",
-    "giftLeft.xAlign"
-  ]) || "left").trim().toLowerCase();
+  const alignX = getImageGroupAlignX(currentRow, "giftLeft", "left");
   const dx = /^(center|middle|c|\u5c45\u4e2d)$/.test(alignX)
     ? areaBox.centerX - box.centerX
     : /^(right|r|\u53f3)$/.test(alignX)
@@ -6239,6 +6866,7 @@ async function alignGiftLeftImageGroupToArea(doc) {
   } else if (targetLayer) {
     await moveLayerByOffset(targetLayer, dx, dy, targetLayer.name);
   }
+  await arrangeVisibleGiftLeftItemsWithinArea(doc, currentRow, targetLayer, areaBox);
   const alignedItems = alignItems.length ? alignItems.map((item) => {
     const box = getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds);
     return box ? { layer: item.layer, box } : null;
@@ -6251,6 +6879,159 @@ async function alignGiftLeftImageGroupToArea(doc) {
   ) : targetLayer ? getBoundsBox(targetLayer.boundsNoEffects || targetLayer.bounds) : null;
   const movedLabel = alignItems.length ? alignItems.map((item) => item.layer.name).join("+") : targetLayer ? targetLayer.name : "none";
   log(`  GiftLeft align: area=${areaName}, moved=${movedLabel}, dx=${Math.round(dx)}, dy=${Math.round(dy)}, after=${alignedBox ? `${Math.round(alignedBox.left)},${Math.round(alignedBox.bottom)}` : "?"}, target=${Math.round(areaBox.left)},${Math.round(areaBox.bottom)}.`);
+}
+
+function collectVisibleGiftLeftNumberedItems(doc, row = null, targetLayer = null) {
+  const currentRow = row || state.currentRow || {};
+  const count = Math.max(getGiftCount(currentRow, "giftLeft") || 0, 0);
+  const maxCount = Math.max(count, 6);
+  const result = [];
+  const seen = new Set();
+  const addLayer = (layer, index) => {
+    if (!layer || layer.visible === false || seen.has(layer)) return;
+    const box = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+    if (!box) return;
+    seen.add(layer);
+    result.push({ layer, box, index });
+  };
+
+  for (let i = 1; i <= maxCount; i += 1) {
+    const name = `img.giftLeft.${i}`;
+    const layers = targetLayer
+      ? findLayersByNameInLayer(targetLayer, name, [])
+      : findLayersByNameInCurrentScope(doc, currentRow, name);
+    layers.forEach((layer) => addLayer(layer, i));
+  }
+
+  return result.sort((left, right) => left.index - right.index);
+}
+
+async function arrangeVisibleGiftLeftItemsWithinArea(doc, row = null, targetLayer = null, areaBox = null) {
+  const currentRow = row || state.currentRow || {};
+  const count = Math.max(getGiftCount(currentRow, "giftLeft") || 0, 0);
+  if (count <= 1 || !areaBox) return false;
+
+  let items = collectVisibleGiftLeftNumberedItems(doc, currentRow, targetLayer);
+  if (items.length <= 1) return false;
+  items = await scaleGiftLeftItemsToAreaHeight(items, currentRow, areaBox);
+
+  const layout = resolveImageGroupLayout(currentRow, "giftLeft", count);
+  let gap = getImageGroupGap(currentRow, "giftLeft", layout, Math.min(...items.map((item) => item.box.width)));
+  const getTotalWidth = (list, itemGap) => list.reduce((sum, item) => sum + item.box.width, 0) + itemGap * Math.max(list.length - 1, 0);
+  let totalWidth = getTotalWidth(items, gap);
+
+  if (totalWidth > areaBox.width && items.length > 1) {
+    const widthTotal = items.reduce((sum, item) => sum + item.box.width, 0);
+    gap = Math.min(gap, (areaBox.width - widthTotal) / (items.length - 1));
+    totalWidth = getTotalWidth(items, gap);
+  }
+
+  if (totalWidth > areaBox.width) {
+    const scale = Math.max(0.01, Math.min(areaBox.width / totalWidth, areaBox.height / Math.max(...items.map((item) => item.box.height)), 1));
+    if (scale < 0.999) {
+      for (const item of items) {
+        await scaleLayerByFactor(item.layer, scale, { anchor: "bottomCenter" });
+      }
+      items = collectVisibleGiftLeftNumberedItems(doc, currentRow, targetLayer);
+      totalWidth = getTotalWidth(items, gap);
+    }
+  }
+
+  const alignX = getImageGroupAlignX(currentRow, "giftLeft", "left");
+
+  let left = /^(center|middle|c|\u5c45\u4e2d)$/.test(alignX)
+    ? areaBox.centerX - totalWidth / 2
+    : /^(right|r|\u53f3)$/.test(alignX)
+      ? areaBox.right - totalWidth
+      : areaBox.left;
+  left = Math.max(areaBox.left, Math.min(left, areaBox.right - totalWidth));
+
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i];
+    const targetCenterX = left + item.box.width / 2;
+    const yOffset = layout === "stack" ? (i - (items.length - 1) / 2) * item.box.height * 0.05 : 0;
+    await moveLayerByOffset(item.layer, targetCenterX - item.box.centerX, areaBox.bottom - item.box.bottom + yOffset, item.layer.name);
+    left += item.box.width + gap;
+  }
+
+  const finalItems = collectVisibleGiftLeftNumberedItems(doc, currentRow, targetLayer);
+  const finalBox = finalItems.length ? makeBox(
+    Math.min(...finalItems.map((item) => item.box.left)),
+    Math.min(...finalItems.map((item) => item.box.top)),
+    Math.max(...finalItems.map((item) => item.box.right)) - Math.min(...finalItems.map((item) => item.box.left)),
+    Math.max(...finalItems.map((item) => item.box.bottom)) - Math.min(...finalItems.map((item) => item.box.top))
+  ) : null;
+  log(`  GiftLeft area layout: count=${items.length}, layout=${layout}, gap=${Math.round(gap)}, area=${Math.round(areaBox.left)},${Math.round(areaBox.right)}, group=${finalBox ? `${Math.round(finalBox.left)},${Math.round(finalBox.right)}` : "?"}.`);
+  return true;
+}
+
+async function enforceGiftLeftAreaLayout(doc, row = null, label = "GiftLeft area") {
+  const currentRow = row || state.currentRow || {};
+  const areaLayer = findGiftLeftAreaLayer(doc, currentRow);
+  const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.giftLeft ||
+    getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
+  if (!areaBox) {
+    log(`  ${label}: skipped, giftLeft.area not found.`);
+    return false;
+  }
+
+  const giftLeftImageGroup = findCurrentGiftLeftImageGroup(doc, currentRow);
+  const arranged = await arrangeVisibleGiftLeftItemsWithinArea(doc, currentRow, giftLeftImageGroup, areaBox);
+  if (arranged) {
+    log(`  ${label}: enforced within ${state.groupAreaNames && state.groupAreaNames.giftLeft || areaLayer && areaLayer.name || "giftLeft.area"}.`);
+  }
+  return arranged;
+}
+
+async function forceLargeGiftLeftBagToArea(doc, row = null, label = "GiftLeft final") {
+  const currentRow = row || state.currentRow || {};
+  const count = Math.max(getGiftCount(currentRow, "giftLeft") || 0, 0);
+  if (count !== 1) return false;
+
+  const source = getImageSourceForIndex(currentRow, "giftLeft", 1);
+  if (!isLargeGiftLeftBagSource(source)) return false;
+
+  const areaLayer = findLayerByName(doc, "giftLeft.area") || findLayerByNameUnscoped(doc, "giftLeft.area");
+  const areaBox = getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
+  if (!areaBox) {
+    log(`  ${label}: large gift bag final align skipped; giftLeft.area not found.`);
+    return false;
+  }
+
+  const giftLeftImageGroup = findCurrentGiftLeftImageGroup(doc, currentRow);
+  const candidates = [];
+  if (giftLeftImageGroup) {
+    candidates.push(...findLayersByNameInLayer(giftLeftImageGroup, "img.giftLeft.1", []));
+  }
+  candidates.push(...findLayersByName(doc, "img.giftLeft.1"));
+
+  const seen = new Set();
+  const layer = candidates.find((candidate) => {
+    const key = candidate && (candidate.id || candidate);
+    if (!candidate || seen.has(key) || candidate.visible === false) return false;
+    seen.add(key);
+    return !!getBoundsBox(candidate.boundsNoEffects || candidate.bounds);
+  });
+  const box = layer && getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  if (!layer || !box) {
+    log(`  ${label}: large gift bag final align skipped; img.giftLeft.1 not found.`);
+    return false;
+  }
+
+  const alignX = getImageGroupAlignX(currentRow, "giftLeft", "left");
+  const dx = /^(center|middle|c|\u5c45\u4e2d)$/.test(alignX)
+    ? areaBox.centerX - box.centerX
+    : /^(right|r|\u53f3)$/.test(alignX)
+      ? areaBox.right - box.right
+      : areaBox.left - box.left;
+  const dy = areaBox.bottom - box.bottom;
+  if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+    await moveLayerByOffset(layer, dx, dy, `${label}: ${layer.name}`);
+  }
+
+  const finalBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  log(`  ${label}: large gift bag final align, source=${source}, area=${Math.round(areaBox.left)},${Math.round(areaBox.bottom)}, dx=${Math.round(dx)}, dy=${Math.round(dy)}, final=${finalBox ? `${Math.round(finalBox.left)},${Math.round(finalBox.bottom)}` : "?"}.`);
+  return true;
 }
 async function alignGiftImageGroupToArea(doc) {
   const config = getCurrentTemplateConfig();
@@ -6453,10 +7234,13 @@ function collectProductItems(doc, count, row = null, options = {}) {
   for (let i = 1; i <= count; i += 1) {
     const fixedSize = isAddOnCouponProductIndex(row || {}, i);
     if (options.excludeCoupon && fixedSize) continue;
+    const backdrop = isProductBackdropIndex(row || {}, i);
+    if (options.onlyBackdrop && !backdrop) continue;
+    if (!options.includeBackdrop && !options.onlyBackdrop && backdrop) continue;
     const layer = findCurrentProductLayer(doc, row, `img.product.${i}`);
     const box = layer && layer.visible !== false && getBoundsBox(layer.boundsNoEffects || layer.bounds);
     if (layer && box) {
-      items.push({ layer, box, index: i, fixedSize, source: getImageSourceForIndex(row || {}, "product", i) });
+      items.push({ layer, box, index: i, fixedSize, backdrop, source: getImageSourceForIndex(row || {}, "product", i) });
     }
   }
   return items;
@@ -6561,19 +7345,50 @@ function getProductAreaFillHeightRatio(row) {
   return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
 }
 
+function shouldFillGiftLeftAreaHeight(row) {
+  const explicit = firstTextValue(row || {}, [
+    "giftLeft.fillAreaHeight",
+    "giftLeft.areaHeightFill",
+    "giftLeft.maxHeightToArea",
+    "giftLeft.fillHeight"
+  ]);
+  if (explicit !== undefined) return parseVisibilityValue(explicit, true);
+  return getCurrentTemplateConfig().giftLeftFillAreaHeight !== false;
+}
+
+function getGiftLeftAreaFillHeightRatio(row) {
+  const ratio = readNumber(row || {}, "giftLeft.fillAreaHeightRatio", readNumber(row || {}, "giftLeft.areaHeightFillRatio", 1));
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+}
+
+function shouldCapGiftLeftAreaFillByWidth(row) {
+  const explicit = firstTextValue(row || {}, [
+    "giftLeft.fillAreaWidthCap",
+    "giftLeft.areaWidthCap",
+    "giftLeft.widthCap"
+  ]);
+  if (explicit !== undefined) return parseVisibilityValue(explicit, true);
+
+  const config = getCurrentTemplateConfig();
+  return !(config && config.giftLeftAreaFillWidthCap === false);
+}
+
 async function scaleProductItemsToHeight(items, row, areaBox) {
+  const foregroundIndices = getProductIndicesFromItems(items, row);
+  const heightMode = foregroundIndices.length ? getProductHeightModeForIndices(row, foregroundIndices) : getProductHeightMode(row, items.length);
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
     if (item.fixedSize) {
       log(`  Product height rule skipped for fixed-size layer: ${item.layer.name}.`);
       continue;
     }
-    const ratio = getProductHeightRatio(row, i + 1, items.length);
+    const productIndex = item.index || i + 1;
+    const ratio = getProductHeightRatio(row, productIndex, foregroundIndices.length || items.length, { indices: foregroundIndices });
     const targetHeight = areaBox.height * ratio;
     if (targetHeight > 0 && item.box.height > 0) {
       await scaleLayerByFactor(item.layer, targetHeight / item.box.height, { anchor: "bottomCenter" });
     }
-    log(`  Product height rule: ${item.layer.name}, mode=${getProductHeightMode(row, items.length)}, category=${getProductCategory(row, i + 1)}, ratio=${ratio}, targetH=${Math.round(targetHeight)}`);
+    log(`  Product height rule: ${item.layer.name}, mode=${heightMode}, category=${getProductCategory(row, productIndex)}, ratio=${ratio}, targetH=${Math.round(targetHeight)}`);
   }
   return refreshProductItems(items);
 }
@@ -6601,6 +7416,34 @@ async function scaleProductItemsToAreaHeight(items, row, areaBox) {
   const filledItems = refreshProductItems(freshItems);
   const filledBox = getItemsGroupBox(filledItems);
   log(`  Product area fill applied: factor=${factor.toFixed(3)}, anchor=areaCenterBottom, heightFactor=${heightFactor.toFixed(3)}, widthFactor=${widthFactor.toFixed(3)}, maxH=${Math.round(maxHeight)}->${Math.round(targetHeight)}, groupW=${filledBox ? Math.round(filledBox.width) : "?"}/${Math.round(areaBox.width)}, groupH=${filledBox ? Math.round(filledBox.height) : "?"}.`);
+  return filledItems;
+}
+
+async function scaleGiftLeftItemsToAreaHeight(items, row, areaBox) {
+  if (!shouldFillGiftLeftAreaHeight(row) || !areaBox) return refreshProductItems(items);
+
+  const freshItems = refreshProductItems(items);
+  const scalableItems = freshItems.filter((item) => item.box && item.box.height > 0);
+  if (!scalableItems.length) return freshItems;
+
+  const maxHeight = Math.max(...scalableItems.map((item) => item.box.height));
+  const groupBox = getItemsGroupBox(freshItems);
+  const targetHeight = areaBox.height * getGiftLeftAreaFillHeightRatio(row);
+  const heightFactor = targetHeight / maxHeight;
+  const widthFactor = groupBox && groupBox.width > 0 ? areaBox.width / groupBox.width : heightFactor;
+  const giftLeftCount = Math.max(getGiftCount(row || {}, "giftLeft") || 0, scalableItems.length);
+  const capByWidth = giftLeftCount <= 1 || shouldCapGiftLeftAreaFillByWidth(row);
+  const factor = capByWidth ? Math.min(heightFactor, widthFactor) : heightFactor;
+  if (!Number.isFinite(factor) || factor <= 0 || Math.abs(factor - 1) <= 0.001) return freshItems;
+
+  const anchorPoint = { x: areaBox.centerX, y: areaBox.bottom };
+  for (const item of scalableItems) {
+    await scaleLayerAroundPoint(item.layer, factor, anchorPoint);
+  }
+
+  const filledItems = refreshProductItems(freshItems);
+  const filledBox = getItemsGroupBox(filledItems);
+  log(`  GiftLeft area fill applied: factor=${factor.toFixed(3)}, anchor=areaCenterBottom, heightFactor=${heightFactor.toFixed(3)}, widthFactor=${widthFactor.toFixed(3)}, widthCap=${capByWidth}, maxH=${Math.round(maxHeight)}->${Math.round(targetHeight)}, groupW=${filledBox ? Math.round(filledBox.width) : "?"}/${Math.round(areaBox.width)}, groupH=${filledBox ? Math.round(filledBox.height) : "?"}.`);
   return filledItems;
 }
 
@@ -6680,6 +7523,7 @@ function refreshProductItems(items) {
     layer: item.layer,
     index: item.index,
     fixedSize: !!item.fixedSize,
+    backdrop: !!item.backdrop,
     source: item.source,
     box: getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds)
   })).filter((item) => item.box);
@@ -6778,7 +7622,7 @@ async function arrangeProductLineItems(items, row, areaBox, rawLayout) {
     }
   } else {
     gaps = useCategoryGaps
-      ? getProductCategoryPairGaps(row, freshItems.map((item) => item.box), gap, "line")
+      ? getProductItemPairGaps(row, freshItems, gap, "line")
       : getProductItemGaps(row, freshItems, "line", 0, gap);
   }
   gaps = normalizeProductLineGaps(gaps);
@@ -6884,9 +7728,10 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
   const minWidth = Math.min(...items.map((item) => item.box.width));
   const hasManualOverlapRatio = row["product.overlapRatio"] !== undefined && row["product.overlapRatio"] !== "";
   const hasManualGap = !hasManualOverlapRatio && (row["product.gap"] !== undefined && row["product.gap"] !== "" || hasProductCategoryGap(row));
+  const useCategoryGaps = !hasManualOverlapRatio && !hasManualGap && shouldUseProductCategoryPairGaps(row);
   const overlapRatio = getProductOverlapRatio(row, items);
 
-  if (!hasManualGap && overlapRatio < 0) {
+  if (!hasManualGap && !useCategoryGaps && overlapRatio < 0) {
     const slotRow = {
       ...row,
       "product.gap": String(Math.round(areaBox.width * Math.abs(overlapRatio))),
@@ -6900,7 +7745,9 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
   let gap = hasManualGap
     ? getImageGroupGap(row, "product", layout, minWidth)
     : getProductOverlapGap(row, items, areaBox);
-  let gaps = hasManualGap && hasProductCategoryGap(row)
+  let gaps = useCategoryGaps
+    ? getProductItemPairGaps(row, items, gap, layout)
+    : hasManualGap && hasProductCategoryGap(row)
     ? getProductItemGaps(row, items, layout, minWidth, gap)
     : gap;
   const totalWidth = getItemsTotalWidth(items, gaps);
@@ -6909,21 +7756,20 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
     await scaleProductItemsByFactor(items, areaBox.width / totalWidth);
   }
 
-  const finalItems = items.map((item) => ({
-    layer: item.layer,
-    box: getBoundsBox(item.layer.boundsNoEffects || item.layer.bounds)
-  })).filter((item) => item.box);
+  const finalItems = refreshProductItems(items);
 
   if (!hasManualGap) {
     gap = getProductOverlapGap(row, finalItems, areaBox);
   }
 
-  gaps = hasManualGap && hasProductCategoryGap(row)
+  gaps = useCategoryGaps
+    ? getProductItemPairGaps(row, finalItems, gap, layout)
+    : hasManualGap && hasProductCategoryGap(row)
     ? getProductItemGaps(row, finalItems, layout, minWidth, gap)
     : gap;
   const finalTotalWidth = getItemsTotalWidth(finalItems, gaps);
   let left = areaBox.centerX - finalTotalWidth / 2;
-  const spreadByCenter = !hasManualGap && overlapRatio < 0;
+  const spreadByCenter = !hasManualGap && !useCategoryGaps && overlapRatio < 0;
   const centerSpan = spreadByCenter ? getNegativeOverlapSpan(row, finalItems, areaBox, overlapRatio) : 0;
   const centerStart = areaBox.centerX - centerSpan / 2;
   const centerStep = finalItems.length > 1 ? centerSpan / (finalItems.length - 1) : 0;
@@ -6939,7 +7785,7 @@ async function arrangeProductOverlapItems(items, row, areaBox, layout) {
   const filledItems = await scaleProductItemsToAreaHeight(finalItems, row, areaBox);
   const filledBox = getItemsGroupBox(filledItems);
   await arrangeProductLayerStacking(filledItems, getImageGroupZOrder(row, "product"));
-  log(`  Arranged product ${layout} after replace. overlapRatio=${overlapRatio}, gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, centerSpan=${Math.round(centerSpan)}, totalWidth=${Math.round(finalTotalWidth)}, groupH=${filledBox ? Math.round(filledBox.height) : "?"}, items=${filledItems.length}`);
+  log(`  Arranged product ${layout} after replace. overlapRatio=${overlapRatio}, gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, categoryGaps=${useCategoryGaps ? "yes" : "no"}, centerSpan=${Math.round(centerSpan)}, totalWidth=${Math.round(finalTotalWidth)}, groupH=${filledBox ? Math.round(filledBox.height) : "?"}, items=${filledItems.length}`);
 }
 
 async function scaleTmall88ProductItemsToAreaHeight(items, areaBox) {
@@ -6965,7 +7811,7 @@ async function arrangeTmall88ProductLineItems(items, row, areaBox) {
   let gaps = normalizeProductLineGaps(touchEdges
     ? Array(Math.max(0, freshItems.length - 1)).fill(0)
     : useCategoryGaps
-      ? getProductCategoryPairGaps(row, freshItems.map((item) => item.box), gap, "line")
+      ? getProductItemPairGaps(row, freshItems, gap, "line")
       : getProductItemGaps(row, freshItems, "line", 0, gap));
   let totalWidth = getItemsTotalWidth(freshItems, gaps);
   if (totalWidth > areaBox.width && gaps.length) {
@@ -6992,15 +7838,20 @@ async function arrangeTmall88ProductOverlapItems(items, row, areaBox, layout) {
   const minWidth = Math.min(...items.map((item) => item.box.width));
   const hasManualOverlapRatio = row["product.overlapRatio"] !== undefined && row["product.overlapRatio"] !== "";
   const hasManualGap = !hasManualOverlapRatio && (row["product.gap"] !== undefined && row["product.gap"] !== "" || hasProductCategoryGap(row));
+  const useCategoryGaps = !hasManualOverlapRatio && !hasManualGap && shouldUseProductCategoryPairGaps(row);
   let gap = hasManualGap
     ? getImageGroupGap(row, "product", layout, minWidth)
     : getProductOverlapGap(row, items, areaBox);
-  let gaps = hasManualGap && hasProductCategoryGap(row)
+  let gaps = useCategoryGaps
+    ? getProductItemPairGaps(row, items, gap, layout)
+    : hasManualGap && hasProductCategoryGap(row)
     ? getProductItemGaps(row, items, layout, minWidth, gap)
     : gap;
   const finalItems = refreshProductItems(items);
   if (!hasManualGap) gap = getProductOverlapGap(row, finalItems, areaBox);
-  gaps = hasManualGap && hasProductCategoryGap(row)
+  gaps = useCategoryGaps
+    ? getProductItemPairGaps(row, finalItems, gap, layout)
+    : hasManualGap && hasProductCategoryGap(row)
     ? getProductItemGaps(row, finalItems, layout, minWidth, gap)
     : gap;
   let finalTotalWidth = getItemsTotalWidth(finalItems, gaps);
@@ -7027,7 +7878,7 @@ async function arrangeTmall88ProductOverlapItems(items, row, areaBox, layout) {
   const alignedItems = refreshProductItems(finalItems);
   const finalGroupBox = getItemsGroupBox(alignedItems);
   await arrangeProductLayerStacking(alignedItems, getImageGroupZOrder(row, "product"));
-  log(`  Tmall88 historical product ${layout}: gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, group=${finalGroupBox ? `${Math.round(finalGroupBox.left)},${Math.round(finalGroupBox.top)},${Math.round(finalGroupBox.right)},${Math.round(finalGroupBox.bottom)}` : "?"}.`);
+  log(`  Tmall88 historical product ${layout}: gap=${Array.isArray(gaps) ? gaps.map((item) => Math.round(item)).join("|") : Math.round(gap)}, categoryGaps=${useCategoryGaps ? "yes" : "no"}, group=${finalGroupBox ? `${Math.round(finalGroupBox.left)},${Math.round(finalGroupBox.top)},${Math.round(finalGroupBox.right)},${Math.round(finalGroupBox.bottom)}` : "?"}.`);
 }
 
 async function finalizeTmall88ProductSpacing(doc, row, label = "Tmall88 final product spacing") {
@@ -7035,18 +7886,26 @@ async function finalizeTmall88ProductSpacing(doc, row, label = "Tmall88 final pr
   const count = Math.max(getGiftCount(row || {}, "product") || 1, 1);
   const layout = resolveImageGroupLayout(row || {}, "product", count);
   const areaBox = state.groupAreaBoxes && state.groupAreaBoxes.product;
-  if (!config || config.id !== "tianmao88" || count <= 1 || layout === "line" || !areaBox) return false;
+  const enabled = config && (config.id === "tianmao88" || config.finalizeProductOverlapSpacing);
+  if (!enabled || count <= 1 || layout === "line" || !areaBox) return false;
 
   let items = collectProductItems(doc, count, row);
-  if (items.length !== count) {
-    log(`  ${label} skipped: product layers=${items.length}/${count}.`);
+  const backdropCount = collectProductItems(doc, count, row, { onlyBackdrop: true }).length;
+  const expectedCount = Math.max(0, count - backdropCount);
+  if (items.length !== expectedCount) {
+    log(`  ${label} skipped: product layers=${items.length}/${expectedCount}, total=${count}, backdrop=${backdropCount}.`);
     return false;
   }
+  if (items.length <= 1) return false;
 
   const minWidth = Math.min(...items.map((item) => item.box.width));
   const fallbackGap = getImageGroupGap(row, "product", layout, minWidth);
-  let gaps = hasProductCategoryGap(row)
+  const useManualIndexedGaps = hasProductCategoryGap(row);
+  const useCategoryGaps = !useManualIndexedGaps && shouldUseProductCategoryPairGaps(row);
+  let gaps = useManualIndexedGaps
     ? getProductItemGaps(row, items, layout, minWidth, fallbackGap)
+    : useCategoryGaps
+      ? getProductItemPairGaps(row, items, fallbackGap, layout)
     : Array(Math.max(0, items.length - 1)).fill(fallbackGap);
   let totalWidth = getItemsTotalWidth(items, gaps);
 
@@ -7079,7 +7938,7 @@ async function finalizeTmall88ProductSpacing(doc, row, label = "Tmall88 final pr
   groupBox = getItemsGroupBox(items);
   const finalGaps = items.slice(0, -1).map((item, index) => Math.round(items[index + 1].box.left - item.box.right));
   await arrangeProductLayerStacking(items, getImageGroupZOrder(row, "product"));
-  log(`  ${label}: items=${items.length}, requestedGap=${Math.round(fallbackGap)}, finalGaps=${finalGaps.join("|")}, group=${groupBox ? `${Math.round(groupBox.left)},${Math.round(groupBox.top)},${Math.round(groupBox.right)},${Math.round(groupBox.bottom)}` : "?"}, area=${Math.round(areaBox.left)},${Math.round(areaBox.top)},${Math.round(areaBox.right)},${Math.round(areaBox.bottom)}.`);
+  log(`  ${label}: items=${items.length}, requestedGap=${Math.round(fallbackGap)}, categoryGaps=${useCategoryGaps ? "yes" : "no"}, finalGaps=${finalGaps.join("|")}, group=${groupBox ? `${Math.round(groupBox.left)},${Math.round(groupBox.top)},${Math.round(groupBox.right)},${Math.round(groupBox.bottom)}` : "?"}, area=${Math.round(areaBox.left)},${Math.round(areaBox.top)},${Math.round(areaBox.right)},${Math.round(areaBox.bottom)}.`);
   return true;
 }
 
@@ -7108,8 +7967,9 @@ async function arrangeProductLineAfterReplace(doc, row) {
   const count = getGiftCount(row, "product");
   const rawLayout = getImageGroupLayout(row, "product");
   const layout = resolveImageGroupLayout(row, "product", count);
+  const config = getCurrentTemplateConfig();
   log(`  Product arrange check: count=${count}, layout=${layout}${rawLayout === "auto" ? " (auto)" : ""}`);
-  if (getCurrentTemplateConfig().id === "tianmao88") {
+  if (config.id === "tianmao88") {
     await arrangeTmall88ProductAfterReplace(doc, row, count, rawLayout, layout);
     return;
   }
@@ -7132,6 +7992,11 @@ async function arrangeProductLineAfterReplace(doc, row) {
     if (preparedItems.some((item) => item.fixedSize)) {
       const handled = await arrangeMixedProductOverlapWithCoupon(preparedItems, row, areaBox, layout);
       if (handled) return;
+    }
+    if (config.useTmallProductOverlapFlow) {
+      preparedItems = await scaleTmall88ProductItemsToAreaHeight(preparedItems, areaBox);
+      await arrangeTmall88ProductOverlapItems(preparedItems, row, areaBox, layout);
+      return;
     }
     preparedItems = await scaleProductItemsToFitArea(preparedItems, areaBox);
     preparedItems = await alignProductGroupBottomCenter(preparedItems, areaBox);
@@ -7176,9 +8041,7 @@ async function arrangeProductLineAfterReplace(doc, row) {
   await arrangeProductOverlapItems(refreshed, row, areaBox, layout);
 }
 
-async function arrangeImageGroupLayerStacking(items, zOrder, label = "product") {
-  if (!items.length) return;
-
+function getImageGroupFrontToBackItems(items, zOrder) {
   const leftToRight = [...items].sort((a, b) => a.box.centerX - b.box.centerX);
   let frontToBack = zOrder === "rightFront" ? [...leftToRight].reverse() : leftToRight;
   const hasAmpoule = frontToBack.some((item) => isAmpouleCategorySource(item.source));
@@ -7188,6 +8051,14 @@ async function arrangeImageGroupLayerStacking(items, zOrder, label = "product") 
       ...frontToBack.filter((item) => isAmpouleCategorySource(item.source))
     ];
   }
+  return frontToBack;
+}
+
+async function arrangeImageGroupLayerStacking(items, zOrder, label = "product") {
+  if (!items.length) return;
+
+  const frontToBack = getImageGroupFrontToBackItems(items, zOrder);
+  const hasAmpoule = frontToBack.some((item) => isAmpouleCategorySource(item.source));
 
   for (let i = frontToBack.length - 2; i >= 0; i -= 1) {
     const frontLayer = frontToBack[i].layer;
@@ -8651,6 +9522,8 @@ async function applyProductShadow(doc) {
 async function fitLayerToBox(layer, targetBox, options = {}) {
   const currentBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
   if (!targetBox || !currentBox) return;
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
 
   const scaleRatio = options.fitBy === "height"
     ? targetBox.height / currentBox.height
@@ -8677,6 +9550,8 @@ async function fitLayerToBox(layer, targetBox, options = {}) {
 async function clampLayerToBox(layer, targetBox) {
   const box = getBoundsBox(layer.boundsNoEffects || layer.bounds);
   if (!box || !targetBox) return;
+  ensureModules();
+  photoshop.app.activeDocument.activeLayers = [layer];
 
   const shrink = Math.min(targetBox.width / box.width, targetBox.height / box.height, 1);
   if (Number.isFinite(shrink) && shrink > 0 && shrink < 1) {
@@ -9741,6 +10616,32 @@ function shouldExpandProductRepeatBeforeDirectLookup(token) {
   return true;
 }
 
+function getAmpouleSetLookupName(value) {
+  const normalized = String(value || "").trim();
+  if (!/(精华露|次抛|安瓶|ampoule|essence)/i.test(normalized)) return "";
+
+  const multipliers = normalized.match(/(?:\*|x|×)\s*\d+/gi) || [];
+  if (multipliers.length < 2) return "";
+
+  // For example, 精华露1.8ml*3*8 is a 3-support ampoule set sold in a
+  // quantity of 8. Resolve the set from 名称 + 规格 + 支数, not as a new SKU.
+  return normalized.replace(/\s*(?:\*|x|×)\s*\d+\s*$/i, "").trim();
+}
+
+function isCombinedSetProductImagePath(imagePath) {
+  const normalized = String(imagePath || "")
+    .replace(/\\/g, "/")
+    .toLowerCase();
+  return /(?:-set-\d+x|-packaging|--stack|-stack-(?:ice|water)|-\d+x(?:-|\.))/i.test(normalized);
+}
+
+function resolveGiftLeftTokenDirectSetImage(token) {
+  const aliasImage = resolveKnownProductAliasImage(token);
+  const directImage = aliasImage || resolveProductNameToImage(token);
+  if (!directImage) return "";
+  return isCombinedSetProductImagePath(directImage) ? directImage : "";
+}
+
 function resolveKnownProductAliasImage(name) {
   const normalized = normalizeProductNameKey(name);
   const hasSpec = (spec) => new RegExp(String(spec).replace(".", "\\."), "i").test(normalized);
@@ -9797,6 +10698,15 @@ function resolveKnownProductAliasImage(name) {
       ["5g", "products/baby-moisturing-body-lotion-tube-5g.png"]
     ]);
   }
+  if (/润肤油|抚触油|按摩油|massageoil/.test(normalized)) {
+    return bySpec([
+      ["10x", "products/baby-massage-oil-ampoule-set-10x.png"],
+      ["5x", "products/baby-massage-oil-ampoule-set-5x.png"],
+      ["120ml", "products/baby-massage-oil-bottle-120ml.png"],
+      ["60ml", "products/baby-massage-oil-bottle-60ml.png"],
+      ["15ml", "products/baby-massage-oil-bottle-15ml.png"]
+    ]);
+  }
   if (/帆布袋|canvasbag|canvas/.test(normalized)) {
     return "products/canvas-bag.png";
   }
@@ -9813,6 +10723,14 @@ function resolveKnownProductAliasImage(name) {
     return "products/essential-oil-stickers.png";
   }
   return "";
+}
+
+function shouldPreferBabyBodyLotionAliasBeforeRows(name) {
+  const normalized = normalizeProductNameKey(name);
+  if (!normalized) return false;
+  if (/(学龄|612|儿童|kids|青春|1218)/i.test(normalized)) return false;
+  if (/有香|香型|scented/i.test(normalized)) return false;
+  return /^(?:一页)?(?:婴童|婴儿|新生儿)?身体乳\d+(?:\.\d+)?(?:g|ml)(?:[*x]\d+)?$/i.test(normalized);
 }
 
 function addExactProductLookupKeys(keys, value) {
@@ -9872,6 +10790,17 @@ function resolveProductNameToImage(name, options = {}) {
   const raw = String(name || "").trim();
   if (!raw) return "";
   if (/\.(png|jpe?g|webp|tif?f|psd|psb)$/i.test(raw)) return raw;
+
+  const ampouleSetName = getAmpouleSetLookupName(raw);
+  if (ampouleSetName && ampouleSetName !== raw) {
+    const ampouleSetImage = resolveProductNameToImage(ampouleSetName, options);
+    if (ampouleSetImage) return ampouleSetImage;
+  }
+
+  if (shouldPreferBabyBodyLotionAliasBeforeRows(raw)) {
+    const babyBodyLotionAlias = resolveKnownProductAliasImage(raw);
+    if (babyBodyLotionAlias) return normalizeImagePathForTemplate(babyBodyLotionAlias, options);
+  }
 
   const exactRowMapped = resolveExactProductNameByRows(raw);
   if (exactRowMapped) return normalizeImagePathForTemplate(exactRowMapped, options);
@@ -10363,6 +11292,20 @@ function countItemsFromLabel(value) {
   return Math.max(1, Math.min(count, MAX_SINGLE_ITEM_REPEAT_COUNT));
 }
 
+function getGiftLeftDescriptionItemCount(row) {
+  const description = cleanGiftLeftDescriptionSourceText(row && row["txt.giftLeftDesc"]);
+  if (!description) return 0;
+
+  const tokens = splitProductNameList(description);
+  if (!tokens.length) return 0;
+
+  const count = tokens.reduce((total, token) => {
+    const match = String(token || "").replace(/\s+/g, "").match(/(?:\*|x)\s*(\d+)$/i);
+    return total + (match ? Number(match[1]) || 1 : 1);
+  }, 0);
+  return Math.max(1, Math.min(count, MAX_SINGLE_ITEM_REPEAT_COUNT));
+}
+
 function getGiftCount(row, prefix) {
   const explicitCount = parseCount(getImageGroupValue(row, prefix, "count", ""));
   const aliasPrefix = getImageGroupAliasPrefix(prefix);
@@ -10380,6 +11323,11 @@ function getGiftCount(row, prefix) {
 
   if (explicitCount || setCount) {
     return Math.max(explicitCount, setCount);
+  }
+
+  if (prefix === "giftLeft") {
+    const descriptionCount = getGiftLeftDescriptionItemCount(row);
+    if (descriptionCount) return descriptionCount;
   }
 
   const text = [
@@ -10618,6 +11566,12 @@ function expandGiftLeftFromDescription(row) {
   const images = [];
   const missing = [];
   tokens.forEach((token) => {
+    const directSetImage = resolveGiftLeftTokenDirectSetImage(token);
+    if (directSetImage) {
+      images.push(directSetImage);
+      return;
+    }
+
     const repeatedNames = expandRepeatedProductNameToken(token);
     const hasExplicitCount = repeatedNames.length > 1 || repeatedNames[0] !== token;
     if (!hasExplicitCount) {
@@ -10650,7 +11604,9 @@ function expandGiftLeftFromDescription(row) {
       expanded["img.giftLeft." + (index + 1)] = image;
     });
   } else {
+    expanded["img.giftLeftSet"] = resolvedImages[0];
     expanded["img.giftLeft"] = resolvedImages[0];
+    expanded["img.giftLeft.1"] = resolvedImages[0];
   }
   if (!hasValue(expanded, "giftLeft.count")) expanded["giftLeft.count"] = String(resolvedImages.length);
   log("  GiftLeft desc mapped from " + sourceColumn + ": " + resolvedImages.join(" | "));
@@ -10661,6 +11617,7 @@ function expandGiftLeftFromDescription(row) {
 function formatGiftLeftDescText(row) {
   const config = getCurrentTemplateConfig().giftLeftDescPlusWrap;
   if (!config || config.enabled === false || !hasValue(row, "txt.giftLeftDesc")) return row;
+  if (config.wrapBeforeAreaCheck !== true) return row;
 
   const value = String(row["txt.giftLeftDesc"] || "").trim();
   if (!value || value.includes("\n") || getDisplayLength(value) <= Number(config.minDisplayLength || 10)) return row;
@@ -10670,7 +11627,9 @@ function formatGiftLeftDescText(row) {
   if (parts.length <= 1) return row;
 
   const expanded = { ...row };
-  expanded["txt.giftLeftDesc"] = parts.join("+\n");
+  expanded["txt.giftLeftDesc"] = String(config.mode || "").trim() === "balancedTwoLine"
+    ? splitGiftLeftDescIntoTwoLines(value)
+    : parts.join("+\n");
   log("  GiftLeft desc wrapped by '+'.");
   return expanded;
 }
@@ -10839,11 +11798,38 @@ async function getLayerBox(layer) {
   return getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
 }
 
-function getTextAnchorXByJustification(box, justification) {
+function getJustificationText(justification) {
+  if (justification === undefined || justification === null) return "";
+  if (typeof justification === "string") return justification.toLowerCase();
+  if (typeof justification === "number") return String(justification);
+  if (typeof justification === "object") {
+    const values = [
+      justification._value,
+      justification.value,
+      justification.name,
+      justification.type,
+      justification.toString && justification.toString !== Object.prototype.toString ? justification.toString() : ""
+    ].filter(Boolean);
+    if (values.length) return values.join(" ").toLowerCase();
+    try {
+      return JSON.stringify(justification).toLowerCase();
+    } catch (error) {
+      return "";
+    }
+  }
+  return String(justification).toLowerCase();
+}
+
+function shouldRestoreTextByCenterAnchor(label) {
+  return /^txt\.bottomText(?:\.\d+)?$/i.test(String(label || ""));
+}
+
+function getTextAnchorXByJustification(box, justification, label = "") {
   if (!box) return NaN;
-  const raw = String(justification === undefined || justification === null ? "" : justification).toLowerCase();
+  const raw = getJustificationText(justification);
   if (/center|centre|middle|居中/.test(raw)) return box.centerX;
   if (/right|右/.test(raw)) return box.right;
+  if (shouldRestoreTextByCenterAnchor(label)) return box.centerX;
   return box.left;
 }
 
@@ -10851,7 +11837,7 @@ async function restoreTextLayerOriginalAnchor(layer, originalBox, label = "text"
   if (!layer || !originalBox) return;
   const afterBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
   if (!afterBox) return;
-  const dx = getTextAnchorXByJustification(originalBox, justification) - getTextAnchorXByJustification(afterBox, justification);
+  const dx = getTextAnchorXByJustification(originalBox, justification, label) - getTextAnchorXByJustification(afterBox, justification, label);
   const dy = originalBox.top - afterBox.top;
   if (!Number.isFinite(dx) || !Number.isFinite(dy) || (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5)) return;
   await layer.translate(dx, dy);
@@ -11340,6 +12326,87 @@ function splitLabelByPlusBalanced(value) {
   return best && best.maxLine < total ? best.text.replace("\n", "+\n") : raw;
 }
 
+function getTextLineCount(value) {
+  const text = String(value || "");
+  if (!text) return 0;
+  return text.split(/\r\n|\r|\n/).length;
+}
+
+function getGiftLeftDescLineCount(row) {
+  return getTextLineCount(row && row["txt.giftLeftDesc"]);
+}
+
+function splitGiftLeftDescIntoTwoLines(value) {
+  const raw = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!raw || raw.includes("\n")) return raw;
+
+  const candidates = [];
+  const addCandidate = (text) => {
+    const lines = String(text || "").split("\n");
+    if (lines.length !== 2 || !lines[0].trim() || !lines[1].trim()) return;
+    const first = getDisplayLength(lines[0]);
+    const second = getDisplayLength(lines[1]);
+    candidates.push({
+      text,
+      maxLine: Math.max(first, second),
+      balance: Math.abs(first - second)
+    });
+  };
+
+  Array.from(raw).forEach((char, index) => {
+    if (char !== "+" && char !== "\uFF0B") return;
+    const first = raw.slice(0, index + 1).trimEnd();
+    const second = raw.slice(index + 1).trimStart();
+    addCandidate(`${first}\n${second}`);
+  });
+
+  Array.from(raw).forEach((char, index) => {
+    if (char !== "\uFF08" && char !== "(") return;
+    const first = raw.slice(0, index).trimEnd();
+    const second = raw.slice(index).trimStart();
+    addCandidate(`${first}\n${second}`);
+  });
+
+  candidates.sort((a, b) => a.maxLine - b.maxLine || a.balance - b.balance);
+  return candidates[0] ? candidates[0].text : raw;
+}
+
+async function wrapGiftLeftDescToAreaIfOverflow(doc, row) {
+  if (!doc || !row || !hasValue(row, "txt.giftLeftDesc")) return false;
+
+  const raw = String(row["txt.giftLeftDesc"] || "").trim();
+  if (!raw || raw.includes("\n")) return false;
+
+  const layer = findTextLayerForColumn(doc, "txt.giftLeftDesc", row);
+  if (!layer || !layer.textItem) return false;
+
+  const areaBox = getTextAreaBoxForLayer(doc, layer.name);
+  if (!areaBox || !Number.isFinite(areaBox.width) || areaBox.width <= 0) return false;
+
+  const maxWidth = areaBox.width * readNumber(row, "txt.giftLeftDesc.fitRatio", readNumber(row, "giftLeftDesc.fitRatio", 0.98));
+  if (!Number.isFinite(maxWidth) || maxWidth <= 0) return false;
+
+  await replaceTextLayerPreserveTemplateParagraphWithSuperscripts(layer, raw, doc);
+
+  const textBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  const actualWidth = textBox && Number.isFinite(textBox.width) ? textBox.width : NaN;
+  if (!Number.isFinite(actualWidth) || actualWidth <= maxWidth) return false;
+
+  const wrapped = splitGiftLeftDescIntoTwoLines(raw);
+  if (wrapped === raw) {
+    log(`  GiftLeft desc overflow but no split token found: textW=${Math.round(actualWidth)}, areaW=${Math.round(maxWidth)}.`);
+    return false;
+  }
+
+  await replaceTextLayerPreserveTemplateParagraphWithSuperscripts(layer, wrapped, doc);
+
+  row["txt.giftLeftDesc"] = wrapped;
+  const wrappedBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  const wrappedWidth = wrappedBox && Number.isFinite(wrappedBox.width) ? wrappedBox.width : NaN;
+  log(`  GiftLeft desc wrapped by actual area: textW=${Math.round(actualWidth)}, areaW=${Math.round(maxWidth)}, wrappedW=${Number.isFinite(wrappedWidth) ? Math.round(wrappedWidth) : "n/a"}, lines=${getGiftLeftDescLineCount(row)}.`);
+  return true;
+}
+
 function getTextStyleFontSize(textKey, fallback) {
   const style = textKey && textKey.textStyleRange && textKey.textStyleRange[0] && textKey.textStyleRange[0].textStyle;
   const size = style && (style.size && style.size._value || style.impliedFontSize && style.impliedFontSize._value);
@@ -11662,14 +12729,21 @@ async function replaceTextLayerPreserveTemplateParagraph(layer, value, doc = nul
       return;
     }
 
-    const textValue = toPhotoshopText(wrapPddSkuGiftLabelIfNeeded(doc, layer, value, textKey));
+    const rawTextValue = isGiftLeftPriceTextLayerName(layer.name)
+      ? normalizeGiftLeftPriceTextValue(value, textKey)
+      : value;
+    const textValue = toPhotoshopText(wrapPddSkuGiftLabelIfNeeded(doc, layer, rawTextValue, textKey));
     const textLength = Array.from(textValue).length;
     const paragraphStyleRange = buildTemplateParagraphStyleRanges(textKey, textValue);
     const symbolsAsLatin = shouldUseLineSeedForSymbols(layer.name);
     const styleByKind = getTemplateTextStyleByKind(textKey, baseStyle, { symbolsAsLatin });
-    let textStyleRange = buildMixedTextTemplateStyleRanges(textValue, styleByKind, { symbolsAsLatin });
+    let textStyleRange = isGiftLeftPriceTextLayerName(layer.name)
+      ? buildGiftLeftPriceTemplateStyleRanges(textValue, textKey, styleByKind, { symbolsAsLatin })
+      : buildMixedTextTemplateStyleRanges(textValue, styleByKind, { symbolsAsLatin });
     if (Array.isArray(options.superscripts) && options.superscripts.length) {
-      textStyleRange = applySuperscriptsToTextStyleRanges(textStyleRange, options.superscripts, { styleByKind });
+      textStyleRange = applySuperscriptsToTextStyleRanges(textStyleRange, options.superscripts, {
+        templateSuperscriptStyle: getTemplateSuperscriptStyle(textKey)
+      });
     }
 
     await photoshop.action.batchPlay(
@@ -11969,7 +13043,7 @@ function findLayersByNameInCurrentScope(doc, row, name) {
 function findLayersByPatternInCurrentScope(doc, row, pattern) {
   const config = getCurrentTemplateConfig();
   const useArtboardScope = config && config.id === "baibuMiaoshaMain" && shouldUseCurrentArtboardScope();
-  const useMechanismScope = !(config && config.id === "tianmao88" && config.subtitleScopeCurrentMechanism === false);
+  const useMechanismScope = !(config && config.subtitleScopeCurrentMechanism === false);
   const scopeLayer = useArtboardScope
     ? state.currentArtboardLayer
     : useMechanismScope
@@ -12006,7 +13080,7 @@ function hideSubtitleModule(doc, row = null) {
 
 function enforceSubtitleVisibilityByTitleLines(doc, row = null, label = "Subtitle") {
   const config = getCurrentTemplateConfig();
-  if (!config || config.id !== "tianmao88" || !config.strictSubtitleVisibilityByTitleLines) return null;
+  if (!config || !config.strictSubtitleVisibilityByTitleLines) return null;
 
   const subtitleKeys = ["txt.subtitle", "txt.subtitle.1", "txt.subtitle.2", "subtitle"];
   const hasSubtitleColumn = subtitleKeys.some((key) => Object.prototype.hasOwnProperty.call(row || {}, key));
@@ -12154,6 +13228,45 @@ function getExplicitTitleNoteVariant(row) {
   return Number.isFinite(variant) && variant >= 1 && variant <= 4 ? variant : null;
 }
 
+function mergeLayerBoxes(boxes) {
+  const valid = (boxes || []).filter(Boolean);
+  if (!valid.length) return null;
+  const left = Math.min(...valid.map((box) => box.left));
+  const top = Math.min(...valid.map((box) => box.top));
+  const right = Math.max(...valid.map((box) => box.right));
+  const bottom = Math.max(...valid.map((box) => box.bottom));
+  return makeBox(left, top, right - left, bottom - top);
+}
+
+async function getTitleNoteMeasuredVariantInfo(doc, row, titleLayer, subtitleLayer) {
+  const contentBox = mergeLayerBoxes([
+    await getLayerBox(titleLayer),
+    subtitleLayer && subtitleLayer.visible !== false ? await getLayerBox(subtitleLayer) : null
+  ]);
+  if (!contentBox) return null;
+
+  const candidates = [1, 2, 3, 4]
+    .map((variant) => {
+      const layer = getTitleNoteVariantLayer(doc, variant, row);
+      const box = getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
+      return layer && box ? { variant, layer, box } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.box.top - b.box.top);
+  if (!candidates.length) return null;
+
+  const gap = readNumber(row || {}, "titleNote.gap", readNumber(row || {}, "txt.titleNote.gap", 4));
+  const desiredTop = contentBox.bottom + gap;
+  const selected = candidates.find((item) => item.box.top >= desiredTop - 1) || candidates[candidates.length - 1];
+  return {
+    variant: selected.variant,
+    contentHeight: contentBox.height,
+    contentBottom: contentBox.bottom,
+    desiredTop,
+    selectedTop: selected.box.top
+  };
+}
+
 function hasSubtitleTextForTitleNote(row) {
   return ["txt.subtitle", "txt.subtitle.1", "txt.subtitle.2", "subtitle"].some((key) => hasValue(row || {}, key));
 }
@@ -12164,7 +13277,7 @@ function hasExplicitEmptySubtitle(row) {
     !keys.some((key) => hasValue(row || {}, key));
 }
 
-function inferTitleNoteVariantIndex(row, titleLineCount, titleLayer = null) {
+function inferTitleNoteVariantIndex(row, titleLineCount, titleLayer = null, options = {}) {
   const explicit = getExplicitTitleNoteVariant(row);
   if (explicit) return explicit;
 
@@ -12173,8 +13286,14 @@ function inferTitleNoteVariantIndex(row, titleLineCount, titleLayer = null) {
   if (!hasValue(row || {}, "txt.title") && !hasValue(row || {}, "txt.tile") && !hasValue(row || {}, "title") && hasValue(row || {}, "txt.title.bold")) {
     return 3;
   }
-  if ((Number(titleLineCount) || 1) >= 2) return 3;
-  if (hasSubtitleTextForTitleNote(row)) return 2;
+  const hasSubtitle = hasSubtitleTextForTitleNote(row);
+  if ((Number(titleLineCount) || 1) >= 2) return hasSubtitle ? 4 : 3;
+  if (hasSubtitle) return 2;
+
+  const measuredVariant = Number(options.measuredVariant);
+  if (Number.isFinite(measuredVariant) && measuredVariant >= 1 && measuredVariant <= 4) {
+    return measuredVariant;
+  }
   return 1;
 }
 
@@ -12184,7 +13303,10 @@ async function applyTitleNoteLayer(doc, row, titleLineCount, options = {}) {
   const hasTitleNoteColumn = keys.some((key) => Object.prototype.hasOwnProperty.call(row || {}, key));
   if (!hasTitleNoteColumn) return false;
 
-  const variantIndex = inferTitleNoteVariantIndex(row, titleLineCount, options.titleLayer);
+  const measuredInfo = await getTitleNoteMeasuredVariantInfo(doc, row, options.titleLayer, options.subtitleLayer);
+  const variantIndex = inferTitleNoteVariantIndex(row, titleLineCount, options.titleLayer, {
+    measuredVariant: measuredInfo && measuredInfo.variant
+  });
   const titleNoteText = firstTextValue(row, getTitleNoteColumnKeys(variantIndex));
   const layerNames = getTitleNoteLayerNames();
   const layers = getUniqueLayersByNames(doc, layerNames);
@@ -12202,7 +13324,7 @@ async function applyTitleNoteLayer(doc, row, titleLineCount, options = {}) {
   });
   selectedLayer.visible = true;
   await replaceTextLayerPreserveTemplateParagraphWithSuperscripts(selectedLayer, titleNoteText, doc);
-  log(`  Title note variant used: ${selectedLayer.name}, hiddenAlternates=${Math.max(layers.length - 1, 0)}, titleLines=${titleLineCount}, variant=${variantIndex}.`);
+  log(`  Title note variant used: ${selectedLayer.name}, hiddenAlternates=${Math.max(layers.length - 1, 0)}, titleLines=${titleLineCount}, variant=${variantIndex}${measuredInfo ? `, titleSubtitleH=${Math.round(measuredInfo.contentHeight)}, contentBottom=${Math.round(measuredInfo.contentBottom)}, noteTop=${Math.round(measuredInfo.selectedTop)}` : ""}.`);
   return true;
 }
 function getTitleLayerVariantNames() {
@@ -12297,6 +13419,23 @@ function findTitleLayerForRow(doc, row, text, options = {}) {
 }
 async function applyTitleAndProductNote(doc, row) {
   const handled = {};
+  const markTitleNoteHandled = () => {
+    handled["txt.titleNote"] = true;
+    handled["txt.titleNote.1"] = true;
+    handled["txt.titleNote.2"] = true;
+    handled["txt.titleNote.3"] = true;
+    handled["txt.titleNote.4"] = true;
+    handled["txt.textNote"] = true;
+    handled["txt.textNote.1"] = true;
+    handled["txt.textNote.2"] = true;
+    handled["txt.textNote.3"] = true;
+    handled["txt.textNote.4"] = true;
+    handled["text.note"] = true;
+    handled["text.note.1"] = true;
+    handled["text.note.2"] = true;
+    handled["text.note.3"] = true;
+    handled["text.note.4"] = true;
+  };
   const titleSwitch = getTitleLayerSwitch(row);
   const titleText = getTitleTextForRow(row, titleSwitch);
   const titlePreviewText = titleText !== undefined && titleText !== null ? parseTitleSuperscriptMarkup(titleText).text : "";
@@ -12342,24 +13481,6 @@ async function applyTitleAndProductNote(doc, row) {
         log(`  Title second line scaled: chars=${secondLineInfo.secondLineChars}, scale=0.5.`);
       }
     }
-  }
-
-  if (await applyTitleNoteLayer(doc, row, titleLineCount, { titleLayer })) {
-    handled["txt.titleNote"] = true;
-    handled["txt.titleNote.1"] = true;
-    handled["txt.titleNote.2"] = true;
-    handled["txt.titleNote.3"] = true;
-    handled["txt.titleNote.4"] = true;
-    handled["txt.textNote"] = true;
-    handled["txt.textNote.1"] = true;
-    handled["txt.textNote.2"] = true;
-    handled["txt.textNote.3"] = true;
-    handled["txt.textNote.4"] = true;
-    handled["text.note"] = true;
-    handled["text.note.1"] = true;
-    handled["text.note.2"] = true;
-    handled["text.note.3"] = true;
-    handled["text.note.4"] = true;
   }
 
   if (hasExplicitEmptySubtitle(row)) {
@@ -12462,16 +13583,21 @@ async function applyTitleAndProductNote(doc, row) {
     log(`  Product note variant used: ${fallbackNoteLayer.name}, lines=${subtitleVariantLineCount}`);
   }
 
+  if (await applyTitleNoteLayer(doc, row, titleLineCount, { titleLayer, subtitleLayer: isSubtitleTextLayer(fallbackNoteLayer) ? fallbackNoteLayer : null })) {
+    markTitleNoteHandled();
+  }
+
   return handled;
 }
 
 function isGiftControlColumn(column) {
   return PRODUCT_NAME_COLUMNS.includes(column) ||
     GIFT_NAME_COLUMNS.includes(column) ||
-    /^(giftLeft|giftRight|gift|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|fillAreaHeight|fillHeight|areaHeightFill|maxHeightToArea|slotFill|slotSpan|category|categoryGapMode|categoryGap|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio)(\.\d+)?$/.test(column) ||
+    /^(giftLeft|giftRight|gift|product)\.(count|layout|zOrder|x|y|w|h|width|height|itemW|itemWidth|itemH|itemHeight|spacing|gap|bottom|heightRatio|scale|fillAreaHeight|fillHeight|areaHeightFill|maxHeightToArea|fillAreaHeightRatio|areaHeightFillRatio|slotFill|slotSpan|category|categoryGapMode|categoryGap|overlapRatio|edgePaddingRatio|sourceMode|copyMode|ampouleGroups|groupCount|ampouleGap|ampouleRowGap|ampouleGroupHeight|ampouleHeightRatio|align|alignX|areaAlign|areaAlignX|imageAlign|imageAlignX|xAlign)(\.\d+)?$/.test(column) ||
     /^product\.gap\.\d+$/.test(column) ||
     /^product\.gap\.[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/.test(column) ||
-    /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|minHeightRatio)$/.test(column) ||
+    /^product\.(?:backdrop|background)(?:\.heightRatio|\.\d+)?$/.test(column) ||
+    /^giftLeft\.(tube100HeightRatio|tube25HeightRatio|smallTubeMixedHeightRatio|minHeightRatio)$/.test(column) ||
     /^product\.([a-zA-Z0-9]+HeightRatio|heightMode|view|imageView|assetView|viewMode|viewNote|imageNote|assetNote|note|touchEdges|touch|fillAreaHeight|fillHeight|areaHeightFill|maxHeightToArea|ampouleSetSlotSpan|ampouleSetSlots)$/.test(column) ||
     /^productShadow\.(top|opacity|style|gift|giftShadow|includeGift|includeGiftShadow|coupon|couponShadow|includeCoupon|includeCouponShadow)$/.test(column) ||
     /^productBottomShadow\.(opacity|widthRatio|heightRatio|offsetXRatio|bottomOffsetRatio|blur|coupon|couponShadow|includeCoupon|includeCouponShadow)$/.test(column) ||
@@ -12828,6 +13954,9 @@ async function exportDocument(doc, row, index) {
   ensureProductProjectVisibleBeforeExport(doc);
   ensureCurrentProductImagesVisibleBeforeExport(doc, row);
   await finalizeTmall88ProductSpacing(doc, row, "Pre-export final product spacing");
+  await arrangeProductBackdropLayers(doc, row);
+  await enforceGiftLeftAreaLayout(doc, row, "Pre-export giftLeft area");
+  await forceLargeGiftLeftBagToArea(doc, row, "Pre-export");
   ensureBaibuMainProductLabelVisible(doc, row, "Export");
   await cropDocumentToCurrentArtboard(doc);
   ensureBaibuMainProductLabelVisible(doc, row, "Export crop");
@@ -12906,6 +14035,7 @@ async function applyRowToDocument(doc, row) {
   if (hasExplicitEmptySubtitle(expandedRow)) {
     hideSubtitleModule(doc, expandedRow);
   }
+  await wrapGiftLeftDescToAreaIfOverflow(doc, expandedRow);
   await prepareImageGroupLayers(doc, expandedRow, "product");
   await prepareImageGroupLayers(doc, expandedRow, "giftLeft");
   await prepareImageGroupLayers(doc, expandedRow, "giftRight");
@@ -13028,7 +14158,9 @@ async function applyRowToDocument(doc, row) {
   log("  After product arrange.");
   await applyProductGroupScale(doc, expandedRow);
   await alignCurrentProductLayersToArea(doc, expandedRow);
-  await alignGiftLeftImageGroupToArea(doc);
+  await arrangeProductBackdropLayers(doc, expandedRow);
+  await alignGiftLeftImageGroupToArea(doc, expandedRow);
+  await forceLargeGiftLeftBagToArea(doc, expandedRow, "After giftLeft align");
   await alignGiftImageGroupToArea(doc);
   await applyGiftCouponGapFromProduct(doc, expandedRow);
   await alignBaibuGiftItemsBottomToArea(doc, expandedRow);
@@ -13053,6 +14185,7 @@ async function processOne(row, index) {
   state.groupAreaNames = {};
   state.placedImageLayers = {};
   state.templateLayerBoxes = {};
+  state.giftLeftPlacedLayers = [];
   state.currentRow = null;
   state.currentArtboardLayer = null;
   state.currentArtboardName = "";
@@ -13092,6 +14225,7 @@ async function runBatch() {
     state.groupAreaNames = {};
     state.placedImageLayers = {};
     state.templateLayerBoxes = {};
+    state.giftLeftPlacedLayers = [];
     state.currentRow = null;
     state.currentArtboardLayer = null;
     state.currentArtboardName = "";

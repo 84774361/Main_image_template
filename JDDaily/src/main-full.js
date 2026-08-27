@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260819-private-aw-scoped-gift";
+const SCRIPT_VERSION = "20260825-gift-left-quantity-expand";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -1868,8 +1868,8 @@ function getTubeHeightRatioBySpec(row, size, mode) {
   if (size >= 30) return readProductHeightRatio(row, "tube30", same ? 0.68 : 0.62);
   if (size >= 25) return readProductHeightRatio(row, "tube25", same ? 0.62 : 0.58);
   if (size >= 15) return readProductHeightRatio(row, "tube15", same ? 0.72 : 0.7);
-  if (size >= 10) return readProductHeightRatio(row, "tube10", same ? 0.5 : 0.42);
-  if (size > 0) return readProductHeightRatio(row, "tube5", same ? 0.42 : 0.36);
+  if (size >= 10) return readProductHeightRatio(row, "tube10", same ? 0.465 : 0.444);
+  if (size > 0) return readProductHeightRatio(row, "tube5", same ? 0.406 : 0.388);
   return readProductHeightRatio(row, "tubeDefault", same ? 0.84 : 0.7);
 }
 
@@ -6990,10 +6990,29 @@ function parseCount(value) {
   return match ? Math.max(1, Math.min(Number(match[1]), 6)) : 0;
 }
 
+function getGiftLeftDescriptionItemCount(row) {
+  const description = cleanGiftLeftDescriptionSourceText(row && row["txt.giftLeftDesc"]);
+  if (!description) return 0;
+
+  const tokens = splitProductNameList(description);
+  if (!tokens.length) return 0;
+
+  const count = tokens.reduce((total, token) => {
+    const match = String(token || "").replace(/\s+/g, "").match(/(?:\*|x)\s*(\d+)$/i);
+    return total + (match ? Number(match[1]) || 1 : 1);
+  }, 0);
+  return Math.max(1, Math.min(count, 6));
+}
+
 function getGiftCount(row, prefix) {
   const explicitCount = parseCount(row[`${prefix}.count`]);
   if (explicitCount) {
     return explicitCount;
+  }
+
+  if (prefix === "giftLeft") {
+    const descriptionCount = getGiftLeftDescriptionItemCount(row);
+    if (descriptionCount) return descriptionCount;
   }
 
   const text = [
