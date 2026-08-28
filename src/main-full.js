@@ -7,7 +7,7 @@ let uxpStorage = null;
 let fs = null;
 let configuredAssetsFolder = null;
 let configuredAssetsFolderPath = "";
-const SCRIPT_VERSION = "20260827-title-star-giftleft-group";
+const SCRIPT_VERSION = "20260828-pdd-sku-subtitle-center-anchor";
 const MAX_SINGLE_ITEM_REPEAT_COUNT = 12;
 
 const TITLE_FONT_RULE = {
@@ -545,7 +545,7 @@ const DEFAULT_DYNAMIC_ICON_ALIASES = {
 
 defineTemplateProfile("jddaily750", createTemplateProfile(BASE_TEMPLATE_CONFIG, {
   id: "jddaily750",
-  label: "JDDaily 750",
+  label: "JD/Tmall\u4e3b\u56fe",
   filePrefixPlaceholder: "jd_daily_750_",
   paths: {
     template: "F:\\NEWPAGE\\AI生图\\批量生图测试\\JD\\JDDAILY\\JD_DAILY_750_ALL_MECHANISM.psd",
@@ -2935,6 +2935,38 @@ function readProductHeightRatio(row, key, fallback, aliases = []) {
   return clampHeightRatio(fallback);
 }
 
+// `产品名称.csv` is the product-identity source.  It may provide `heightRatio`
+// for a same-category layout and `heightRatioMixed` for a mixed-category layout.
+// Both are per-asset defaults after explicit batch CSV rules.
+function getProductNameMapHeightRatio(source, mode = "same") {
+  const fileName = String(source || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    .replace(/[?#].*$/, "")
+    .trim()
+    .toLowerCase();
+  if (!fileName || !Array.isArray(state.productNameRows)) return null;
+
+  const ratios = new Set();
+  state.productNameRows.forEach((productRow) => {
+    const mappedFileName = String(productRow.file || productRow.filename || productRow["文件"] || "")
+      .replace(/\\/g, "/")
+      .split("/")
+      .pop()
+      .trim()
+      .toLowerCase();
+    if (mappedFileName !== fileName) return;
+
+    const value = mode === "mixed"
+      ? readNumber(productRow, "heightRatioMixed", readNumber(productRow, "heightRatio", readNumber(productRow, "product.heightRatio", null)))
+      : readNumber(productRow, "heightRatio", readNumber(productRow, "product.heightRatio", null));
+    if (Number.isFinite(value)) ratios.add(clampHeightRatio(value));
+  });
+
+  return ratios.size === 1 ? Array.from(ratios)[0] : null;
+}
+
 function getProductHeightRatioProfile(row) {
   return String(
     row["product.heightRatioProfile"] ||
@@ -3238,6 +3270,8 @@ function getProductHeightRatio(row, index, count = 1, options = {}) {
   const mode = indices && indices.length ? getProductHeightModeForIndices(row, indices) : getProductHeightMode(row, count);
   const category = getProductCategory(row, index);
   const source = getImageSourceForIndex(row, "product", index);
+  const mappedRatio = getProductNameMapHeightRatio(source, mode);
+  if (Number.isFinite(mappedRatio)) return mappedRatio;
   const specs = getProductSpecFromSource(source);
   return getChartProductHeightRatio(row, category, specs, mode, source, {
     useReference: shouldUseReferenceProductHeightRatio(row, effectiveCount)
@@ -12284,7 +12318,7 @@ function getJustificationText(justification) {
 }
 
 function shouldRestoreTextByCenterAnchor(label) {
-  return /^txt\.bottomText(?:\.\d+)?$/i.test(String(label || ""));
+  return /^txt\.(?:bottomText|subtitle)(?:\.\d+)?$/i.test(String(label || ""));
 }
 
 function getTextAnchorXByJustification(box, justification, label = "") {
@@ -13402,9 +13436,10 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue, variantSourceT
   const targetHeight = currentBox
     ? currentBox.height
     : Math.max(textBox.height + paddingY * 2, Number(config.minHeight) || 0);
+  const targetTop = currentBox ? currentBox.top : textBox.centerY - targetHeight / 2;
   const targetBox = makeBox(
     textBox.centerX - targetWidth / 2,
-    textBox.centerY - targetHeight / 2,
+    targetTop,
     targetWidth,
     targetHeight
   );

@@ -5,7 +5,7 @@ let outputFolder = null;
 let photoshop = null;
 let uxpStorage = null;
 let fs = null;
-const SCRIPT_VERSION = "20260825-gift-left-quantity-expand";
+const SCRIPT_VERSION = "20260827-product-name-heightratio";
 
 const TITLE_FONT_RULE = {
   latin: {
@@ -1713,6 +1713,38 @@ function readProductHeightRatio(row, key, fallback, aliases = []) {
   return clampHeightRatio(fallback);
 }
 
+// `产品名称.csv` is the product-identity source.  It may provide `heightRatio`
+// for a same-category layout and `heightRatioMixed` for a mixed-category layout.
+// Both are per-asset defaults after explicit batch CSV rules.
+function getProductNameMapHeightRatio(source, mode = "same") {
+  const fileName = String(source || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    .replace(/[?#].*$/, "")
+    .trim()
+    .toLowerCase();
+  if (!fileName || !Array.isArray(state.productNameRows)) return null;
+
+  const ratios = new Set();
+  state.productNameRows.forEach((productRow) => {
+    const mappedFileName = String(productRow.file || productRow.filename || productRow["文件"] || "")
+      .replace(/\\/g, "/")
+      .split("/")
+      .pop()
+      .trim()
+      .toLowerCase();
+    if (mappedFileName !== fileName) return;
+
+    const value = mode === "mixed"
+      ? readNumber(productRow, "heightRatioMixed", readNumber(productRow, "heightRatio", readNumber(productRow, "product.heightRatio", null)))
+      : readNumber(productRow, "heightRatio", readNumber(productRow, "product.heightRatio", null));
+    if (Number.isFinite(value)) ratios.add(clampHeightRatio(value));
+  });
+
+  return ratios.size === 1 ? Array.from(ratios)[0] : null;
+}
+
 function getProductHeightRatioProfile(row) {
   return String(
     row["product.heightRatioProfile"] ||
@@ -1924,6 +1956,8 @@ function getProductHeightRatio(row, index, count = 1) {
   if (/\bstack\b|--stack|-stack-(?:ice|water)/i.test(source)) {
     return 1;
   }
+  const mappedRatio = getProductNameMapHeightRatio(source, mode);
+  if (Number.isFinite(mappedRatio)) return mappedRatio;
   const specs = getProductSpecFromSource(source);
   const ratio = getChartProductHeightRatio(row, category, specs, mode, source, {
     useReference: shouldUseReferenceProductHeightRatio(row, count)
