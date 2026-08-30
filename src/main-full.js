@@ -7,7 +7,7 @@ let uxpStorage = null;
 let fs = null;
 let configuredAssetsFolder = null;
 let configuredAssetsFolderPath = "";
-const SCRIPT_VERSION = "20260828-pdd-sku-subtitle-center-anchor";
+const SCRIPT_VERSION = "20260830-product-shadow-behind";
 const MAX_SINGLE_ITEM_REPEAT_COUNT = 12;
 
 const TITLE_FONT_RULE = {
@@ -105,29 +105,25 @@ const PDD_DAILY_AGE_ICON_SWITCHES = [
     columns: ["daily.icon.baby0", "pdd.icon.baby0", "icon.baby0", "icon.baby0icon"],
     names: ["baby0", "baby0icon"],
     label: "baby0icon",
-    defaultVisible: false,
-    scopeCurrentMechanism: true
+    defaultVisible: false
   },
   {
     columns: ["daily.icon.612", "pdd.icon.612", "icon.612", "icon.6-12", "icon.612icon", "icon.6-12icon"],
     names: ["612", "6-12icon"],
     label: "6-12icon",
-    defaultVisible: false,
-    scopeCurrentMechanism: true
+    defaultVisible: false
   },
   {
     columns: ["daily.icon.cosmetic", "pdd.icon.cosmetic", "icon.cosmetic", "icon.cosmeticicon"],
     names: ["cosmetic", "cosmeticicon", "cosmeticicon "],
     label: "cosmeticicon",
-    defaultVisible: false,
-    scopeCurrentMechanism: true
+    defaultVisible: false
   },
   {
     columns: ["daily.icon.youth12", "daily.icon.1218", "pdd.icon.youth12", "pdd.icon.1218", "icon.youth12", "icon.1218", "icon.12+", "icon.youth12icon", "icon.1218icon", "icon.12+icon"],
     names: ["12+", "12+icon", "12plusicon", "youth12icon", "teen12icon"],
     label: "12+icon",
-    defaultVisible: false,
-    scopeCurrentMechanism: true
+    defaultVisible: false
   }
 ];
 
@@ -435,8 +431,7 @@ const TEMPLATE_CONFIGS = {
       groupNames: ["ICON", "Icon", "icon"],
       prefixes: ["icon.", "daily.icon.", "pdd.icon."],
       listColumns: ["icon.layers", "icon.names", "icon.list", "daily.icons", "pdd.icons"],
-      defaultVisible: false,
-      scopeCurrentMechanism: true
+      defaultVisible: false
     },
     personTemplateSwitch: {
       enabled: true,
@@ -494,6 +489,7 @@ const TEMPLATE_CONFIGS = {
     preserveBottomTextTemplatePosition: true,
     bottomTextShortMaxUnits: 10.0,
     bottomTextShortFitRatio: 0.88,
+    cleanupBeforeRasterExport: true,
     productOverlapGapRatio: -0.5,
     giftLeftOverlapGapRatio: -0.18
   }
@@ -1511,6 +1507,92 @@ function parseCsv(text) {
   });
 }
 
+function parseCsvDocument(text) {
+  const rawText = String(text || "");
+  const bom = rawText.charCodeAt(0) === 0xfeff;
+  const source = bom ? rawText.slice(1) : rawText;
+  const records = [];
+  let cursor = 0;
+
+  while (cursor < source.length) {
+    const start = cursor;
+    const fields = [];
+    let done = false;
+
+    while (!done) {
+      const fieldStart = cursor;
+      let value = "";
+      let quoted = false;
+
+      if (source[cursor] === '"') {
+        quoted = true;
+        cursor += 1;
+        while (cursor < source.length) {
+          if (source[cursor] === '"') {
+            if (source[cursor + 1] === '"') {
+              value += '"';
+              cursor += 2;
+            } else {
+              cursor += 1;
+              break;
+            }
+          } else {
+            value += source[cursor];
+            cursor += 1;
+          }
+        }
+      } else {
+        const valueStart = cursor;
+        while (cursor < source.length && !",\r\n".includes(source[cursor])) cursor += 1;
+        value = source.slice(valueStart, cursor);
+      }
+
+      fields.push({ value: value.trim(), start: fieldStart - start, end: cursor - start, quoted });
+      if (source[cursor] === ",") {
+        cursor += 1;
+        continue;
+      }
+      if (source[cursor] === "\r" && source[cursor + 1] === "\n") cursor += 2;
+      else if (source[cursor] === "\r" || source[cursor] === "\n") cursor += 1;
+      done = true;
+    }
+
+    records.push({ raw: source.slice(start, cursor), fields });
+  }
+
+  const headers = records[0] ? records[0].fields.map((field) => field.value) : [];
+  return { bom, headers, records };
+}
+
+function csvDocumentRows(csvDoc) {
+  const headers = csvDoc && csvDoc.headers || [];
+  return (csvDoc && csvDoc.records || []).slice(1).map((record) => (
+    Object.fromEntries(headers.map((header, index) => [header, record.fields[index]?.value ?? ""]))
+  ));
+}
+
+function csvEscape(value, quoted) {
+  const text = String(value ?? "");
+  return quoted || /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function applyProductTitleHeightSortChangesToCsvDocument(csvDoc, changes) {
+  if (!csvDoc || !Array.isArray(changes)) return;
+  changes.forEach((change) => {
+    const column = csvDoc.headers.indexOf(change.key);
+    const record = csvDoc.records[Number(change.rowIndex) + 1];
+    if (column < 0 || !record || !record.fields[column]) return;
+
+    const field = record.fields[column];
+    record.raw = record.raw.slice(0, field.start) + csvEscape(change.nextValue, field.quoted) + record.raw.slice(field.end);
+  });
+}
+
+function serializeCsvDocument(csvDoc) {
+  const body = (csvDoc && csvDoc.records || []).map((record) => record.raw).join("");
+  return `${csvDoc && csvDoc.bom ? "\ufeff" : ""}${body}`;
+}
+
 async function readCsvRows(file) {
   ensureModules();
   const text = await readCsvText(file);
@@ -1534,6 +1616,90 @@ async function readCsvText(file) {
   }
 
   return utf8Text;
+}
+
+async function writeCsvText(file, text) {
+  ensureModules();
+  if (file && typeof file.write === "function") {
+    await file.write(text, { format: uxpStorage.formats.utf8 });
+    return;
+  }
+  if (file && typeof file.createWritable === "function") {
+    const writable = await file.createWritable();
+    await writable.write(text);
+    await writable.close();
+    return;
+  }
+  throw new Error("Selected CSV file is not writable.");
+}
+
+async function getOrCreateChildFolder(parent, name) {
+  if (!parent) return null;
+  try {
+    return await parent.getEntry(name);
+  } catch (error) {
+    if (typeof parent.createFolder !== "function") return null;
+    return parent.createFolder(name);
+  }
+}
+
+async function backupCsvBeforeWrite(file, text, suffix) {
+  const parent = file && file.parent;
+  const backupFolder = await getOrCreateChildFolder(parent, "bak");
+  if (!backupFolder || typeof backupFolder.createFile !== "function") {
+    log("  CSV backup skipped: parent bak folder is not writable.");
+    return "";
+  }
+
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "").replace("T", "_");
+  const name = String(file.name || "data.csv");
+  const extMatch = name.match(/(\.[^.]+)$/);
+  const ext = extMatch ? extMatch[1] : ".csv";
+  const base = name.replace(/\.[^.]+$/, "");
+  const backup = await backupFolder.createFile(`${base}_${stamp}_${suffix}${ext}`, { overwrite: false });
+  await writeCsvText(backup, text);
+  log(`  CSV backup: bak/${backup.name || `${base}_${stamp}_${suffix}${ext}`}`);
+  return backup.name || "";
+}
+
+function makeSortedCsvCopyName(file) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "").replace("T", "_");
+  const name = String(file && file.name || "data.csv");
+  const extMatch = name.match(/(\.[^.]+)$/);
+  const ext = extMatch ? extMatch[1] : ".csv";
+  const base = name.replace(/\.[^.]+$/, "");
+  return `${base}_按高度排序_${stamp}${ext}`;
+}
+
+async function getCsvSortCopyOutputFolder() {
+  ensureModules();
+
+  log("  Select a writable folder for the sorted CSV copy.");
+  try {
+    const folder = await fs.getFolder();
+    if (folder && typeof folder.createFile === "function") {
+      outputFolder = folder;
+      setLabel("outputName", outputFolder);
+      return outputFolder;
+    }
+  } catch (error) {
+    log(`  Folder selection skipped: ${formatError(error)}`);
+  }
+
+  if (outputFolder && typeof outputFolder.createFile === "function") {
+    log("  Using current output folder for sorted CSV copy.");
+    return outputFolder;
+  }
+
+  throw new Error("No writable output folder selected for sorted CSV copy.");
+}
+
+async function writeSortedCsvCopy(originalFile, text) {
+  const folder = await getCsvSortCopyOutputFolder();
+  const name = makeSortedCsvCopyName(originalFile);
+  const file = await folder.createFile(name, { overwrite: false });
+  await writeCsvText(file, text);
+  return file && file.name ? file.name : name;
 }
 
 function looksMojibake(text) {
@@ -2938,24 +3104,24 @@ function readProductHeightRatio(row, key, fallback, aliases = []) {
 // `产品名称.csv` is the product-identity source.  It may provide `heightRatio`
 // for a same-category layout and `heightRatioMixed` for a mixed-category layout.
 // Both are per-asset defaults after explicit batch CSV rules.
-function getProductNameMapHeightRatio(source, mode = "same") {
-  const fileName = String(source || "")
+function normalizeProductNameMapHeightFileName(source) {
+  return String(source || "")
     .replace(/\\/g, "/")
     .split("/")
     .pop()
     .replace(/[?#].*$/, "")
+    .replace(/-(?:front|angle)(?=\.[^.]+$)/i, "")
     .trim()
     .toLowerCase();
+}
+
+function getProductNameMapHeightRatio(source, mode = "same") {
+  const fileName = normalizeProductNameMapHeightFileName(source);
   if (!fileName || !Array.isArray(state.productNameRows)) return null;
 
   const ratios = new Set();
   state.productNameRows.forEach((productRow) => {
-    const mappedFileName = String(productRow.file || productRow.filename || productRow["文件"] || "")
-      .replace(/\\/g, "/")
-      .split("/")
-      .pop()
-      .trim()
-      .toLowerCase();
+    const mappedFileName = normalizeProductNameMapHeightFileName(productRow.file || productRow.filename || productRow["文件"] || "");
     if (mappedFileName !== fileName) return;
 
     const value = mode === "mixed"
@@ -4730,6 +4896,116 @@ function splitSubtitleByPlusBalanced(text) {
 
   const result = bestFirstNotShorter || best;
   return result ? `${result.firstLine}\n${result.secondLine}` : source;
+}
+
+function isPddSkuSubtitleConfig(config = getCurrentTemplateConfig()) {
+  return !!(config && (config.id === "pddSku" || config.id === "pddSkuGift"));
+}
+
+function findSubtitleAreaLayer(doc, row = null) {
+  return findLayerByNameInCurrentMechanismOnly(doc, row, "txt.subtitle.area") ||
+    findLayerByName(doc, "txt.subtitle.area");
+}
+
+function getSubtitleAreaWidth(doc, row = null) {
+  const areaLayer = findSubtitleAreaLayer(doc, row);
+  const areaBox = getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
+  if (areaBox && areaBox.width > 0) return areaBox.width;
+  const config = getCurrentTemplateConfig().subtitleRectangle || {};
+  return readNumber(row || {}, "subtitle.maxTextWidth", Number(config.maxTextWidth) || 0);
+}
+
+function getPddSkuSubtitleLayerByVariant(doc, row, variant) {
+  const name = `txt.subtitle.${variant}`;
+  return findLayerByNameInCurrentMechanismOnly(doc, row, name) ||
+    findLayerByName(doc, name);
+}
+
+function getPddSkuSubtitleCenterReferenceBox(doc, row = null, variant = null) {
+  const config = getCurrentTemplateConfig().subtitleRectangle || {};
+  const names = [];
+  const variantIndex = Number(variant);
+  if (Number.isFinite(variantIndex) && variantIndex > 0) {
+    names.push(`txt.subtitle.rectangle.${Math.min(Math.max(variantIndex, 1), 2)}`);
+  }
+  names.push(config.layerName || "txt.subtitle.rectangle");
+
+  for (const name of names) {
+    const layer = findLayerByNameInCurrentMechanismOnly(doc, row, name) || findLayerByName(doc, name);
+    const box = getBoundsBox(layer && (layer.boundsNoEffects || layer.bounds));
+    if (box) return box;
+  }
+
+  const areaLayer = findSubtitleAreaLayer(doc, row);
+  return getBoundsBox(areaLayer && (areaLayer.boundsNoEffects || areaLayer.bounds));
+}
+
+async function alignPddSkuSubtitleLayerToReferenceCenterY(doc, row, layer, variant = null) {
+  if (!layer || !isSubtitleTextLayer(layer) || !isPddSkuSubtitleConfig()) return null;
+  const textBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  const referenceBox = getPddSkuSubtitleCenterReferenceBox(doc, row, variant);
+  if (!textBox || !referenceBox) return textBox;
+
+  const dy = referenceBox.centerY - textBox.centerY;
+  if (Number.isFinite(dy) && Math.abs(dy) >= 0.5) {
+    await layer.translate(0, dy);
+    log(`  SKU subtitle vertical center restored: ${layer.name}, dy=${Math.round(dy)}.`);
+    return getLayerBox(layer);
+  }
+  return textBox;
+}
+
+async function applyAndMeasurePddSkuSubtitleCandidate(layer, text, styleConfig, doc, row, variant = null) {
+  if (!layer) return null;
+  const originalBox = getBoundsBox(layer.boundsNoEffects || layer.bounds);
+  const originalJustification = getTextLayerJustificationValue(layer);
+  layer.visible = true;
+  await replaceTextLayerPddSkuGiftSubtitleStyle(layer, text, styleConfig, "Subtitle");
+  if (originalBox) {
+    await restoreTextLayerJustification(layer, originalJustification);
+    await restoreTextLayerOriginalAnchor(layer, originalBox, layer.name, originalJustification);
+  }
+  return alignPddSkuSubtitleLayerToReferenceCenterY(doc, row, layer, variant);
+}
+
+async function resolvePddSkuSubtitleLayout(doc, row, noteText) {
+  const config = getCurrentTemplateConfig();
+  if (!isPddSkuSubtitleConfig(config)) return null;
+
+  const rawText = String(noteText || "").replace(/\r\n|\r|\n/g, " ").trim();
+  if (!rawText) return null;
+
+  const areaWidth = getSubtitleAreaWidth(doc, row);
+  const styleConfig = config.subtitleTextStyle || {};
+  const layer1 = getPddSkuSubtitleLayerByVariant(doc, row, 1);
+  const layer2 = getPddSkuSubtitleLayerByVariant(doc, row, 2);
+  if (!Number.isFinite(areaWidth) || areaWidth <= 0 || !layer1 || !layer2) return null;
+
+  hideAlternateSubtitleLayers(doc, null, row);
+
+  const layer1Box = await applyAndMeasurePddSkuSubtitleCandidate(layer1, rawText, styleConfig, doc, row, 1);
+  if (layer1Box && layer1Box.width <= areaWidth) {
+    hideAlternateSubtitleLayers(doc, layer1, row);
+    layer1.visible = true;
+    log(`  SKU subtitle layout: txt.subtitle.1 fits area, textW=${Math.round(layer1Box.width)}, areaW=${Math.round(areaWidth)}.`);
+    return { layer: layer1, text: rawText, variant: 1, areaWidth };
+  }
+
+  const layer2Box = await applyAndMeasurePddSkuSubtitleCandidate(layer2, rawText, styleConfig, doc, row, 2);
+  if (layer1) layer1.visible = false;
+  if (layer2Box && layer2Box.width <= areaWidth) {
+    hideAlternateSubtitleLayers(doc, layer2, row);
+    layer2.visible = true;
+    log(`  SKU subtitle layout: txt.subtitle.2 fits area, textW=${Math.round(layer2Box.width)}, areaW=${Math.round(areaWidth)}.`);
+    return { layer: layer2, text: rawText, variant: 2, areaWidth };
+  }
+
+  const wrappedText = splitSubtitleByPlusBalanced(rawText);
+  const wrappedBox = await applyAndMeasurePddSkuSubtitleCandidate(layer2, wrappedText, styleConfig, doc, row, 2);
+  hideAlternateSubtitleLayers(doc, layer2, row);
+  layer2.visible = true;
+  log(`  SKU subtitle layout: txt.subtitle.2 wrapped, singleW=${Math.round(layer2Box && layer2Box.width || 0)}, wrappedW=${Math.round(wrappedBox && wrappedBox.width || 0)}, areaW=${Math.round(areaWidth)}.`);
+  return { layer: layer2, text: wrappedText, variant: 2, areaWidth };
 }
 
 async function applyTextLayerUniformStyle(layer, styleConfig, label) {
@@ -9487,6 +9763,34 @@ function getBackmostProductLayerForShadow(items, row) {
 
   return frontToBack[frontToBack.length - 1] && frontToBack[frontToBack.length - 1].layer || null;
 }
+
+async function ensureProductBottomShadowsBehindProducts(shadowLayers, items, row) {
+  const visibleShadowLayers = (shadowLayers || []).filter((layer) => layer && layer.visible !== false);
+  if (!visibleShadowLayers.length || !items || !items.length) return;
+
+  const orderedProducts = getImageGroupFrontToBackItems(items, getImageGroupZOrder(row || state.currentRow || {}, "product"))
+    .map((item) => item && item.layer)
+    .filter(Boolean);
+  if (!orderedProducts.length) return;
+
+  let moved = 0;
+  for (const shadowLayer of visibleShadowLayers) {
+    for (const productLayer of orderedProducts) {
+      if (!productLayer || productLayer === shadowLayer) continue;
+      try {
+        await productLayer.move(shadowLayer, photoshop.constants.ElementPlacement.PLACEBEFORE);
+        moved += 1;
+      } catch (error) {
+        log(`  Product shadow z-order skipped for ${shadowLayer.name}/${productLayer.name}: ${formatError(error)}`);
+      }
+    }
+  }
+
+  if (moved) {
+    log(`  Product shadow z-order: ${visibleShadowLayers.map((layer) => layer.name).join(", ")} placed behind ${orderedProducts.map((layer) => layer.name).join(", ")}.`);
+  }
+}
+
 async function applyProductBottomShadow(doc, row) {
   const config = getCurrentTemplateConfig().productBottomShadow;
   if (!config || !config.enabled) return;
@@ -9561,6 +9865,7 @@ async function applyProductBottomShadow(doc, row) {
     }
     log(`  Product shadow block placed below ${backmostProductLayer.name}.`);
   }
+  await ensureProductBottomShadowsBehindProducts(visibleShadowLayers, items, shadowRow);
 
   log(`  Product bottom shadows aligned: ${summaries.join("; ")}.`);
 }
@@ -10836,6 +11141,15 @@ function resolveProductTitleSortItem(label, mapRows) {
   return choices[0];
 }
 
+function getProductTitleSortHeightRatio(item, mode) {
+  const row = item && item.row || {};
+  const mappedRatio = mode === "mixed"
+    ? readNumber(row, "heightRatioMixed", readNumber(row, "heightRatio", readNumber(row, "product.heightRatio", null)))
+    : readNumber(row, "heightRatio", readNumber(row, "product.heightRatio", null));
+  if (Number.isFinite(mappedRatio)) return clampHeightRatio(mappedRatio);
+  return getChartProductHeightRatio({}, item.category, item.spec, mode, item.source);
+}
+
 function sortProductTitleByHeightValue(value, mapRows) {
   const raw = String(value || "");
   if (!/[+＋]/.test(raw)) return { value: raw, changed: false, skipped: true };
@@ -10855,7 +11169,7 @@ function sortProductTitleByHeightValue(value, mapRows) {
   const mode = new Set(items.map((item) => item.category)).size > 1 ? "mixed" : "same";
   items.forEach((item, originalIndex) => {
     item.originalIndex = originalIndex;
-    item.ratio = getChartProductHeightRatio({}, item.category, item.spec, mode, item.source);
+    item.ratio = getProductTitleSortHeightRatio(item, mode);
   });
 
   const sorted = items.slice().sort((a, b) => a.ratio - b.ratio || a.originalIndex - b.originalIndex);
@@ -10888,7 +11202,7 @@ function applyProductTitleHeightSortToRows(rows, options = {}) {
 
     if (!sorted.changed) return;
     row[field.key] = sorted.value;
-    result.changes.push({ row: rowIndex + 2, key: field.key, oldValue: field.value, nextValue: sorted.value });
+    result.changes.push({ rowIndex, row: rowIndex + 2, key: field.key, oldValue: field.value, nextValue: sorted.value });
   });
 
   log(`Product CN height sort: changed ${result.changes.length} rows${result.unresolved.length ? `, unresolved ${result.unresolved.length}` : ""}.`);
@@ -12318,7 +12632,11 @@ function getJustificationText(justification) {
 }
 
 function shouldRestoreTextByCenterAnchor(label) {
-  return /^txt\.(?:bottomText|subtitle)(?:\.\d+)?$/i.test(String(label || ""));
+  const textLayerName = String(label || "");
+  if (/^txt\.bottomText(?:\.\d+)?$/i.test(textLayerName)) return true;
+  if (!/^txt\.subtitle(?:\.\d+)?$/i.test(textLayerName)) return false;
+  const config = getCurrentTemplateConfig();
+  return !!(config && (config.id === "pddSku" || config.id === "pddSkuGift"));
 }
 
 function getTextAnchorXByJustification(box, justification, label = "") {
@@ -12725,6 +13043,12 @@ async function alignPromoTitleLayerToArea(doc, layer) {
 async function applyGeneratedBottomTextIfNeeded(doc, row) {
   const config = getCurrentTemplateConfig().bottomTextFromProductName;
   if (!config || !config.enabled || !row) return;
+
+  if (Array.isArray(config.mechanisms) && config.mechanisms.length) {
+    const switchConfig = getMechanismSwitchConfig() || {};
+    const mechanism = getDailyMechanismType(row, switchConfig);
+    if (!config.mechanisms.map(String).includes(String(mechanism))) return;
+  }
 
   const targetColumn = config.targetColumn || "txt.bottomText";
   const value = row[targetColumn];
@@ -13416,6 +13740,7 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue, variantSourceT
   const paddingY = readNumber(state.currentRow || {}, "subtitle.rectanglePaddingY", Number(config.paddingY) || 0);
   const subtitleStyle = getCurrentTemplateConfig().subtitleTextStyle || {};
   const fontSize = readNumber(state.currentRow || {}, "subtitle.fontSize", Number(subtitleStyle.fontSize) || 30);
+  const useSkuSubtitleBoundsWidth = isPddSkuSubtitleConfig();
   const estimatedTextWidth = estimateMultilineTextWidth(textValue || textLayer.textItem && textLayer.textItem.contents || "", fontSize);
   const measuredTextWidth = getSubtitleRectangleTextWidth(textValue, fontSize, variant);
   const maxWidth = readNumber(
@@ -13428,10 +13753,12 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue, variantSourceT
     `subtitle.rectangleWidthScale.${variant}`,
     readNumber(state.currentRow || {}, "subtitle.rectangleWidthScale", Number(config.widthScale) || 1)
   );
-  const targetWidth = Math.min(
-    Math.max(measuredTextWidth * widthScale + paddingX * 2, Number(config.minWidth) || 0),
-    maxWidth
-  );
+  const targetWidth = useSkuSubtitleBoundsWidth
+    ? textBox.width + paddingX * 2
+    : Math.min(
+      Math.max(measuredTextWidth * widthScale + paddingX * 2, Number(config.minWidth) || 0),
+      maxWidth
+    );
   const currentBox = getBoundsBox(rectangleLayer.boundsNoEffects || rectangleLayer.bounds);
   const targetHeight = currentBox
     ? currentBox.height
@@ -13452,7 +13779,7 @@ async function resizeSubtitleRectangle(doc, textLayer, textValue, variantSourceT
     } catch (error) {
       log(`  Subtitle rectangle z-order skipped: ${formatError(error)}`);
     }
-    log(`  Subtitle rectangle resized: variant=${variant}, boundsW=${Math.round(textBox.width)}, estimateW=${Math.round(estimatedTextWidth)}, textW=${Math.round(measuredTextWidth)}, maxW=${Math.round(maxWidth)}, w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}.`);
+    log(`  Subtitle rectangle resized: variant=${variant}, boundsW=${Math.round(textBox.width)}, estimateW=${Math.round(estimatedTextWidth)}, textW=${Math.round(measuredTextWidth)}, maxW=${Math.round(maxWidth)}, w=${Math.round(targetWidth)}, h=${Math.round(targetHeight)}, mode=${useSkuSubtitleBoundsWidth ? "sku-bounds" : "estimated"}.`);
   } catch (error) {
     log(`  Subtitle rectangle resize skipped: ${formatError(error)}`);
   }
@@ -14022,14 +14349,24 @@ async function applyTitleAndProductNote(doc, row) {
     : titleLineCount > 1 && productNoteLayer2
       ? productNoteLayer2
       : productNoteLayer1 || findLayerByName(doc, "txt.productNote");
-  const forceSubtitleLayer = !!subtitleSourceKey || (getCurrentTemplateConfig().productNameToSubtitle && hasSubtitleTextForTitleNote(row)) || /^txt\.subtitle(?:\.\d+)?$/.test(String(noteSourceKey || ""));
-  const subtitlePreviewText = forceSubtitleLayer && getCurrentTemplateConfig().productNameToSubtitle ? formatPddSubtitleText(noteText) : noteText;
+  const templateConfig = getCurrentTemplateConfig();
+  const forceSubtitleLayer = !!subtitleSourceKey || (templateConfig.productNameToSubtitle && hasSubtitleTextForTitleNote(row)) || /^txt\.subtitle(?:\.\d+)?$/.test(String(noteSourceKey || ""));
+  const skuSubtitleLayout = forceSubtitleLayer && templateConfig.productNameToSubtitle && isPddSkuSubtitleConfig(templateConfig)
+    ? await resolvePddSkuSubtitleLayout(doc, row, noteText)
+    : null;
+  const subtitlePreviewText = skuSubtitleLayout
+    ? skuSubtitleLayout.text
+    : forceSubtitleLayer && templateConfig.productNameToSubtitle ? formatPddSubtitleText(noteText) : noteText;
   const subtitlePreviewLineCount = String(subtitlePreviewText || "").split(/\r\n|\r|\n/).filter(Boolean).length;
-  const subtitleVariantIndex = subtitleVariantByOwnLines
-    ? (subtitlePreviewLineCount > 1 ? 2 : 1)
-    : titleBasedSubtitleVariantIndex;
-  const subtitleLayer = forceSubtitleLayer
-    ? findSubtitleTextLayer(doc, subtitlePreviewText, noteText, row, { variant: subtitleVariantIndex })
+  const subtitleVariantIndex = skuSubtitleLayout
+    ? skuSubtitleLayout.variant
+    : subtitleVariantByOwnLines
+      ? (subtitlePreviewLineCount > 1 ? 2 : 1)
+      : titleBasedSubtitleVariantIndex;
+  const subtitleLayer = skuSubtitleLayout
+    ? skuSubtitleLayout.layer
+    : forceSubtitleLayer
+      ? findSubtitleTextLayer(doc, subtitlePreviewText, noteText, row, { variant: subtitleVariantIndex })
     : findCurrentMechanismLayerByName(doc, row, "txt.subtitle");
   const fallbackNoteLayer = forceSubtitleLayer
     ? subtitleLayer || productNoteLayer
@@ -14047,9 +14384,12 @@ async function applyTitleAndProductNote(doc, row) {
     const maxSubtitleWidth = isSubtitleLayer && subtitleConfig
       ? readNumber(row, "subtitle.maxTextWidth", Number(subtitleConfig.maxTextWidth) || null)
       : null;
-    const pddSubtitle = isSubtitleLayer && getCurrentTemplateConfig().productNameToSubtitle;
-    let finalNoteText = pddSubtitle ? formatPddSubtitleText(noteText) : noteText;
-    if (pddSubtitle) {
+    const pddSubtitle = isSubtitleLayer && templateConfig.productNameToSubtitle;
+    const skuSubtitleAlreadyApplied = !!(skuSubtitleLayout && fallbackNoteLayer === skuSubtitleLayout.layer);
+    let finalNoteText = skuSubtitleAlreadyApplied ? skuSubtitleLayout.text : pddSubtitle ? formatPddSubtitleText(noteText) : noteText;
+    if (skuSubtitleAlreadyApplied) {
+      log(`  Subtitle text applied by SKU area layout: chars=${getSubtitleCharCount(finalNoteText)}, lines=${String(finalNoteText || "").split(/\r\n|\r|\n/).filter(Boolean).length}.`);
+    } else if (pddSubtitle) {
       await replaceTextLayerPddSkuGiftSubtitleStyle(fallbackNoteLayer, finalNoteText, getCurrentTemplateConfig().subtitleTextStyle, "Subtitle");
       log(`  Subtitle text applied: chars=${getSubtitleCharCount(finalNoteText)}, lines=${String(finalNoteText || "").split(/\r\n|\r|\n/).filter(Boolean).length}.`);
     } else if (isSubtitleLayer && Number.isFinite(maxSubtitleWidth) && maxSubtitleWidth > 0) {
@@ -14058,7 +14398,7 @@ async function applyTitleAndProductNote(doc, row) {
     } else {
       await replaceTextLayerPreserveFirstStyle(fallbackNoteLayer, noteText);
     }
-    if (isSubtitleLayer && noteOriginalBox) {
+    if (isSubtitleLayer && noteOriginalBox && !skuSubtitleAlreadyApplied) {
       await restoreTextLayerJustification(fallbackNoteLayer, noteOriginalJustification);
       await restoreTextLayerOriginalAnchor(
         fallbackNoteLayer,
@@ -14796,8 +15136,23 @@ async function runProductCnHeightSortOnly() {
   resetBatchRuntimeState();
 
   try {
-    const rows = await loadCsvRowsAndProductMapForAction();
+    applyInferredTemplateProfile();
+    const csvText = await readCsvText(csvFile);
+    const csvDoc = parseCsvDocument(csvText);
+    const rows = csvDocumentRows(csvDoc);
+    state.rows = rows;
+    setProgress(0, rows.length);
+    log(`Script version: ${SCRIPT_VERSION}`);
+    log(`Loaded ${rows.length} rows.`);
+    state.productNameMap = await loadProductNameMap();
     const result = applyProductTitleHeightSortToRows(rows, { force: true });
+    if (result.changes.length) {
+      applyProductTitleHeightSortChangesToCsvDocument(csvDoc, result.changes);
+      const copyName = await writeSortedCsvCopy(csvFile, serializeCsvDocument(csvDoc));
+      log(`Sorted CSV copy saved: ${copyName}.`);
+    } else {
+      log("Sorted CSV copy not created: no product.name.cn order changes.");
+    }
     setSummary(`Height sort done: ${result.changes.length} rows changed${result.unresolved.length ? `, ${result.unresolved.length} unresolved` : ""}.`);
   } catch (error) {
     console.error(error);
